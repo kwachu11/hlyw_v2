@@ -1,7 +1,6 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-    <a class="navbar-brand" href="#">
-        <img src="{{ url_for('static', filename='images/logo.png') }}" width="30" height="30" class="d-inline-block align-top" alt="Logo">
-        hlyw.pl
+    <a class="navbar-brand" href="/">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" width="50%" height="50%" class="d-inline-block align-top" alt="Logo">
     </a>
     <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
@@ -12,20 +11,25 @@
                 <a class="nav-link" href="/">Strona Główna</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/kamera-online">Kamera Online</a>
+                <a class="nav-link" href="/albums">Galeria</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/galeria">Galeria</a>
+                <a class="nav-link" href="/news">Breaking News</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/breaking-news">Breaking News</a>
+                <a class="nav-link" href="/albums">Druk 3D</a>
             </li>
             <li class="nav-item">
                 <a class="nav-link" href="/ostatnie-ulepszenia">Ostatnie Ulepszenia</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/kalendarz">Kalendarz</a>
+                <a class="nav-link" href="/calendar">Kalendarz</a>
             </li>
+            {% if current_user.is_authenticated %}
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Wyloguj</a></li>
+                {% else %}
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Logowanie</a></li>
+                {% endif %}
         </ul>
     </div>
 </nav>

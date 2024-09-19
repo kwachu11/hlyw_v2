@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+    <a href="{{ url_for('add_album') }}" class="btn btn-primary mx-2">Dodaj Album</a>
+    <a href="{{ url_for('add_image') }}" class="btn btn-primary">Dodaj Zdjęcie</a>
+</div>
+
+<h2>Albumy</h2>
+<div class="row">
+    {% for album in album %}
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">{{ album.name }}</h5>
+                <p class="card-text">{{ album.description }}</p>
+                <div class="row">
+                    {% for image in album.images %}
+                    <div class="col-6 mb-2">
+                        <img src="{{ image.file_path }}" alt="Image" class="img-fluid" data-bs-toggle="modal" data-bs-target="#imageModal" onclick="openModal(this.src)">
+                    </div>
+                    {% endfor %}
+                </div>
+                <a href="{{ url_for('add_image', album_id=album.id) }}" class="btn btn-primary mt-2">Dodaj zdjęcie do albumu</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Sekcja wyświetlająca zdjęcia z album_id = 0 -->
+<h2>Zdjęcia bez albumu</h2>
+<div class="row">
+    {% for image in images %}
+    <div class="col-md-3 mb-4">
+        <div class="card">
+            <img src="{{ image.file_path }}" alt="Image" class="card-img-top img-fluid" data-bs-toggle="modal" data-bs-target="#imageModal" onclick="openModal(this.src)">
+        </div>
+    </div>
+    {% else %}
+    <p>Brak zdjęć bez albumu.</p>
+    {% endfor %}
+</div>
+
+<!-- Modal do wyświetlania powiększonego zdjęcia -->
+<div class="modal fade" id="imageModal" tabindex="-1" aria-labelledby="imageModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-body">
+        <img id="modalImage" src="" class="img-fluid" alt="Image" style="max-width: 100%; max-height: 80vh;">
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+        <button type="button" class="btn btn-primary" id="prevImage" onclick="prevImage()">Poprzednie</button>
+        <button type="button" class="btn btn-primary" id="nextImage" onclick="nextImage()">Następne</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+
+

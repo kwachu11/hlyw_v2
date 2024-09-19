@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+    <a href="{{ url_for('add_entry') }}" class="btn btn-primary mx-2">Dodaj Wydarzenie</a>
+</div>
+
+<div class="d-flex justify-content-between mb-3">
+    <form method="GET" action="{{ url_for('calendar') }}">
+    <input type="hidden" name="month" value="{{ previous_month }}">
+    <input type="hidden" name="year" value="{{ previous_year }}">
+    <button type="submit" class="btn btn-secondary">Poprzedni miesiąc</button>
+</form>
+
+    <h2>{{ month_name }} {{ year }}</h2>
+
+    <form method="GET" action="{{ url_for('calendar') }}">
+    <input type="hidden" name="month" value="{{ next_month }}">
+    <input type="hidden" name="year" value="{{ next_year }}">
+    <button type="submit" class="btn btn-secondary">Następny miesiąc</button>
+</form>
+</div>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Pon</th>
+            <th>Wt</th>
+            <th>Śr</th>
+            <th>Czw</th>
+            <th>Pt</th>
+            <th>Sob</th>
+            <th>Nd</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for week in calendar %}
+        <tr>
+            {% for day in week %}
+            <td style="{% if day in event_days %}background-color: #f0ad4e; color: white; font-weight: bold; border-radius: 50%;{% endif %}">
+                {{ day if day else '' }}
+            </td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
