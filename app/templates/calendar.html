@@ -37,8 +37,13 @@
         {% for week in calendar %}
         <tr>
             {% for day in week %}
-            <td style="{% if day in event_days %}background-color: #f0ad4e; color: white; font-weight: bold; border-radius: 50%;{% endif %}">
-                {{ day if day else '' }}
+            {% if day in event_days %}
+            <td style="background-color: #47e647; color: white; font-weight: bold;">
+                <a href="event?day={{day}}&month={{month}}&year={{year}}">{{ day if day else '' }}</a>
+                {% endif %}
+                {% if day not in event_days %}
+                <td>{{ day if day else '' }}
+                {% endif %}
             </td>
             {% endfor %}
         </tr>

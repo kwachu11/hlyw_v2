@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container mt-4">
+    <h1>Informacje o wydarzeniu</h1>
+            <div class="mb-3">
+            Wydarzenie w dniu: <b>{{day}}.{{month}}.{{year}}</b>
+        </div>
+    <div class="mb-3">
+        Tytuł: <b>{{event.title}}</b>
+        </div>
+        <div class="mb-3">
+            Opis: <b>{{event.description}}</b>
+        </div>
+    <div class="mb-3">
+            Organizator: <b>{{owner.username}}</b>
+        </div>
+    <div class="mb-3">
+            Uczestnicy: <b>{% for participant in participants_names %}
+    {{ participant.username }},
+{% endfor %}</b>
+        </div>
+                {% if czy_zapisany == False %}
+                    <h5>Nie jesteś jeszcze zapisany? -> <a href="/event?day={{day}}&month={{month}}&year={{year}}&add_user={{current_user.id}}">Zapisz się !</a> </h5>
+                {% else %}
+                    <h5>Jesteś już zapisany na to wydarzenie :)</h5>
+                {% endif %}
+
+</div>
+
+{% endblock %}
+
+
+
+

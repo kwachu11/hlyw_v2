@@ -17,3 +17,7 @@
             0% { transform: translateX(0); }
             100% { transform: translateX(-100%); }
         }
+.carousel-item img {
+    height: 500px; /* Wysokość zdjęcia */
+    object-fit: cover; /* Dopasowanie bez zniekształcania */
+}

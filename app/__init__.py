@@ -21,7 +21,7 @@ import locale
 
 from datetime import datetime, timedelta
 import calendar as callendar
-
+from datetime import date
 # Wczytaj zmienne środowiskowe z pliku .env
 load_dotenv()
 
@@ -69,6 +69,8 @@ def create_app():
         name = db.Column(db.String(100), nullable=False)
         description = db.Column(db.String(200))
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
 
         # Relacja z tabelą Image
         images = db.relationship('Images', backref='albums', lazy=True)
@@ -78,6 +80,7 @@ def create_app():
         id = db.Column(db.Integer, primary_key=True)
         file_path = db.Column(db.String(200), nullable=False)
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
 
         # Kolumna klucza obcego do tabeli Album
         album_id = db.Column(db.Integer, db.ForeignKey('albums.id'), nullable=False)
@@ -89,6 +92,9 @@ def create_app():
         description = db.Column(db.String(2000), nullable=False)
         file_path = db.Column(db.String(200), nullable=False)
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
+
 
     class Calendar(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -96,6 +102,16 @@ def create_app():
         description = db.Column(db.String(500))
         date = db.Column(db.Date, nullable=False)
         created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+        created_by = db.Column(db.String(500))
+        participants = db.relationship('Participant', backref='calendar', lazy=True)
+
+    class Participant(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.String(100), nullable=False)
+        event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'),
+                             nullable=False)  # Klucz obcy odnoszący się do wydarzenia
+
+
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     with app.app_context():
@@ -113,7 +129,33 @@ def create_app():
 
     @app.route('/')
     def index():
-        return render_template('index.html')
+        images=[]
+        images.append("static\images\hlyw_1.jpg")
+        images.append("static\images\hlyw_2.jpg")
+        images.append("static\images\hlyw_3.jpg")
+        images.append("static\images\hlyw_4.jpg")
+        images.append("static\images\hlyw_5.jpg")
+        images.append("static\images\hlyw_6.jpg")
+        images.append("static\images\hlyw_7.jpg")
+        images.append("static\images\hlyw_8.jpg")
+        images.append("static\images\hlyw_9.jpg")
+        images.append("static\images\hlyw_10.jpg")
+        images.append("static\images\hlyw_11.jpg")
+        images.append("static\images\hlyw_12.jpg")
+        images.append("static\images\hlyw_13.jpg")
+        images.append("static\images\hlyw_14.jpg")
+        images.append("static\images\hlyw_15.jpg")
+        images.append("static\images\hlyw_16.jpg")
+        images.append("static\images\hlyw_17.jpg")
+        images.append("static\images\hlyw_18.jpg")
+        images.append("static\images\hlyw_19.jpg")
+        images.append("static\images\hlyw_20.jpg")
+        images.append("static\images\hlyw_21.jpg")
+        images.append("static\images\hlyw_22.jpg")
+        images.append("static\images\hlyw_23.jpg")
+
+
+        return render_template('index.html', images=images)
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -156,7 +198,7 @@ def create_app():
     def add_album():
         form = AlbumForm()
         if form.validate_on_submit():
-            albums = Albums(name=form.title.data, description=form.description.data)
+            albums = Albums(name=form.title.data, description=form.description.data, created_by=current_user.id)
             db.session.add(albums)
             db.session.commit()
             return redirect(url_for('albums'))
@@ -209,7 +251,7 @@ def create_app():
             file.save(file_path)
             file_path = file_path[4:]  # do bazy bez app
 
-            news = News(title=title, description=description, file_path=file_path)
+            news = News(title=title, description=description, file_path=file_path, created_by=current_user.id)
             db.session.add(news)
             db.session.commit()
             return redirect(url_for('news'))
@@ -247,6 +289,7 @@ def create_app():
         return render_template('calendar.html',
                                calendar=cal,
                                year=year,
+                               month=month,
                                month_name=callendar.month_name[month],
                                previous_month=previous_month,
                                previous_year=previous_year,
@@ -261,11 +304,55 @@ def create_app():
             title = form.title.data
             description = form.description.data
             date = form.date.data
-            new_entry = Calendar(title=title, description=description, date=date)
+            user_id = current_user.id
+            new_entry = Calendar(title=title, description=description, date=date, created_by=user_id)
             db.session.add(new_entry)
             db.session.commit()
             return redirect(url_for('calendar'))
         return render_template('add_entry.html', form=form)
+
+    @app.route('/event', methods=['GET', 'POST'])
+    def event():
+        day = request.args.get('day', type=int)
+        month = request.args.get('month', type=int)
+        year = request.args.get('year', type=int)
+        add_user=request.args.get('add_user', type=int)
+
+
+
+        query_date = date(year, month, day)
+
+        event = Calendar.query.filter_by(date=query_date).first()
+        owner= User.query.filter_by(id=event.created_by).first()
+
+        if add_user!=None:
+            new_Participant = Participant(user_id=add_user, event_id=event.id)
+            db.session.add(new_Participant)
+            db.session.commit()
+            flash('Zapisałeś się na wydarzenie !', 'success')
+
+        participants=Participant.query.filter_by(event_id=event.id).all()
+
+
+
+        czy_zapisany=False
+        participants_names=[]
+        for i in participants:
+            name = User.query.filter_by(id=i.user_id).first()
+            participants_names.append(name)
+            if current_user.id == int(i.user_id):
+                czy_zapisany=True
+
+
+        return render_template('event.html', day=day, month=month, year=year,
+                               event=event, owner=owner, participants=participants, czy_zapisany=czy_zapisany,
+                               current_user=current_user, participants_names=participants_names)
+
+
+
+    @app.route('/camera')
+    def camera():
+        return render_template('camera.html')
 
     return app
 
