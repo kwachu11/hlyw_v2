@@ -63,6 +63,94 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('modalImage').src = imagePaths[currentIndex];
     };
 });
+//czat
+   document.getElementById('chat-form').addEventListener('submit', function(event) {
+    event.preventDefault(); // Zapobiega domyślnemu wysłaniu formularza
+
+    const message = document.getElementById('chat-message').value;
+    if (message.trim() !== "") {
+        // Wysłanie wiadomości na serwer
+        fetch('/send_message', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: message })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Po wysłaniu wiadomości, dodaj ją do czatu
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('chat-message');
+
+                // Dodajemy zdjęcie użytkownika
+                const userImage = document.createElement('img');
+                userImage.src = `/static/images/${data.photo}`;
+                userImage.classList.add('user-photo');
+                messageDiv.appendChild(userImage);
+
+                // Dodajemy nazwę użytkownika
+                const usernameSpan = document.createElement('span');
+                usernameSpan.classList.add('username');
+                usernameSpan.textContent = data.username;
+                messageDiv.appendChild(usernameSpan);
+
+                // Dodajemy treść wiadomości
+                const messageText = document.createElement('span');
+                messageText.classList.add('message-content');
+                messageText.textContent = data.message;
+                messageDiv.appendChild(messageText);
+
+                // Dodajemy wiadomość do czatu
+                document.getElementById('chat-messages').appendChild(messageDiv);
+
+                // Wyczyść pole tekstowe
+                document.getElementById('chat-message').value = '';
+            } else {
+                alert('Błąd podczas wysyłania wiadomości!');
+            }
+        });
+    }
+});
+
+// Funkcja do automatycznego ładowania nowych wiadomości
+function loadMessages() {
+    fetch('/get_messages')
+        .then(response => response.json())
+        .then(data => {
+            const chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = ''; // Wyczyść poprzednie wiadomości
+            data.messages.forEach(msg => {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('chat-message');
+
+                // Dodajemy zdjęcie użytkownika
+                const userImage = document.createElement('img');
+                userImage.src = `/static/images/profile_pics/${msg.photo}`;
+                userImage.classList.add('user-photo');
+                messageDiv.appendChild(userImage);
+
+                // Dodajemy nazwę użytkownika
+                const usernameSpan = document.createElement('span');
+                usernameSpan.classList.add('username');
+                usernameSpan.textContent = msg.username;
+                messageDiv.appendChild(usernameSpan);
+
+                // Dodajemy treść wiadomości
+                const messageText = document.createElement('span');
+                messageText.classList.add('message-content');
+                messageText.textContent = msg.content;
+                messageDiv.appendChild(messageText);
+
+                // Dodajemy wiadomość do czatu
+                chatMessages.appendChild(messageDiv);
+            });
+        });
+}
+
+// Ładowanie wiadomości co 3 sekundy
+setInterval(loadMessages, 3000);
 
 
 </script>

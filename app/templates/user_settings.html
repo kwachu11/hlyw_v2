@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Ustawienia użytkownika</h2>
+    <form method="POST" enctype="multipart/form-data">
+        {{ form.hidden_tag() }}
+
+        <div class="mb-3">
+            <label for="username" class="form-label">Nazwa użytkownika</label>
+            {{ form.username(class="form-control", value=current_user.username) }}
+        </div>
+
+
+        <div class="mb-3">
+            <label for="photo" class="form-label">Zmień zdjęcie profilowe</label>
+            <div>
+                <img src="{{ url_for('static', filename='images/profile_pics/' + current_user.photo) }}" alt="Profile picture" width="100" height="100" class="rounded-circle mb-2">
+            </div>
+            {{ form.photo(class="form-control") }}
+        </div>
+
+        <div class="d-grid">
+            {{ form.submit(class="btn btn-primary") }}
+        </div>
+    </form>
+</div>
+{% endblock %}

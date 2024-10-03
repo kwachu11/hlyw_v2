@@ -20,16 +20,26 @@
                 <a class="nav-link" href="/camera">Kamera</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/ostatnie-ulepszenia">Ostatnie Ulepszenia</a>
-            </li>
+    <a class="nav-link" href="/ostatnie-ulepszenia">Ostatnie Ulepszenia</a>
+</li>
             <li class="nav-item">
                 <a class="nav-link" href="/calendar">Kalendarz</a>
             </li>
             {% if current_user.is_authenticated %}
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Wyloguj</a></li>
-                {% else %}
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Logowanie</a></li>
-                {% endif %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('logout') }}">Wyloguj</a>
+                </li>
+                <!-- Przenieś zdjęcie użytkownika pod rozwiniętym menu -->
+                <li class="nav-item user-profile">
+                    <a href="{{ url_for('user_settings') }}">
+                        <img src="static/images/profile_pics/{{ current_user.photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;">
+                    </a>
+                </li>
+            {% else %}
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('login') }}">Logowanie</a>
+                </li>
+            {% endif %}
         </ul>
     </div>
 </nav>

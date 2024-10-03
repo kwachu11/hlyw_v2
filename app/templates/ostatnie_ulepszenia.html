@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Ostatnie Ulepszenia</h2>
+    <ul class="list-group">
+        {% for upgrade in upgrades %}
+        <li class="list-group-item">
+            <h5>{{ upgrade.title }}</h5>
+            <p>{{ upgrade.description }}</p>
+            <small>{{ upgrade.date.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

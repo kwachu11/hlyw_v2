@@ -11,11 +11,11 @@ from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from flask import Flask, render_template, redirect, url_for, request, flash
-from flask_login import login_user, logout_user, login_required, current_user
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
+from flask_login import login_user, logout_user, login_required, current_user, LoginManager
 from .forms import LoginForm, RegistrationForm
 
-from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm
+from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm
 
 import locale
 
@@ -31,15 +31,20 @@ load_dotenv()
 def create_app():
     app = Flask(__name__)
     db = SQLAlchemy()
-    login_manager = LoginManager()
+
     app.secret_key = os.getenv('SECRET_KEY')  # Ustawienie secret key do sesji
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
     db.init_app(app)
 
+    # Tworzymy instancję LoginManager
+    login_manager = LoginManager()
+    login_manager.login_view = 'login'  # Widok logowania, jeśli użytkownik nie jest zalogowany
+    login_manager.login_message = 'Aby uzyskać dostęp do tej strony, musisz być zalogowany.'  # Niestandardowy komunikat
+    login_manager.login_message_category = 'warning'  # Opcjonalna kategoria (np. warning)
+
+    # Inicjalizujemy login_manager z aplikacją
     login_manager.init_app(app)
-    login_manager.login_view = 'login'  # Widok do przekierowania w przypadku nieautoryzowanego dostępu
-    login_manager.login_message = 'Musisz się zalogować, aby uzyskać dostęp do tej strony.'
 
     def convert_to_unix_path(path):
         return path.replace('\\', '/')
@@ -62,6 +67,10 @@ def create_app():
         username = db.Column(db.String(150), unique=True, nullable=False)
         email = db.Column(db.String(150), nullable=False)
         password = db.Column(db.String(150), nullable=False)
+        photo=db.Column(db.String(150), nullable=False, default='default.jpg')
+        confirm_uid=db.Column(db.String(300), nullable=True)
+        is_confirmed=db.Column(db.String(10), default="0")
+        is_admin = db.Column(db.String(10), default="0")
 
     class Albums(db.Model):
         __tablename__ = 'albums'
@@ -111,6 +120,21 @@ def create_app():
         event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'),
                              nullable=False)  # Klucz obcy odnoszący się do wydarzenia
 
+    class Message(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        content = db.Column(db.String(500), nullable=False)
+        timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Powiązanie z User
+        user = db.relationship('User', backref=db.backref('messages', lazy=True))  # Powiązanie odwrotne do User
+
+    class Upgrade(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        title = db.Column(db.String(150), nullable=False)
+        description = db.Column(db.Text, nullable=False)
+        date = db.Column(db.DateTime, default=datetime.utcnow)
+
+        def __repr__(self):
+            return f'<Upgrade {self.title}>'
 
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
@@ -189,12 +213,14 @@ def create_app():
         return render_template('register.html', form=form)
 
     @app.route('/albums', methods=['GET'])
+    @login_required
     def albums():
         all_album = Albums.query.all()
         images_no_album=Images.query.filter_by(album_id=0).all()
         return render_template('albums.html', album=all_album, images=images_no_album)
 
     @app.route('/add_album', methods=['GET', 'POST'])
+    @login_required
     def add_album():
         form = AlbumForm()
         if form.validate_on_submit():
@@ -205,6 +231,7 @@ def create_app():
         return render_template('add_album.html', form=form)
 
     @app.route('/add_images', methods=['GET', 'POST'])
+    @login_required
     def add_image():
         form = ImageForm()
         if form.validate_on_submit():
@@ -230,11 +257,13 @@ def create_app():
         return render_template('add_images.html', form=form)
 
     @app.route('/news', methods=['GET'])
+    @login_required
     def news():
         all_news = News.query.order_by(News.created_at.desc()).all()
         return render_template('breaking_news.html', news=all_news)
 
     @app.route('/add_new', methods=['GET', 'POST'])
+    @login_required
     def add_new():
         form = NewsForm()
         if form.validate_on_submit():
@@ -258,6 +287,7 @@ def create_app():
         return render_template('add_new.html', form=form)
 
     @app.route('/calendar', methods=['GET'])
+    @login_required
     def calendar():
         locale.setlocale(locale.LC_TIME, 'pl_PL')
         # Ustawienie domyślnego miesiąca i roku
@@ -298,6 +328,7 @@ def create_app():
                                event_days=event_days)
 
     @app.route('/add_entry', methods=['GET', 'POST'])
+    @login_required
     def add_entry():
         form = CalendarForm()
         if form.validate_on_submit():
@@ -312,6 +343,7 @@ def create_app():
         return render_template('add_entry.html', form=form)
 
     @app.route('/event', methods=['GET', 'POST'])
+    @login_required
     def event():
         day = request.args.get('day', type=int)
         month = request.args.get('month', type=int)
@@ -351,8 +383,81 @@ def create_app():
 
 
     @app.route('/camera')
+    @login_required
     def camera():
         return render_template('camera.html')
+
+    @app.route('/user_settings', methods=['GET', 'POST'])
+    @login_required
+    def user_settings():
+        form = UserSettingsForm()
+
+        if form.validate_on_submit():
+            # Zaktualizuj nazwę użytkownika i email
+            current_user.username = form.username.data
+
+            # Zaktualizuj zdjęcie, jeśli użytkownik je dodał
+            if form.photo.data:
+                file = form.photo.data
+                file_path = os.path.join('app', 'static', 'images','profile_pics', file.filename)
+                #print(file_path)
+
+                # Utwórz katalog, jeśli nie istnieje
+                create_directory_if_not_exists(os.path.dirname(file_path))
+
+                file.save(file_path)
+                file_path = file_path[31:]  # do bazy bez sciezki
+                current_user.photo = file_path
+
+            # Zapisz zmiany w bazie danych
+            db.session.commit()
+            return redirect(url_for('user_settings'))  # Przekieruj po zapisaniu zmian
+
+        # Ustaw pola formularza na obecne dane użytkownika
+        form.username.data = current_user.username
+
+        return render_template('user_settings.html', form=form)
+
+    @app.route('/send_message', methods=['POST'])
+    @login_required
+    def send_message():
+        data = request.get_json()
+        message_content = data.get('message')
+        user_id = current_user.id  # Przypisanie ID zalogowanego użytkownika
+
+        if message_content:
+            # Zapisz wiadomość w bazie danych
+            new_message = Message(content=message_content, user_id=user_id)
+            db.session.add(new_message)
+            db.session.commit()
+
+            return jsonify({"status": "success", "message": message_content})
+        return jsonify({"status": "error"}), 400
+
+    @app.route('/get_messages')
+    @login_required
+    def get_messages():
+        # Pobierz wszystkie wiadomości z bazy danych
+        messages = Message.query.order_by(Message.timestamp.desc()).limit(10).all()
+        messages_data = []
+
+        for msg in messages:
+            user = msg.user  # Dostęp do użytkownika powiązanego z wiadomością
+            messages_data.append({
+                "content": msg.content,
+                "timestamp": msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                "username": user.username,  # Dodajemy nazwę użytkownika
+                "photo": user.photo  # Dodajemy zdjęcie użytkownika
+            })
+
+        return jsonify({"messages": messages_data})
+
+    @app.route('/ostatnie-ulepszenia')
+    def ostatnie_ulepszenia():
+        # Pobierz ostatnie ulepszenia z bazy danych
+        upgrades = Upgrade.query.order_by(Upgrade.date.desc()).all()
+        return render_template('ostatnie_ulepszenia.html', upgrades=upgrades)
+
 
     return app
 

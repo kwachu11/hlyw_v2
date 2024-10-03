@@ -21,3 +21,89 @@
     height: 500px; /* Wysokość zdjęcia */
     object-fit: cover; /* Dopasowanie bez zniekształcania */
 }
+
+.camera-container {
+    position: relative;
+    width: 100%;
+    max-width: 800px; /* Możesz dostosować maksymalną szerokość kamery */
+    margin: 0 auto;
+}
+
+.chat-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.chat-messages {
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 15px;
+    background-color: white;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.chat-message {
+    padding: 10px;
+    margin-bottom: 10px;
+    background-color: #f1f1f1;
+    border-radius: 5px;
+}
+
+textarea {
+    width: 100%;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+button {
+    width: 100%;
+    border-radius: 5px;
+}
+
+.chat-message {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.user-photo {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.username {
+    font-weight: bold;
+    margin-right: 10px;
+}
+
+.message-content {
+    font-size: 14px;
+}
+
+.list-group-item {
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+.list-group-item h5 {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.list-group-item p {
+    font-size: 1rem;
+    color: #555;
+}
+
+.list-group-item small {
+    font-size: 0.8rem;
+    color: #888;
+}

@@ -34,3 +34,8 @@ class CalendarForm(FlaskForm):
     title = StringField('Tytuł', validators=[DataRequired()])
     description = StringField('Opis', validators=[DataRequired()])
     submit = SubmitField('Dodaj Wydarzenie')
+
+class UserSettingsForm(FlaskForm):
+    username = StringField('Nazwa użytkownika', validators=[DataRequired()])
+    photo = FileField('Zmień zdjęcie profilowe')
+    submit = SubmitField('Zapisz zmiany')

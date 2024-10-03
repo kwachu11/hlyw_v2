@@ -1,7 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h1>Co sie dzieje na Hlywie:</h1>
-<img src="http://192.168.100.227:81/stream" alt="Strumień kamery" style="width: 100%;">
+<div class="camera-container">
+    <h3>Co dzieje się na Hlywie</h3>
+    <!-- Obraz kamery -->
+    <img src="http://192.168.100.227:81/stream" alt="Strumień kamery" style="width: 100%;">
+
+    <!-- Sekcja czatu -->
+    <div class="chat-container mt-4">
+        <h3>Czat użytkowników</h3>
+        <div id="chat-messages" class="chat-messages">
+            <!-- Wiadomości czatu będą wyświetlane tutaj -->
+        </div>
+        <form id="chat-form">
+            <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość..." rows="3"></textarea>
+            <button type="submit" class="btn btn-primary mt-2">Wyślij</button>
+        </form>
+    </div>
+</div>
 
 {% endblock %}
