@@ -5,15 +5,15 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import json
 from datetime import datetime, timedelta
-from flask_login import LoginManager, UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
-from flask_login import login_user, logout_user, login_required, current_user, LoginManager
+from flask_login import login_user, logout_user, login_required, current_user, LoginManager, UserMixin
 from .forms import LoginForm, RegistrationForm
+from itsdangerous import URLSafeTimedSerializer
 
 from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm
 
@@ -22,29 +22,44 @@ import locale
 from datetime import datetime, timedelta
 import calendar as callendar
 from datetime import date
+
+from flask_mail import Mail, Message as Message_
+
 # Wczytaj zmienne środowiskowe z pliku .env
-load_dotenv()
+
 
 
 
 
 def create_app():
+    load_dotenv()
     app = Flask(__name__)
     db = SQLAlchemy()
 
     app.secret_key = os.getenv('SECRET_KEY')  # Ustawienie secret key do sesji
+    app.config['SECURITY_PASSWORD_SALT']="abcd1234abcdef"
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
     db.init_app(app)
 
     # Tworzymy instancję LoginManager
-    login_manager = LoginManager()
+    login_manager = LoginManager(app)
     login_manager.login_view = 'login'  # Widok logowania, jeśli użytkownik nie jest zalogowany
-    login_manager.login_message = 'Aby uzyskać dostęp do tej strony, musisz być zalogowany.'  # Niestandardowy komunikat
-    login_manager.login_message_category = 'warning'  # Opcjonalna kategoria (np. warning)
+    login_manager.login_message = os.getenv('LOGIN_MESSAGE')  # Niestandardowy komunikat
+    login_manager.login_message_category = os.getenv('LOGIN_MESSAGE_CATEGORY') # Opcjonalna kategoria (np. warning)
 
     # Inicjalizujemy login_manager z aplikacją
     login_manager.init_app(app)
+
+    #maile
+    app.config['MAIL_SERVER'] = 'smtp.d243.mikr.dev'
+    app.config['MAIL_PORT'] = 587
+    app.config['MAIL_USE_TLS'] = True
+    app.config['MAIL_USERNAME'] = 'support@hlyw.pl'  # Twój adres email
+    app.config['MAIL_PASSWORD'] = 'SupportEmail+_11'  # Hasło do konta
+    app.config['MAIL_DEFAULT_SENDER'] = 'support@hlyw.pl'
+
+    mail = Mail(app)
 
     def convert_to_unix_path(path):
         return path.replace('\\', '/')
@@ -62,14 +77,35 @@ def create_app():
 
         event_days = [event.date.day for event in events]
         return event_days
+
+    def generate_confirmation_token(email):
+        serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+        return serializer.dumps(email, salt=app.config['SECURITY_PASSWORD_SALT'])
+
+    def confirm_token(token, expiration=3600):
+        serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+        try:
+            email = serializer.loads(token, salt=app.config['SECURITY_PASSWORD_SALT'], max_age=expiration)
+        except:
+            return False
+        return email
+
+    def send_confirmation_email(user_email):
+        token = generate_confirmation_token(user_email)
+        confirm_url = url_for('confirm_email', token=token, _external=True)
+        html = render_template('confirm.html', confirm_url=confirm_url)
+        subject = "Proszę potwierdzić swoje konto"
+        msg = Message_(subject=subject, recipients=[user_email], html=html)
+        mail.send(msg)
+
     class User(db.Model, UserMixin):
         id = db.Column(db.Integer, primary_key=True)
         username = db.Column(db.String(150), unique=True, nullable=False)
         email = db.Column(db.String(150), nullable=False)
         password = db.Column(db.String(150), nullable=False)
         photo=db.Column(db.String(150), nullable=False, default='default.jpg')
-        confirm_uid=db.Column(db.String(300), nullable=True)
-        is_confirmed=db.Column(db.String(10), default="0")
+        confirmed = db.Column(db.Boolean, default=False)
+        confirmed_on = db.Column(db.DateTime, nullable=True)
         is_admin = db.Column(db.String(10), default="0")
 
     class Albums(db.Model):
@@ -186,6 +222,9 @@ def create_app():
         form = LoginForm()
         if form.validate_on_submit():
             user = User.query.filter_by(username=form.username.data).first()
+            if not user.confirmed:
+                flash('Twoje konto nie zostało potwierdzone. Sprawdź swoją skrzynkę pocztową.', 'warning')
+                return redirect(url_for('login'))
             if user and user.password == form.password.data:  # Hasło powinno być hashowane
                 login_user(user)
                 return redirect(url_for('index'))
@@ -204,12 +243,19 @@ def create_app():
         if form.validate_on_submit():
             if User.query.filter_by(username=form.username.data).first():
                 flash('Użytkownik już istnieje', 'danger')
+
+            if form.password.data != form.confirm_password.data:
+                flash('Hasła nie są zgodne.', 'danger')
+                return redirect(url_for('register'))
+
             else:
                 new_user = User(username=form.username.data, email=form.email.data, password=form.password.data)  # Hasło powinno być hashowane
                 db.session.add(new_user)
                 db.session.commit()
-                login_user(new_user)
-                return redirect(url_for('index'))
+                send_confirmation_email(new_user.email)
+                flash('Zarejestrowano pomyślnie! Sprawdź swoją skrzynkę pocztową w celu potwierdzenia konta.',
+                      'success')
+                return redirect(url_for('login'))
         return render_template('register.html', form=form)
 
     @app.route('/albums', methods=['GET'])
@@ -457,6 +503,41 @@ def create_app():
         # Pobierz ostatnie ulepszenia z bazy danych
         upgrades = Upgrade.query.order_by(Upgrade.date.desc()).all()
         return render_template('ostatnie_ulepszenia.html', upgrades=upgrades)
+
+    @app.route('/confirm/<token>')
+    def confirm_email(token):
+        try:
+            email = confirm_token(token)
+        except:
+            flash('Link potwierdzający jest nieważny lub wygasł.', 'danger')
+            return redirect(url_for('login'))
+
+        # Znajdź użytkownika po emailu
+        user = User.query.filter_by(email=email).first_or_404()
+
+        if user.confirmed:
+            flash('Konto już zostało potwierdzone.', 'success')
+        else:
+            user.confirmed = True
+            user.confirmed_on = datetime.utcnow()
+            db.session.add(user)
+            db.session.commit()
+            flash('Twoje konto zostało potwierdzone!', 'success')
+
+        return redirect(url_for('login'))
+
+    @app.route('/resend_confirmation')
+    def resend_confirmation():
+        email = request.args.get('email')
+        user = User.query.filter_by(email=email).first_or_404()
+
+        if user.confirmed:
+            flash('Twoje konto już zostało potwierdzone.', 'success')
+        else:
+            send_confirmation_email(user.email)
+            flash('Mail potwierdzający został wysłany ponownie.', 'success')
+
+        return redirect(url_for('login'))
 
 
     return app

@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+<p>Nie otrzymałeś maila potwierdzającego?</p>
+<a href="{{ url_for('resend_confirmation') }}">Wyślij ponownie</a>
+{% endblock %}
