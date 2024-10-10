@@ -25,6 +25,16 @@
             <li class="nav-item">
                 <a class="nav-link" href="/calendar">Kalendarz</a>
             </li>
+            <!-- Nowa sekcja Dodatki -->
+            <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="extrasDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    Dodatki
+                </a>
+                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="extrasDropdown">
+                    <a class="dropdown-item" href="{{ url_for('view_report_list') }}">Zgłoszenia</a>
+                    <!-- Można tutaj dodać kolejne strony w przyszłości -->
+                </div>
+            </li>
             {% if current_user.is_authenticated %}
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('logout') }}">Wyloguj</a>

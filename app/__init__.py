@@ -15,7 +15,7 @@ from flask_login import login_user, logout_user, login_required, current_user, L
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
 
-from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm
+from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm
 
 import locale
 
@@ -172,15 +172,36 @@ def create_app():
         def __repr__(self):
             return f'<Upgrade {self.title}>'
 
+    class Report(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        title = db.Column(db.String(150), nullable=False)
+        description = db.Column(db.Text, nullable=False)
+        created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+        # Powiązanie z użytkownikiem - klucz obcy
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+        # Relacja odwrotna
+        user = db.relationship('User', backref='reports', lazy=True)
+
+    class Comment(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        content = db.Column(db.Text, nullable=False)
+        created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+        # Powiązanie z raportem (jeśli komentarze są powiązane z raportami)
+        report_id = db.Column(db.Integer, db.ForeignKey('report.id'), nullable=False)
+
+        # Powiązanie z użytkownikiem - klucz obcy
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+        # Relacja odwrotna do użytkownika
+        user = db.relationship('User', backref='comments', lazy=True)
+
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     with app.app_context():
         db.create_all()
-
-
-    login_manager = LoginManager(app)
-    login_manager.login_view = 'login'  # Widok do przekierowania w przypadku nieautoryzowanego dostępu
-
 
 
     @login_manager.user_loader
@@ -538,6 +559,57 @@ def create_app():
             flash('Mail potwierdzający został wysłany ponownie.', 'success')
 
         return redirect(url_for('login'))
+
+    @app.route('/report', methods=['GET', 'POST'])
+    @login_required
+    def report():
+        form = ReportForm()
+        if form.validate_on_submit():
+            new_report = Report(
+                title=form.title.data,
+                description=form.description.data,
+                user_id=current_user.id  # Powiązanie zgłoszenia z użytkownikiem
+            )
+            db.session.add(new_report)
+            db.session.commit()
+            flash('Zgłoszenie zostało dodane!', 'success')
+            return redirect(url_for('view_report', report_id=new_report.id))
+        return render_template('report.html', form=form)
+
+    @app.route('/report/<int:report_id>', methods=['GET', 'POST'])
+    def view_report(report_id):
+        report = Report.query.get_or_404(report_id)
+        form = CommentForm()
+        if form.validate_on_submit():
+            new_comment = Comment(
+                content=form.content.data,
+                user_id=current_user.id,
+                report_id=report.id
+            )
+            db.session.add(new_comment)
+            db.session.commit()
+            flash('Komentarz dodany!', 'success')
+            return redirect(url_for('view_report', report_id=report.id))
+        comments = Comment.query.filter_by(report_id=report.id).all()
+        return render_template('view_report.html', report=report, form=form, comments=comments)
+
+    @app.route('/reports')
+    @login_required
+    def view_report_list():
+        reports = Report.query.order_by(Report.created_at.desc()).all()
+        return render_template('view_report_list.html', reports=reports)
+
+    @app.route('/add_comment/<int:report_id>', methods=['POST'])
+    @login_required
+    def add_comment(report_id):
+        report = Report.query.get_or_404(report_id)
+        comment_content = request.form['content']
+        new_comment = Comment(content=comment_content, user_id=current_user.id, report_id=report.id)
+        db.session.add(new_comment)
+        db.session.commit()
+        flash('Komentarz został dodany!', 'success')
+        return redirect(url_for('view_report', report_id=report.id))
+
 
 
     return app

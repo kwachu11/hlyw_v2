@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+    <h2>{{ report.title }}</h2>
+    <p>{{ report.description }}</p>
+
+    <!-- Wyświetlanie komentarzy -->
+    <h3>Komentarze</h3>
+    <ul>
+        {% for comment in comments %}
+            <li>
+                <strong>{{ comment.user.username }}:</strong> <!-- Użytkownik, który dodał komentarz -->
+                {{ comment.content }} ({{ comment.created_at }})
+            </li>
+        {% endfor %}
+    </ul>
+
+    <!-- Formularz dodawania komentarza -->
+    <form action="{{ url_for('add_comment', report_id=report.id) }}" method="POST">
+        <textarea name="content" class="form-control" rows="3" required></textarea>
+        <button type="submit" class="btn btn-primary mt-2">Dodaj Komentarz</button>
+    </form>
+{% endblock %}

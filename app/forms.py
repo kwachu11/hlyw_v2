@@ -1,5 +1,5 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, EmailField, FileField, DateField
+from wtforms import StringField, PasswordField, SubmitField, EmailField, FileField, DateField, TextAreaField
 from wtforms.validators import DataRequired, EqualTo, Length
 
 class LoginForm(FlaskForm):
@@ -39,3 +39,13 @@ class UserSettingsForm(FlaskForm):
     username = StringField('Nazwa użytkownika', validators=[DataRequired()])
     photo = FileField('Zmień zdjęcie profilowe')
     submit = SubmitField('Zapisz zmiany')
+
+class ReportForm(FlaskForm):
+    title = StringField('Tytuł', validators=[DataRequired()])
+    description = TextAreaField('Opis', validators=[DataRequired()])
+    submit = SubmitField('Zgłoś')
+
+class CommentForm(FlaskForm):
+    content = TextAreaField('Komentarz', validators=[DataRequired()])
+    submit = SubmitField('Dodaj komentarz')
+
