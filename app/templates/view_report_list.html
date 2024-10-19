@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-end mb-3">
-    <a href="{{ url_for('report') }}" class="btn btn-primary mx-2">Dodaj Zgłoszenie</a>
+    <a href="{{ url_for('report') }}" class="btn btn-primary mx-2">Dodaj Zgłoszenie / Propozycję</a>
 </div>
-    <h2>Lista Zgłoszeń</h2>
+    <h2>Lista Zgłoszeń / Propozycji</h2>
     <ul>
         {% for report in reports %}
             <li>

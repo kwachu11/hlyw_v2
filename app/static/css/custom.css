@@ -107,3 +107,20 @@ button {
     font-size: 0.8rem;
     color: #888;
 }
+
+.video-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%; /* Szerokość kontenera */
+    height: 400px; /* Ustalona wysokość dla kontenera */
+    max-width: 600px; /* Maksymalna szerokość kontenera */
+    overflow: hidden; /* Ukrywa nadmiar obrazu */
+    background: black; /* Tło dla lepszego kontrastu */
+}
+
+.video-container video {
+    width: 100%; /* Szerokość wideo */
+    height: 100%; /* Wysokość wideo */
+    object-fit: cover; /* Dostosowuje obraz */
+}

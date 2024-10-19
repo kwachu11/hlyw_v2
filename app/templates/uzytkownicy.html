@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Statystyki użytkowników</h2>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead class="thead-light">
+                <tr>
+                    <th>Miejsce</th>
+                    <th>Użytkownik</th>
+                    <th>Wiadomości</th>
+                    <th>Zgłoszenia</th>
+                    <th>Zdjęcia</th>
+                    <th>Wydarzenia</th>
+                    <th>Komentarze</th>
+                    <th>Newsy</th>
+                    <th>Punkty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users_stats %}
+                <tr>
+                    <td>{{ user.position }}</td>
+                    <td><img src="{{ user.photo }}" alt="Zdjęcie" class="img-thumbnail" width="50"> {{ user.name }}</td>
+                    <td>{{ user.message_count }}</td>
+                    <td>{{ user.report_count }}</td>
+                    <td>{{ user.photo_count }}</td>
+                    <td>{{ user.calendar_count }}</td>
+                    <td>{{ user.comment_count }}</td>
+                    <td>{{ user.news_count }}</td>
+                    <td>{{ user.message_count + user.report_count + user.photo_count + user.album_count + user.calendar_count + user.comment_count + user.news_count }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" class="text-center">Brak danych do wyświetlenia.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

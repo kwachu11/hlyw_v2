@@ -3,8 +3,12 @@
 
 <div class="camera-container">
     <h3>Co dzieje się na Hlywie</h3>
-    <!-- Obraz kamery -->
-    <img src="http://192.168.100.227:81/stream" alt="Strumień kamery" style="width: 100%;">
+    <div class="video-container">
+        <video id="video" width="100%" controls autoplay muted>
+        <source src="https://hlyw.pl/static/stream.m3u8" type="application/x-mpegURL">
+        Twoja przeglądarka nie obsługuje elementu wideo.
+    </video>
+        </div>
 
     <!-- Sekcja czatu -->
     <div class="chat-container mt-4">
@@ -18,5 +22,8 @@
         </form>
     </div>
 </div>
+
+
+
 
 {% endblock %}

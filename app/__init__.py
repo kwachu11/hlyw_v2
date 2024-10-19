@@ -6,6 +6,7 @@ from spotipy.oauth2 import SpotifyOAuth
 import json
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -609,6 +610,29 @@ def create_app():
         db.session.commit()
         flash('Komentarz został dodany!', 'success')
         return redirect(url_for('view_report', report_id=report.id))
+
+    @app.route('/users')
+    @login_required
+    def users():
+        users_stats = db.session.query(
+            User.id, User.username, User.photo,
+            func.count(func.distinct(Message.id)).label('message_count'),
+            func.count(func.distinct(Report.id)).label('report_count'),
+            func.count(func.distinct(Images.id)).label('photo_count'),
+            func.count(func.distinct(Albums.id)).label('album_count'),
+            func.count(func.distinct(Calendar.id)).label('calendar_count'),
+            func.count(func.distinct(Comment.id)).label('comment_count'),
+            func.count(func.distinct(News.id)).label('news_count')
+        ).outerjoin(Message, Message.user_id == User.id) \
+            .outerjoin(Report, Report.user_id == User.id) \
+            .outerjoin(Images, Images.created_by == User.id) \
+            .outerjoin(Albums, Albums.created_by == User.id) \
+            .outerjoin(Calendar, Calendar.created_by == User.id) \
+            .outerjoin(Comment, Comment.user_id == User.id) \
+            .outerjoin(News, News.created_by == User.id) \
+            .group_by(User.id).all()
+
+        return render_template('uzytkownicy.html', users_stats=users_stats)
 
 
 
