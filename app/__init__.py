@@ -614,6 +614,16 @@ def create_app():
     @app.route('/users')
     @login_required
     def users():
+        sum_expression = (
+                func.count(func.distinct(Message.id)) +
+                func.count(func.distinct(Report.id)) +
+                func.count(func.distinct(Images.id)) +
+                func.count(func.distinct(Albums.id)) +
+                func.count(func.distinct(Calendar.id)) +
+                func.count(func.distinct(Comment.id)) +
+                func.count(func.distinct(News.id))
+        ).label('total_sum')  # Nadajemy nazwę sumie
+
         users_stats = db.session.query(
             User.id, User.username, User.photo,
             func.count(func.distinct(Message.id)).label('message_count'),
@@ -622,7 +632,8 @@ def create_app():
             func.count(func.distinct(Albums.id)).label('album_count'),
             func.count(func.distinct(Calendar.id)).label('calendar_count'),
             func.count(func.distinct(Comment.id)).label('comment_count'),
-            func.count(func.distinct(News.id)).label('news_count')
+            func.count(func.distinct(News.id)).label('news_count'),
+            sum_expression  # Dodajemy sumę do wyników zapytania
         ).outerjoin(Message, Message.user_id == User.id) \
             .outerjoin(Report, Report.user_id == User.id) \
             .outerjoin(Images, Images.created_by == User.id) \
@@ -630,7 +641,10 @@ def create_app():
             .outerjoin(Calendar, Calendar.created_by == User.id) \
             .outerjoin(Comment, Comment.user_id == User.id) \
             .outerjoin(News, News.created_by == User.id) \
-            .group_by(User.id).all()
+            .group_by(User.id) \
+            .order_by(sum_expression.desc()).all()  # Sortowanie po sumie, malejąco
+
+
 
         return render_template('uzytkownicy.html', users_stats=users_stats)
 
