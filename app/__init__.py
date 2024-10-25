@@ -357,7 +357,7 @@ def create_app():
     @app.route('/calendar', methods=['GET'])
     @login_required
     def calendar():
-        locale.setlocale(locale.LC_TIME, 'pl_PL')
+        locale.setlocale(locale.LC_TIME, 'pl_PL.UTF-8')
         # Ustawienie domyślnego miesiąca i roku
         now = datetime.now()
         month = request.args.get('month', now.month, type=int)
