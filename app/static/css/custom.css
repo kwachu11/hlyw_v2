@@ -1,3 +1,13 @@
+
+@font-face {
+    font-family: 'Pricedown';
+    src: url('fonts/pricedown.otf)') format('truetype'); /* Zmień ścieżkę na odpowiednią */
+}
+
+.gta-font {
+    font-family: 'Pricedown', sans-serif;
+}
+
 .marquee {
             width: 100%;
             background-color: #e74c3c;
@@ -124,3 +134,21 @@ button {
     height: 100%; /* Wysokość wideo */
     object-fit: cover; /* Dostosowuje obraz */
 }
+
+canvas {
+            border: 1px solid black;
+            background-color: #000000;
+        }/* snake pole gry */
+
+.controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-top: 20px;
+    }
+    .controls .row {
+        margin: 5px 0; /* Przestrzeń między wierszami */
+    }
+    .controls .col {
+        flex: 1; /* Równomierne rozmieszczenie przycisków w wierszu */
+    }

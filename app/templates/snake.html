@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Snake by Hlyw</h1>
+<center>
+    <canvas id="gameCanvasSnake" width="400" height="400"></canvas>
+    <p id="score">Wynik: 0</p>
+    <div class="col-4 mb-2">
+        <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
+    </div>
+        </center>
+    <div class="controls mt-3 d-flex flex-column">
+        <div class="row">
+            <div class="col text-center">
+                <button id="up" class="btn btn-secondary">↑</button>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col text-center">
+                <button id="left" class="btn btn-secondary">←</button>
+            </div>&nbsp;&nbsp;&nbsp;&nbsp;
+            <div class="col text-center">
+                <button id="right" class="btn btn-secondary">→</button>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col text-center">
+                <button id="down" class="btn btn-secondary">↓</button>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+    <script>
+    const canvas = document.getElementById("gameCanvasSnake");
+    const ctx = canvas.getContext("2d");
+    const box = 20;
+    let snake = [{ x: 9 * box, y: 10 * box }];
+    let direction = "RIGHT";
+    let food = { x: Math.floor(Math.random() * 19) * box, y: Math.floor(Math.random() * 19) * box };
+    let score = 0;
+    let gameActive = false; // Flaga do zarządzania aktywnością gry
+    let showWelcomeMessage = true;
+
+        document.addEventListener("keydown", event => {
+        if (gameActive) {
+            handleDirectionChange(event.key);
+        }
+    });
+
+    function drawText(text, x, y) {
+    ctx.font = "50px Pricedown"; // Ustaw czcionkę
+    ctx.fillStyle = "white"; // Ustaw kolor tekstu
+    ctx.fillText(text, x, y); // Narysuj tekst
+}
+
+    document.getElementById("up").addEventListener("click", () => {
+        if (gameActive) handleDirectionChange("ArrowUp");
+    });
+    document.getElementById("down").addEventListener("click", () => {
+        if (gameActive) handleDirectionChange("ArrowDown");
+    });
+    document.getElementById("left").addEventListener("click", () => {
+        if (gameActive) handleDirectionChange("ArrowLeft");
+    });
+    document.getElementById("right").addEventListener("click", () => {
+        if (gameActive) handleDirectionChange("ArrowRight");
+    });
+
+        function handleDirectionChange(key) {
+        if (key === "ArrowUp" && direction !== "DOWN") direction = "UP";
+        else if (key === "ArrowDown" && direction !== "UP") direction = "DOWN";
+        else if (key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
+        else if (key === "ArrowRight" && direction !== "LEFT") direction = "RIGHT";
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let i = 0; i < snake.length; i++) {
+            ctx.fillStyle = i === 0 ? "white" : "lightwhite";
+            ctx.fillRect(snake[i].x, snake[i].y, box, box);
+        }
+        ctx.fillStyle = "red";
+        ctx.fillRect(food.x, food.y, box, box);
+
+        let snakeX = snake[0].x;
+        let snakeY = snake[0].y;
+        if (direction === "UP") snakeY -= box;
+        if (direction === "DOWN") snakeY += box;
+        if (direction === "LEFT") snakeX -= box;
+        if (direction === "RIGHT") snakeX += box;
+
+        if (snakeX === food.x && snakeY === food.y) {
+            score++;
+            food = { x: Math.floor(Math.random() * 19) * box, y: Math.floor(Math.random() * 19) * box };
+        } else {
+            snake.pop();
+        }
+
+        let newHead = { x: snakeX, y: snakeY };
+        if (snakeX < 0 || snakeX >= canvas.width || snakeY < 0 || snakeY >= canvas.height || collision(newHead, snake)) {
+            clearInterval(game);
+            endGame(score);
+        }
+
+        snake.unshift(newHead);
+        document.getElementById("score").innerText = "Wynik: " + score;
+    }
+
+
+    function collision(head, array) {
+        for (let i = 0; i < array.length; i++) {
+            if (head.x === array[i].x && head.y === array[i].y) return true;
+        }
+        return false;
+    }
+
+    let game; // Zmienna do przechowywania interwału gry
+
+    napis_hlyw(gameActive);
+
+    // Funkcja do rozpoczęcia gry
+    function startGame() {
+        gameActive = true; // Aktywuj grę
+        score = 0; // Resetowanie wyniku
+        snake = [{ x: 9 * box, y: 10 * box }]; // Resetowanie pozycji węża
+        direction = "RIGHT"; // Resetowanie kierunku
+        food = { x: Math.floor(Math.random() * 19) * box, y: Math.floor(Math.random() * 19) * box }; // Resetowanie pozycji jedzenia
+        showWelcomeMessage = false;
+        game = setInterval(draw, 100); // Uruchom pętlę gry
+    }
+
+    function napis_hlyw(aktywnosc) {
+    if(aktywnosc == false)
+    {
+        const font = new FontFace('Pricedown', 'url(static/css/fonts/pricedown.otf)');
+        document.fonts.add(font);
+
+        font.load().then(() => {
+            document.fonts.add(font);
+            drawText("Snake", canvas.width / 2 - 120, canvas.height / 2-20); // Wyśrodkowanie tekstu
+            drawText("by", canvas.width / 2-43, canvas.height / 2+22);
+            drawText("Hlyw", canvas.width / 2-43, canvas.height / 2+65);
+        }).catch(error => {
+            console.error('Błąd podczas ładowania czcionki:', error);
+        });
+    }
+    }
+
+
+
+
+    // Obsługa kliknięcia przycisku
+    document.getElementById('start-button').addEventListener('click', startGame);
+
+    function endGame(score) {
+        fetch('/snake/save_score', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ score: score })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Przekierowanie do odpowiedniej strony po zapisaniu wyniku
+            window.location.href = data.redirect_url;
+        })
+        .catch(error => console.error('Błąd:', error));
+    }
+</script>
+
+{% endblock %}

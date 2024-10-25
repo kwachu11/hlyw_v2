@@ -25,6 +25,7 @@ import calendar as callendar
 from datetime import date
 
 from flask_mail import Mail, Message as Message_
+import base64
 
 # Wczytaj zmienne środowiskowe z pliku .env
 
@@ -199,6 +200,17 @@ def create_app():
         # Relacja odwrotna do użytkownika
         user = db.relationship('User', backref='comments', lazy=True)
 
+    class Snake(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
+    class Tetris(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     with app.app_context():
@@ -647,6 +659,59 @@ def create_app():
 
 
         return render_template('uzytkownicy.html', users_stats=users_stats)
+
+    @app.route('/snake', methods=['GET', 'POST'])
+    @login_required
+    def snake():
+        return render_template('snake.html')
+
+    @app.route('/snake/save_score', methods=['POST'])
+    def save_score():
+        data = request.get_json()
+        score = data.get('score')
+
+        # Dodaj wiadomość flash
+        flash(f'Wynik: {score}.', 'success')  # Użyj 'success' jako kategorii
+
+        new_game = Snake(points=int(score), created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
+        return jsonify({'redirect_url': url_for('snake')})
+
+    @app.route('/games', methods=['GET'])
+    @login_required
+    def games():
+        snake_leader = Snake.query.order_by(Snake.points.desc()).first()
+        user=User.query.filter_by(id=snake_leader.created_by).first()
+        tetris_leader = Tetris.query.order_by(Tetris.points.desc()).first()
+        user2 = User.query.filter_by(id=tetris_leader.created_by).first()
+        games=[]
+        games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake'])
+        games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris'])
+        print(games)
+        return render_template('games.html', games=games)
+
+    @app.route('/tetris', methods=['GET', 'POST'])
+    @login_required
+    def tetris():
+        return render_template('tetris.html')
+
+    @app.route('/tetris/save_score', methods=['POST'])
+    def save_score_tetris():
+        data = request.get_json()
+        score = data.get('score')
+
+        # Dodaj wiadomość flash
+        flash(f'Wynik: {score}.', 'success')  # Użyj 'success' jako kategorii
+
+        new_game = Tetris(points=int(score), created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
+        return jsonify({'redirect_url': url_for('tetris')})
 
 
 

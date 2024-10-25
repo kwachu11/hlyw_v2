@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container mt-4">
+        <h1>Tetris by Hlyw</h1>
+    <center>
+        <canvas id="gameCanvasTetris" width="300" height="600"></canvas>
+        <div id="score" class="mt-2">Wynik: 0</div>
+
+        <div class="col-4 mb-2">
+        <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
+    </div>
+        <div class="controls col-4 mt-3 d-flex flex-column align-items-center">
+            <div class="controls mb-2 mt-3 d-flex justify-content-center">
+                 <div class="d-flex">
+            <button id="left" class="btn btn-secondary me-1">←</button>
+                     <div>&nbsp;&nbsp;&nbsp;</div>
+            <button id="right" class="btn btn-secondary">→</button>
+                 </div>
+                </div>
+            <button id="rotate" class="btn btn-secondary mt-1">Obróć<br>(spacja)</button>
+            <button id="down" class="btn btn-secondary mt-1">↓</button>
+        </div></center>
+    </div>
+
+
+    <script>
+const canvas = document.getElementById("gameCanvasTetris");
+const ctx = canvas.getContext("2d");
+
+const box = 30; // Rozmiar pojedynczego kwadratu
+const rows = canvas.height / box; // Liczba wierszy
+const columns = canvas.width / box; // Liczba kolumn
+let score = 0;
+let gameOver = false;
+let showWelcomeMessage = true;
+
+    function drawText(text, x, y) {
+    ctx.font = "50px Pricedown"; // Ustaw czcionkę
+    ctx.fillStyle = "white"; // Ustaw kolor tekstu
+    ctx.fillText(text, x, y); // Narysuj tekst
+}
+
+const colors = [
+    null,
+    'cyan', // I
+    'blue', // J
+    'orange', // L
+    'yellow', // O
+    'green', // S
+    'purple', // T
+    'red' // Z
+];
+
+// Zdefiniuj kształty Tetrisa
+const pieces = [
+    [],
+    [[1, 1, 1, 1]], // I
+    [[0, 0, 2], [2, 2, 2]], // J
+    [[3, 3, 3], [0, 0, 3]], // L
+    [[4, 4], [4, 4]], // O
+    [[0, 5, 5], [5, 5, 0]], // S
+    [[6, 6, 6], [0, 6, 0]], // T
+    [[0, 7, 7], [7, 7, 0]]  // Z
+];
+
+let board = Array.from({ length: rows }, () => Array(columns).fill(0));
+let currentPiece;
+let currentPosition;
+
+// Funkcja do rysowania planszy
+function drawBoard() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < columns; c++) {
+            if (board[r][c] !== 0) {
+                ctx.fillStyle = colors[board[r][c]];
+                ctx.fillRect(c * box, r * box, box, box);
+            }
+        }
+    }
+}
+
+// Funkcja do rysowania aktualnego kawałka
+function drawPiece() {
+    currentPiece.shape.forEach((row, r) => {
+        row.forEach((value, c) => {
+            if (value !== 0) {
+                ctx.fillStyle = colors[value];
+                ctx.fillRect((currentPosition.x + c) * box, (currentPosition.y + r) * box, box, box);
+            }
+        });
+    });
+}
+
+// Sprawdź, czy kawałek może być umieszczony w danej pozycji
+function canMove(offsetX, offsetY) {
+    return currentPiece.shape.every((row, r) => {
+        return row.every((value, c) => {
+            if (value === 0) return true;
+            const newX = currentPosition.x + c + offsetX;
+            const newY = currentPosition.y + r + offsetY;
+            return newY >= 0 && newY < rows && newX >= 0 && newX < columns && !board[newY][newX];
+        });
+    });
+}
+
+// Dodaj kawałek do planszy
+function addPieceToBoard() {
+    currentPiece.shape.forEach((row, r) => {
+        row.forEach((value, c) => {
+            if (value !== 0) {
+                board[currentPosition.y + r][currentPosition.x + c] = value;
+            }
+        });
+    });
+}
+
+// Usuń pełne linie
+function removeFullLines() {
+    for (let r = rows - 1; r >= 0; r--) {
+        if (board[r].every(value => value !== 0)) {
+            board.splice(r, 1);
+            board.unshift(Array(columns).fill(0));
+            score += 10;
+            document.getElementById("score").innerText = "Score: " + score;
+            r++; // Sprawdź ponownie tę samą linię
+        }
+    }
+}
+
+// Rotuj kawałek
+function rotatePiece() {
+    const rotatedShape = currentPiece.shape[0].map((val, index) =>
+        currentPiece.shape.map(row => row[index]).reverse()
+    );
+    if (canMove(0, 0)) {
+        currentPiece.shape = rotatedShape;
+    }
+}
+
+// Zainicjuj nowy kawałek
+function initPiece() {
+    const randomIndex = Math.floor(Math.random() * (pieces.length - 1)) + 1;
+    currentPiece = { shape: pieces[randomIndex] };
+    currentPosition = { x: Math.floor(columns / 2) - 1, y: 0 };
+    if (!canMove(0, 0)) {
+        gameOver = true;
+    }
+}
+
+// Start gry
+function startGame() {
+    showWelcomeMessage = false;
+    gameOver = false;
+    score = 0;
+    board = Array.from({ length: rows }, () => Array(columns).fill(0));
+    initPiece();
+    gameLoop();
+}
+
+napis_hlyw(false);
+
+    function napis_hlyw(aktywnosc) {
+    if(aktywnosc == false)
+    {
+        const font = new FontFace('Pricedown', 'url(static/css/fonts/pricedown.otf)');
+        document.fonts.add(font);
+
+        font.load().then(() => {
+            document.fonts.add(font);
+            drawText("Tetris", canvas.width / 2 - 120, canvas.height / 2-20); // Wyśrodkowanie tekstu
+            drawText("by", canvas.width / 2, canvas.height / 2+22);
+            drawText("Hlyw", canvas.width / 2, canvas.height / 2+65);
+        }).catch(error => {
+            console.error('Błąd podczas ładowania czcionki:', error);
+        });
+    }
+    }
+
+// Główna pętla gry
+function gameLoop() {
+    if (gameOver) {
+        //alert("Koniec gry! Twój wynik: " + score);
+        endGame(score);
+        return;
+    }
+
+    if (canMove(0, 1)) {
+        currentPosition.y++;
+    } else {
+        addPieceToBoard();
+        removeFullLines();
+        initPiece();
+    }
+
+    drawBoard();
+    drawPiece();
+
+    setTimeout(gameLoop, 200);
+}
+
+// Obsługuje ruchy z przycisków
+document.getElementById("left").addEventListener("click", () => {
+    if (canMove(-1, 0)) {
+        currentPosition.x--;
+    }
+});
+
+document.getElementById("right").addEventListener("click", () => {
+    if (canMove(1, 0)) {
+        currentPosition.x++;
+    }
+});
+
+document.getElementById("down").addEventListener("click", () => {
+    if (canMove(0, 1)) {
+        currentPosition.y++;
+    }
+});
+
+document.getElementById("rotate").addEventListener("click", rotatePiece);
+
+//przyciski na klawiaturze
+document.addEventListener("keydown", function(event) {
+    if (event.key === "ArrowLeft") {
+        document.getElementById("left").click(); // Symuluj kliknięcie lewego przycisku
+    } else if (event.key === "ArrowRight") {
+        document.getElementById("right").click(); // Symuluj kliknięcie prawego przycisku
+    } else if (event.key === "ArrowDown") {
+        document.getElementById("down").click(); // Symuluj kliknięcie przycisku w dół
+    } else if (event.key === " ") {
+    event.preventDefault();
+        document.getElementById("rotate").click(); // Symuluj kliknięcie przycisku Spacja
+    }
+});
+
+    // Obsługa kliknięcia przycisku
+    document.getElementById('start-button').addEventListener('click', startGame);
+
+        function endGame(score) {
+        fetch('/tetris/save_score', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ score: score })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Przekierowanie do odpowiedniej strony po zapisaniu wyniku
+            window.location.href = data.redirect_url;
+        })
+        .catch(error => console.error('Błąd:', error));
+    }
+</script>
+
+{% endblock %}
