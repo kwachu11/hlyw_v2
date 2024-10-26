@@ -1,25 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='gameStyles/tetris.css') }}">
+</head>
 
-        <h1>Tetris by Hlyw</h1>
-    <center>
-        <canvas id="gameCanvasTetris" width="300" height="600"></canvas>
-        <div id="score" class="mt-2">Wynik: 0</div>
-
-        <div class="col-6 mb-2">
-        <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
-    </div>
-        <div class="controls col-6 mt-3 d-flex flex-column align-items-center">
-            <div class="controls mb-2 mt-3 d-flex justify-content-center">
-                 <div class="d-flex">
-            <button id="left" class="btn btn-secondary me-1">←</button>
-                     <div>&nbsp;&nbsp;&nbsp;</div>
-            <button id="right" class="btn btn-secondary">→</button>
-                 </div>
+<center>
+    <div class="mainLayout">
+        <h1 id="mainHeader">Tetris by Hlyw</h1>
+        <div class="mainLayout_container">
+            <div class="game-area">
+                <canvas id="gameCanvasTetris" width="300" height="600"></canvas>
+            </div>
+            <div class="mainLayout_controls">
+                <div class="mainLayout_controls_start mb-2">
+                    <button id="start-button" class="btn btn-primary start-button">Rozpocznij grę</button>
                 </div>
-            <button id="rotate" class="btn btn-secondary mt-1">Obróć<br>(spacja)</button>
-            <button id="down" class="btn btn-secondary mt-1">↓</button>
-        </div></center>
+                <div class="mainLayout_controls_buttons mt-3">
+                    <button id="rotate" class="btn btn-secondary rotate-button">Obróć<br>(spacja)</button>
+                    <div class="mainLayout_controls_buttonGroup mb-2 mt-3">
+                        <button id="left" class="btn btn-secondary">←</button>
+                        <button id="right" class="btn btn-secondary">→</button>
+                        <button id="down" class="btn btn-secondary">↓</button>
+                    </div>
+                    <div id="score" class="mt-2">Wynik: 0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</center>
+
 
 
 
@@ -75,8 +84,23 @@ function drawBoard() {
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < columns; c++) {
             if (board[r][c] !== 0) {
-                ctx.fillStyle = colors[board[r][c]];
-                ctx.fillRect(c * box, r * box, box, box);
+                const color = colors[board[r][c]];
+               
+                // Apply gradient to simulate 3D effect
+                const x = c * box;
+                const y = r * box;
+                const gradient = ctx.createLinearGradient(x, y, x + box, y + box);
+                gradient.addColorStop(0, lightenColor(color, 20)); // Lighter shade at the top
+                gradient.addColorStop(1, color); // Main color
+                
+                // Fill with gradient for 3D brick effect
+                ctx.fillStyle = gradient;
+                drawRoundedRect(ctx, x, y, box, box, 5);
+
+                // Add a darker border around each tile
+                ctx.strokeStyle = darkenColor(color, 30);
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, box, box);
             }
         }
     }
@@ -84,14 +108,65 @@ function drawBoard() {
 
 // Funkcja do rysowania aktualnego kawałka
 function drawPiece() {
-    currentPiece.shape.forEach((row, r) => {
-        row.forEach((value, c) => {
-            if (value !== 0) {
-                ctx.fillStyle = colors[value];
-                ctx.fillRect((currentPosition.x + c) * box, (currentPosition.y + r) * box, box, box);
+    currentPiece.shape.forEach((row, rowIndex) => {
+        row.forEach((cellValue, colIndex) => {
+            if (cellValue !== 0) {
+                // Calculate the position for each block
+                const xPosition = (currentPosition.x + colIndex) * box;
+                const yPosition = (currentPosition.y + rowIndex) * box;
+
+                // Create a brick-like color gradient
+                const gradient = ctx.createLinearGradient(xPosition, yPosition, xPosition + box, yPosition + box);
+                gradient.addColorStop(0, lightenColor(colors[cellValue], 20)); // Lighter shade for the top
+                gradient.addColorStop(1, colors[cellValue]); // Main color
+
+                // Fill with gradient for 3D brick effect
+                ctx.fillStyle = gradient;
+                drawRoundedRect(ctx, xPosition, yPosition, box, box, 5); // Rounded corners
+
+                // Add a darker border around the block
+                ctx.strokeStyle = darkenColor(colors[cellValue], 30); // Darker shade for border
+                ctx.lineWidth = 2;
+                ctx.strokeRect(xPosition, yPosition, box, box);
             }
         });
     });
+}
+
+// Helper function to draw rounded rectangles
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Helper to lighten color for gradient effect
+function lightenColor(color, percent) {
+    const num = parseInt(color.replace("#", ""), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return `#${((1 << 24) + (Math.min(R, 255) << 16) + (Math.min(G, 255) << 8) + Math.min(B, 255)).toString(16).slice(1)}`;
+}
+
+// Helper to darken color for border effect
+function darkenColor(color, percent) {
+    const num = parseInt(color.replace("#", ""), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) - amt;
+    const G = (num >> 8 & 0x00FF) - amt;
+    const B = (num & 0x0000FF) - amt;
+    return `#${((1 << 24) + (Math.max(R, 0) << 16) + (Math.max(G, 0) << 8) + Math.max(B, 0)).toString(16).slice(1)}`;
 }
 
 // Sprawdź, czy kawałek może być umieszczony w danej pozycji
@@ -236,6 +311,8 @@ document.addEventListener("keydown", function(event) {
     } else if (event.key === " ") {
     event.preventDefault();
         document.getElementById("rotate").click(); // Symuluj kliknięcie przycisku Spacja
+    } else if (event.key === "ArrowUp"){
+    event.preventDefault();
     }
 });
 

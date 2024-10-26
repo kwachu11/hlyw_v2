@@ -1,0 +1,109 @@
+@import url('custom.css');
+
+:root {
+    --primary-color: #ffcc00; /* Bright yellow */
+    --secondary-color: #000;   /* Black */
+    --hover-color: #e6b800;    /* Darker yellow/orange for hover */
+    --active-color: #b59a00;   /* Even darker yellow/orange for active/clicked state */
+}
+
+.mainLayout {
+    display: flex; 
+    flex-direction: column;
+    align-items: center; 
+}
+body {
+    background: linear-gradient(to bottom, #0e0e0e, #1a1a1a); 
+    color: #f1f1f1; 
+    font-family: "Arial", sans-serif; 
+
+}
+.mainLayout_container {
+    display: flex; 
+    justify-content: space-between; 
+    align-items: flex-start; 
+    width: 100%; 
+    max-width: 800px; 
+    padding: 20px; 
+}
+
+.game-area {
+    display: flex;
+    flex-direction: column; 
+    align-items: center; 
+}
+.mainLayout_controls_buttonGroup {
+    display: flex; /* Use flexbox for layout */
+    justify-content: space-between; /* Space buttons evenly */
+    width: 100%; /* Ensure the group takes full width */
+}
+#gameCanvasTetris {
+    width: 300px; 
+    height: 600px; 
+    border: 8px solid #ffcc00; 
+    border-radius: 5px; 
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.7); 
+    background-color: #000; 
+}
+
+h1 {
+    font-family: 'PriceDown'; 
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    text-align: center; 
+}
+
+.mainLayout_controls {
+    display: flex; 
+    flex-direction: column; 
+    align-items: flex-start; 
+    margin-left: 20px; 
+}
+
+#score {
+    font-size: 48px;
+    color: var(--active-color);
+    -webkit-text-stroke: 1px #000; /* Border color and thickness */
+    text-shadow: 1px 1px 2px var(--primary-color); 
+    margin-bottom: 5px;
+}
+
+.btn {
+    
+    background-color: var(--primary-color); 
+    border: 2px solid #000; 
+    color: #000; 
+    font-weight: bold; 
+}
+
+
+.btn:hover {
+    border-color: #1a1a1a;
+    background-color: var(--hover-color);
+}
+
+.btn:focus {
+    border-color: #1a1a1a;
+    background-color: var(--active-color);
+}
+
+.rotate-button {
+    width: 300px; 
+    height: auto;
+    display: block; 
+}
+
+.start-button {
+    width: 300px;
+    height: auto;
+    display: block;
+    
+}
+
+.controls {
+    margin-top: 20px; 
+}
+
+body.no-scroll {
+    overflow: hidden; 
+}
+
