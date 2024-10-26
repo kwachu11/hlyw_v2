@@ -1,16 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="container mt-4">
         <h1>Tetris by Hlyw</h1>
     <center>
         <canvas id="gameCanvasTetris" width="300" height="600"></canvas>
         <div id="score" class="mt-2">Wynik: 0</div>
 
-        <div class="col-4 mb-2">
+        <div class="col-6 mb-2">
         <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
     </div>
-        <div class="controls col-4 mt-3 d-flex flex-column align-items-center">
+        <div class="controls col-6 mt-3 d-flex flex-column align-items-center">
             <div class="controls mb-2 mt-3 d-flex justify-content-center">
                  <div class="d-flex">
             <button id="left" class="btn btn-secondary me-1">←</button>
@@ -21,11 +20,13 @@
             <button id="rotate" class="btn btn-secondary mt-1">Obróć<br>(spacja)</button>
             <button id="down" class="btn btn-secondary mt-1">↓</button>
         </div></center>
-    </div>
+
 
 
     <script>
 const canvas = document.getElementById("gameCanvasTetris");
+canvas.width = 300;
+canvas.height = 600;
 const ctx = canvas.getContext("2d");
 
 const box = 30; // Rozmiar pojedynczego kwadratu
@@ -224,10 +225,13 @@ document.getElementById("rotate").addEventListener("click", rotatePiece);
 //przyciski na klawiaturze
 document.addEventListener("keydown", function(event) {
     if (event.key === "ArrowLeft") {
+    event.preventDefault();
         document.getElementById("left").click(); // Symuluj kliknięcie lewego przycisku
     } else if (event.key === "ArrowRight") {
+    event.preventDefault();
         document.getElementById("right").click(); // Symuluj kliknięcie prawego przycisku
     } else if (event.key === "ArrowDown") {
+    event.preventDefault();
         document.getElementById("down").click(); // Symuluj kliknięcie przycisku w dół
     } else if (event.key === " ") {
     event.preventDefault();

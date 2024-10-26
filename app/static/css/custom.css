@@ -152,3 +152,15 @@ canvas {
     .controls .col {
         flex: 1; /* Równomierne rozmieszczenie przycisków w wierszu */
     }
+
+    #gameCanvasSnake {
+    width: 100%;
+    max-width: 400px;
+    height: auto;
+}
+
+    #gameCanvasTetris {
+    width: 100%;
+    max-width: 300px;
+    height: auto;
+}

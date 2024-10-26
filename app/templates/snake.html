@@ -5,7 +5,7 @@
 <center>
     <canvas id="gameCanvasSnake" width="400" height="400"></canvas>
     <p id="score">Wynik: 0</p>
-    <div class="col-4 mb-2">
+    <div class="col-6 mb-2">
         <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
     </div>
         </center>
@@ -34,6 +34,8 @@
 
     <script>
     const canvas = document.getElementById("gameCanvasSnake");
+    canvas.width = 400;
+    canvas.height = 400;
     const ctx = canvas.getContext("2d");
     const box = 20;
     let snake = [{ x: 9 * box, y: 10 * box }];
@@ -56,19 +58,24 @@
 }
 
     document.getElementById("up").addEventListener("click", () => {
+    event.preventDefault();
         if (gameActive) handleDirectionChange("ArrowUp");
     });
     document.getElementById("down").addEventListener("click", () => {
+    event.preventDefault();
         if (gameActive) handleDirectionChange("ArrowDown");
     });
     document.getElementById("left").addEventListener("click", () => {
+    event.preventDefault();
         if (gameActive) handleDirectionChange("ArrowLeft");
     });
     document.getElementById("right").addEventListener("click", () => {
+    event.preventDefault();
         if (gameActive) handleDirectionChange("ArrowRight");
     });
 
         function handleDirectionChange(key) {
+        event.preventDefault();
         if (key === "ArrowUp" && direction !== "DOWN") direction = "UP";
         else if (key === "ArrowDown" && direction !== "UP") direction = "DOWN";
         else if (key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
