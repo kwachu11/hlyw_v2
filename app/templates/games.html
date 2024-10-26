@@ -13,7 +13,8 @@
 
                     <p class="card-text">Najlepszy:<img src="static/images/profile_pics/{{ game[3].photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ game[3].username }}</p>
                     <p class="card-text"><small class="text-muted">Rekord: {{ game[2].points }}</small></p>
-                    <center><a href="{{ url_for(game[4]) }}" class="btn btn-primary">Zagraj</a></center>
+                    <a href="{{ url_for(game[4]) }}" class="btn btn-primary">Zagraj</a>
+                    <a href="{{ url_for(game[5]) }}" class="btn btn-primary">Zobacz ranking</a>
                 </div>
             </div>
         </div>

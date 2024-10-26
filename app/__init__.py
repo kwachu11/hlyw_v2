@@ -688,8 +688,8 @@ def create_app():
         tetris_leader = Tetris.query.order_by(Tetris.points.desc()).first()
         user2 = User.query.filter_by(id=tetris_leader.created_by).first()
         games=[]
-        games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake'])
-        games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris'])
+        games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake', 'ranking_snake'])
+        games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris', 'ranking_tetris'])
         print(games)
         return render_template('games.html', games=games)
 
@@ -712,6 +712,37 @@ def create_app():
 
         # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
         return jsonify({'redirect_url': url_for('tetris')})
+
+    @app.route('/ranking_snake', methods=['GET', 'POST'])
+    @login_required
+    def ranking_snake():
+        sum_expression = (
+                func.count(Snake.id).label('attempts') +  # Liczba prób
+                func.sum(Snake.points).label('total_points') +  # Suma punktów
+                func.max(Snake.points).label('high_score')  # Rekord
+        ).label('total_sum')
+
+        ranking_data = db.session.query(
+            User.id,
+            User.username,
+            User.photo,
+            func.count(Snake.id).label('attempts'),
+            func.sum(Snake.points).label('total_points'),
+            func.max(Snake.points).label('high_score'),
+            sum_expression
+        ).outerjoin(Snake, Snake.created_by == User.id) \
+            .group_by(User.id) \
+            .order_by(sum_expression.desc()) \
+            .all()
+
+        print(ranking_data)
+
+        return render_template('ranking_snake.html', ranking_data=ranking_data)
+
+    @app.route('/ranking_tetris', methods=['GET', 'POST'])
+    @login_required
+    def ranking_tetris():
+        return render_template('ranking_snake.html')
 
 
 
