@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>Ranking gry Snake</h2>
+    <h2>Ranking gry Tetris</h2>
     <div class="table-responsive">
         <table class="table table-bordered table-hover">
             <thead class="thead-light">
@@ -15,7 +15,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for user in users_stats %}
+                {% for user in ranking_data %}
                 <tr
                     {% if loop.index == 1 %} style="background-color: gold;"
                     {% elif loop.index == 2 %} style="background-color: silver;"
@@ -24,9 +24,9 @@
                 >
                     <td>{{ loop.index }}</td>
                     <td><img src="static/images/profile_pics/{{ user.photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</td>
-                    <td>{{ user.message_count }}</td>
-                    <td>{{ user.report_count }}</td>
-                    <td>{{ user.photo_count }}</td>
+                    <td>{{ user.attempts }}</td>
+                    <td>{{ user.total_points }}</td>
+                    <td>{{ user.high_score }}</td>
                 </tr>
                 {% else %}
                 <tr>
@@ -35,6 +35,9 @@
                 {% endfor %}
             </tbody>
         </table>
+        <div class="d-flex justify-content-end mt-3">
+    <strong>Rozegranych gier:&nbsp;</strong> {{ rozegranych_gier }}
+</div>
     </div>
 </div>
 {% endblock %}

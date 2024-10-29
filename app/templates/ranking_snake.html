@@ -24,7 +24,7 @@
                 >
                     <td>{{ loop.index }}</td>
                     <td><img src="static/images/profile_pics/{{ user.photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</td>
-                    <td>{{ user.attemps }}</td>
+                    <td>{{ user.attempts }}</td>
                     <td>{{ user.total_points }}</td>
                     <td>{{ user.high_score }}</td>
                 </tr>
@@ -35,6 +35,9 @@
                 {% endfor %}
             </tbody>
         </table>
+        <div class="d-flex justify-content-end mt-3">
+    <strong>Rozegranych gier:&nbsp;</strong> {{ rozegranych_gier }}
+</div>
     </div>
 </div>
 {% endblock %}
