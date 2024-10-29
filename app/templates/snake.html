@@ -1,34 +1,38 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h1>Snake by Hlyw</h1>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='gameStyles/snake.css') }}">
+</head>
+
 <center>
-    <canvas id="gameCanvasSnake" width="400" height="400"></canvas>
-    <p id="score">Wynik: 0</p>
-    <div class="col-6 mb-2">
-        <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
+    <div class="mainLayout">
+        <h1 id="mainHeader">Snake by Hlyw</h1>
+        <div class="mainLayout_container">
+            <div class="game-area">
+                <canvas id="gameCanvasSnake" width="400" height="400"></canvas>
+            </div>
+            <div class="mainLayout_controls">
+                <div class="mainLayout_controls_start mb-2">
+                    <button id="start-button" class="btn btn-primary start-button">Rozpocznij grę</button>
+                </div>
+                <div class="mainLayout_controls_buttons mt-3">
+                    <div class="mainLayout_controls_buttonGroup1 mb-2">
+                        <button id="up" class="btn btn-secondary">↑</button>
+                    </div>
+                    <div class="mainLayout_controls_buttonGroup2 mb-2 mt-3">
+                        <button id="left" class="btn btn-secondary">←</button>
+                        <button id="right" class="btn btn-secondary">→</button>
+                    </div>
+                    <div class="mainLayout_controls_buttonGroup3 mb-2 mt-3">
+                        <button id="down" class="btn btn-secondary">↓</button>
+                    </div>
+                </div>
+                <div id="score" class="mt-2">Wynik: 0</div>
+            </div>
+        </div>
     </div>
-        </center>
-    <div class="controls mt-3 d-flex flex-column">
-        <div class="row">
-            <div class="col text-center">
-                <button id="up" class="btn btn-secondary">↑</button>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col text-center">
-                <button id="left" class="btn btn-secondary">←</button>
-            </div>&nbsp;&nbsp;&nbsp;&nbsp;
-            <div class="col text-center">
-                <button id="right" class="btn btn-secondary">→</button>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col text-center">
-                <button id="down" class="btn btn-secondary">↓</button>
-            </div>
-        </div>
-    </div>
+</center>
 </div>
 </div>
 
