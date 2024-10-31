@@ -2,6 +2,3 @@
 .json
 .png
 .jpg
-venv/
-__pycache__/
-instance/

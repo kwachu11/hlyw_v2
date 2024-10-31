@@ -683,17 +683,10 @@ def create_app():
     @app.route('/games', methods=['GET'])
     @login_required
     def games():
-        snake_leader = Snake.query.order_by(Snake.points.desc()).first() or None
-        if snake_leader is None:
-            user = None
-        else:
-            user=User.query.filter_by(id=snake_leader.created_by).first()
+        snake_leader = Snake.query.order_by(Snake.points.desc()).first()
+        user=User.query.filter_by(id=snake_leader.created_by).first()
         tetris_leader = Tetris.query.order_by(Tetris.points.desc()).first()
-        if tetris_leader is None:
-            user2 = None
-        else:
-            user2 = User.query.filter_by(id=tetris_leader.created_by).first()
-
+        user2 = User.query.filter_by(id=tetris_leader.created_by).first()
         games=[]
         games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake', 'ranking_snake'])
         games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris', 'ranking_tetris'])
@@ -723,54 +716,42 @@ def create_app():
     @app.route('/ranking_snake', methods=['GET', 'POST'])
     @login_required
     def ranking_snake():
-        sum_expression = (
-                func.count(Snake.id).label('attempts') +  # Liczba prób
-                func.sum(Snake.points).label('total_points') +  # Suma punktów
-                func.max(Snake.points).label('high_score')  # Rekord
-        ).label('total_sum')
-
         ranking_data = db.session.query(
             User.id,
             User.username,
             User.photo,
-            func.count(Snake.id).label('attempts'),
-            func.sum(Snake.points).label('total_points'),
-            func.max(Snake.points).label('high_score'),
-            sum_expression
+            func.count(Snake.id).label('attempts'),  # Ilość prób
+            func.sum(Snake.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(Snake.points).label('high_score')  # Najwyższy wynik (rekord)
         ).outerjoin(Snake, Snake.created_by == User.id) \
             .group_by(User.id) \
-            .order_by(sum_expression.desc()) \
+            .having(func.max(Snake.points) != None) \
+            .order_by(func.max(Snake.points).desc()) \
             .all()
 
-        print(ranking_data)
+        rozegranych_gier = Snake.query.count()
 
-        return render_template('ranking_snake.html', ranking_data=ranking_data)
+        return render_template('ranking_snake.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/ranking_tetris', methods=['GET', 'POST'])
     @login_required
     def ranking_tetris():
-        sum_expression = (
-                func.count(Tetris.id).label('attempts') +  # Liczba prób
-                func.sum(Tetris.points).label('total_points') +  # Suma punktów
-                func.max(Tetris.points).label('high_score')  # Rekord
-        ).label('total_sum')
-
         ranking_data = db.session.query(
             User.id,
             User.username,
             User.photo,
-            func.count(Tetris.id).label('attempts'),
-            func.sum(Tetris.points).label('total_points'),
-            func.max(Tetris.points).label('high_score'),
-            sum_expression
+            func.count(Tetris.id).label('attempts'),  # Ilość prób
+            func.sum(Tetris.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(Tetris.points).label('high_score')  # Najwyższy wynik (rekord)
         ).outerjoin(Tetris, Tetris.created_by == User.id) \
             .group_by(User.id) \
-            .order_by(sum_expression.desc()) \
+            .having(func.max(Tetris.points) != None) \
+            .order_by(func.max(Tetris.points).desc()) \
             .all()
 
-        print(ranking_data)
+        rozegranych_gier = Tetris.query.count()
 
-        return render_template('ranking_tetris.html', ranking_data=ranking_data)
+        return render_template('ranking_tetris.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
 
 
