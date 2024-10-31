@@ -755,5 +755,10 @@ def create_app():
 
 
 
+    @app.route('/dino', methods=['GET', 'POST'])
+    @login_required
+    def dino():
+        return render_template('dino.html')
+
     return app
 

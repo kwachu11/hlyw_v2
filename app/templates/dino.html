@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Dino by Hlyw</h1>
+<center>
+    <div id="characterSelect" style="text-align: center;">
+    <h2>Wybierz swoją postać</h2>
+    <button onclick="selectCharacter('dino1')">Twój awatar</button>
+    <button onclick="selectCharacter('bmw_e92')">BMW E92</button>
+    <button onclick="selectCharacter('golf_3')">VW Golf 3</button>
+        <button onclick="selectCharacter('scirocco')">VW Scirocco</button>
+        <button onclick="selectCharacter('bmw_e36')">BMW E36</button>
+        <button onclick="selectCharacter('swift')">Suzuki Swift</button>
+        <button onclick="selectCharacter('vario')">Seat Cordoba Vario</button>
+        <button onclick="selectCharacter('sejol')">Fiat Seicento</button>
+        <button onclick="selectCharacter('altea')">Seat Altea</button>
+        <button onclick="selectCharacter('panda')">Fiat Panda</button>
+        <button onclick="selectCharacter('bmw_e46')">BMW E46</button>
+        <button onclick="selectCharacter('maluch')">Maluch</button>
+        <button onclick="selectCharacter('audi_a3')">Audi A3 8L</button>
+        <button onclick="selectCharacter('volvo')">Volvo S60</button>
+        <button onclick="selectCharacter('aygo')">Toyota Aygo</button>
+        <button onclick="selectCharacter('renault')">Renault Megane 3</button>
+        <button onclick="selectCharacter('peugeot')">Peugeot 307</button>
+        <button onclick="selectCharacter('trabant')">Trabant</button>
+        <button onclick="selectCharacter('punto')">Fiat Punto</button>
+        <button onclick="selectCharacter('megane_2')">Renault Megane 2</button>
+</div>
+
+    <canvas id="gameCanvasDino" width="800" height="400" style="display: none;"></canvas>
+    <p id="score">Wynik: 0</p>
+    <div class="col-6 mb-2">
+        <button id="startButton" class="btn btn-primary" onclick="startGame()">Rozpocznij grę</button>
+    </div>
+        </center>
+    <div class="controls mt-3 d-flex flex-column">
+        <div class="row">
+            <div class="col text-center">
+                <button id="jump" class="btn btn-secondary">Skacz</button>
+            </div>
+        </div>
+        </div>
+
+<script>
+
+
+const canvas = document.getElementById("gameCanvasDino");
+const ctx = canvas.getContext("2d");
+
+let characterImage = new Image();
+let obstacleImages = ["static/images/dino/pachol.png", "static/images/dino/tyskie.png", "static/images/dino/marlboro.png", "static/images/dino/kraweznik.png", "static/images/dino/mikasa.png", "static/images/dino/molten.png", "static/images/dino/robercik.png", "static/images/dino/czucz.png", "static/images/dino/helikopter.png"];
+let dino = { x: 50, y: 300, width: 70, height: 70, dy: 0, gravity: 0.4, isJumping: false };
+let obstacles = [];
+let score = 0;
+let nextObstacleScore = 50; // Pierwszy próg punktowy dla przeszkód
+let gameSpeed = 8;
+let gameInterval = null;
+
+// Funkcja wybierająca postać i ustawiająca grafikę
+function selectCharacter(character) {
+if(character=="dino1")
+{
+    characterImage.src = `static/images/profile_pics/{{ current_user.photo }}`;
+    }
+if(character=="bmw_e92")
+{
+    characterImage.src = `static/images/dino/bmw_e92.png`;
+    }
+if(character=="golf_3")
+{
+    characterImage.src = `static/images/dino/golf_3.png`;
+    }
+if(character=="scirocco")
+{
+    characterImage.src = `static/images/dino/scirocco.png`;
+    }
+
+if(character=="bmw_e36")
+{
+    characterImage.src = `static/images/dino/bmw_e36.png`;
+    }
+
+if(character=="swift")
+{
+    characterImage.src = `static/images/dino/swift.png`;
+    }
+
+if(character=="vario")
+{
+    characterImage.src = `static/images/dino/vario.png`;
+    }
+
+if(character=="sejol")
+{
+    characterImage.src = `static/images/dino/sejol.png`;
+    }
+
+if(character=="altea")
+{
+    characterImage.src = `static/images/dino/altea.png`;
+    }
+if(character=="panda")
+{
+    characterImage.src = `static/images/dino/panda.png`;
+    }
+
+if(character=="bmw_e46")
+{
+    characterImage.src = `static/images/dino/bmw_e46.png`;
+    }
+
+if(character=="maluch")
+{
+    characterImage.src = `static/images/dino/maluch.png`;
+    }
+
+if(character=="audi_a3")
+{
+    characterImage.src = `static/images/dino/audi_a3.png`;
+    }
+
+if(character=="volvo")
+{
+    characterImage.src = `static/images/dino/volvo.png`;
+    }
+
+if(character=="aygo")
+{
+    characterImage.src = `static/images/dino/aygo.png`;
+    }
+
+if(character=="renault")
+{
+    characterImage.src = `static/images/dino/renault.png`;
+    }
+
+if(character=="peugeot")
+{
+    characterImage.src = `static/images/dino/peugeot.png`;
+    }
+
+if(character=="trabant")
+{
+    characterImage.src = `static/images/dino/trabant.png`;
+    }
+
+if(character=="punto")
+{
+    characterImage.src = `static/images/dino/punto.png`;
+    }
+
+if(character=="megane_2")
+{
+    characterImage.src = `static/images/dino/megane_2.png`;
+    }
+}
+
+// Funkcja rozpoczynająca grę
+function startGame() {
+    document.getElementById("characterSelect").style.display = "none"; // Ukrywa ekran wyboru
+    canvas.style.display = "block"; // Wyświetla canvas
+    gameInterval = setInterval(gameLoop, 20);
+}
+
+// Tworzenie nowej przeszkody
+function createObstacle() {
+    const randomObstacleImage = obstacleImages[Math.floor(Math.random() * obstacleImages.length)];
+    let obstacle = {
+        x: canvas.width,
+        y: 300,
+        width: 40,
+        height: 40,
+        image: new Image()
+    };
+    obstacle.image.src = randomObstacleImage;
+    obstacles.push(obstacle);
+}
+
+// Aktualizacja przeszkód
+function updateObstacles() {
+    obstacles.forEach(obstacle => obstacle.x -= gameSpeed);
+    obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
+}
+
+// Rysowanie gracza
+function drawDino() {
+    ctx.drawImage(characterImage, dino.x, dino.y, dino.width, dino.height);
+}
+
+// Rysowanie przeszkód
+function drawObstacles() {
+    obstacles.forEach(obstacle => {
+        ctx.drawImage(obstacle.image, obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+    });
+}
+
+// Sprawdzenie kolizji
+function checkCollision() {
+    for (let obstacle of obstacles) {
+        if (
+            dino.x < obstacle.x + obstacle.width &&
+            dino.x + dino.width > obstacle.x &&
+            dino.y < obstacle.y + obstacle.height &&
+            dino.y + dino.height > obstacle.y
+        ) {
+            endGame();
+            return true;
+        }
+    }
+    return false;
+}
+
+// Zakończenie gry
+function endGame() {
+    clearInterval(gameInterval);
+    alert(`Koniec gry! Twój wynik to: ${score}`);
+    document.location.reload();
+}
+
+// Główna pętla gry
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Aktualizacja pozycji gracza tylko podczas skoku
+    if (dino.isJumping) {
+        dino.dy += dino.gravity;
+        dino.y += dino.dy;
+        if (dino.y >= 300) {
+            dino.y = 300;
+            dino.isJumping = false;
+        }
+    }
+
+    // Aktualizacja przeszkód i generowanie co 100 punktów
+    updateObstacles();
+    if (score >= nextObstacleScore) {
+        createObstacle();
+        nextObstacleScore += Math.floor(Math.random() * (100 - 40 + 1)) + 40; // Ustawia następny próg
+        gameSpeed += 0.5;
+    }
+
+    // Sprawdzenie kolizji i zakończenie pętli gry w przypadku kolizji
+    if (checkCollision()) return;
+
+    // Rysowanie elementów
+    drawDino();
+    drawObstacles();
+
+    // Aktualizacja wyniku
+    score++;
+    document.getElementById("score").innerText = `Wynik: ${score}`;
+}
+
+// Obsługa skoku
+document.addEventListener("keydown", (e) => {
+event.preventDefault();
+    if (e.code === "Space" && !dino.isJumping) {
+        dino.isJumping = true;
+        dino.dy = -10;
+    }
+});
+
+
+
+
+</script>
+
+{% endblock %}
