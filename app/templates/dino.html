@@ -3,28 +3,110 @@
 
 <h1>Dino by Hlyw</h1>
 <center>
-    <div id="characterSelect" style="text-align: center;">
-    <h2>Wybierz swoją postać</h2>
-    <button onclick="selectCharacter('dino1')">Twój awatar</button>
-    <button onclick="selectCharacter('bmw_e92')">BMW E92</button>
-    <button onclick="selectCharacter('golf_3')">VW Golf 3</button>
-        <button onclick="selectCharacter('scirocco')">VW Scirocco</button>
-        <button onclick="selectCharacter('bmw_e36')">BMW E36</button>
-        <button onclick="selectCharacter('swift')">Suzuki Swift</button>
-        <button onclick="selectCharacter('vario')">Seat Cordoba Vario</button>
-        <button onclick="selectCharacter('sejol')">Fiat Seicento</button>
-        <button onclick="selectCharacter('altea')">Seat Altea</button>
-        <button onclick="selectCharacter('panda')">Fiat Panda</button>
-        <button onclick="selectCharacter('bmw_e46')">BMW E46</button>
-        <button onclick="selectCharacter('maluch')">Maluch</button>
-        <button onclick="selectCharacter('audi_a3')">Audi A3 8L</button>
-        <button onclick="selectCharacter('volvo')">Volvo S60</button>
-        <button onclick="selectCharacter('aygo')">Toyota Aygo</button>
-        <button onclick="selectCharacter('renault')">Renault Megane 3</button>
-        <button onclick="selectCharacter('peugeot')">Peugeot 307</button>
-        <button onclick="selectCharacter('trabant')">Trabant</button>
-        <button onclick="selectCharacter('punto')">Fiat Punto</button>
-        <button onclick="selectCharacter('megane_2')">Renault Megane 2</button>
+   <div id="characterSelect">
+    <h2>Wybierz swój pojazd</h2>
+    <form id="characterForm">
+        <label>
+            <input type="radio" name="character" value="dino1" onclick="selectCharacter('dino1')">
+            <img src="static/images/profile_pics/{{ current_user.photo }}" alt="Twój awatar" class="character-icon">
+            Twój awatar
+        </label>
+        <label>
+            <input type="radio" name="character" value="bmw_e92" onclick="selectCharacter('bmw_e92')">
+            <img src="static/images/dino/bmw_e92.png" alt="BMW E92" class="character-icon">
+            BMW E92
+        </label>
+        <label>
+            <input type="radio" name="character" value="golf_3" onclick="selectCharacter('golf_3')">
+            <img src="static/images/dino/golf_3.png" alt="VW Golf 3" class="character-icon">
+            VW Golf 3
+        </label>
+        <label>
+            <input type="radio" name="character" value="scirocco" onclick="selectCharacter('scirocco')">
+            <img src="static/images/dino/scirocco.png" alt="VW Scirocco" class="character-icon">
+            VW Scirocco
+        </label>
+        <label>
+            <input type="radio" name="character" value="bmw_e36" onclick="selectCharacter('bmw_e36')">
+            <img src="static/images/dino/bmw_e36.png" alt="BMW E36" class="character-icon">
+            BMW E36
+        </label>
+        <label>
+            <input type="radio" name="character" value="swift" onclick="selectCharacter('swift')">
+            <img src="static/images/dino/swift.png" alt="Suzuki Swift" class="character-icon">
+            Suzuki Swift
+        </label>
+        <label>
+            <input type="radio" name="character" value="vario" onclick="selectCharacter('vario')">
+            <img src="static/images/dino/vario.png" alt="Seat Cordoba Vario" class="character-icon">
+            Seat Cordoba Vario
+        </label>
+        <label>
+            <input type="radio" name="character" value="sejol" onclick="selectCharacter('sejol')">
+            <img src="static/images/dino/sejol.png" alt="Fiat Seicento" class="character-icon">
+            Fiat Seicento
+        </label>
+        <label>
+            <input type="radio" name="character" value="altea" onclick="selectCharacter('altea')">
+            <img src="static/images/dino/altea.png" alt="Seat Altea" class="character-icon">
+            Seat Altea
+        </label>
+        <label>
+            <input type="radio" name="character" value="panda" onclick="selectCharacter('panda')">
+            <img src="static/images/dino/panda.png" alt="Fiat Panda" class="character-icon">
+            Fiat Panda
+        </label>
+        <label>
+            <input type="radio" name="character" value="bmw_e46" onclick="selectCharacter('bmw_e46')">
+            <img src="static/images/dino/bmw_e46.png" alt="BMW E46" class="character-icon">
+            BMW E46
+        </label>
+        <label>
+            <input type="radio" name="character" value="maluch" onclick="selectCharacter('maluch')">
+            <img src="static/images/dino/maluch.png" alt="Maluch" class="character-icon">
+            Maluch
+        </label>
+        <label>
+            <input type="radio" name="character" value="audi_a3" onclick="selectCharacter('audi_a3')">
+            <img src="static/images/dino/audi_a3.png" alt="Audi A3 8L" class="character-icon">
+            Audi A3 8L
+        </label>
+        <label>
+            <input type="radio" name="character" value="volvo" onclick="selectCharacter('volvo')">
+            <img src="static/images/dino/volvo.png" alt="Volvo S60" class="character-icon">
+            Volvo S60
+        </label>
+        <label>
+            <input type="radio" name="character" value="aygo" onclick="selectCharacter('aygo')">
+            <img src="static/images/dino/aygo.png" alt="Toyota Aygo" class="character-icon">
+            Toyota Aygo
+        </label>
+        <label>
+            <input type="radio" name="character" value="renault" onclick="selectCharacter('renault')">
+            <img src="static/images/dino/renault.png" alt="Renault Megane 3" class="character-icon">
+            Renault Megane 3
+        </label>
+        <label>
+            <input type="radio" name="character" value="peugeot" onclick="selectCharacter('peugeot')">
+            <img src="static/images/dino/peugeot.png" alt="Peugeot 307" class="character-icon">
+            Peugeot 307
+        </label>
+        <label>
+            <input type="radio" name="character" value="trabant" onclick="selectCharacter('trabant')">
+            <img src="static/images/dino/trabant.png" alt="Trabant" class="character-icon">
+            Trabant
+        </label>
+        <label>
+            <input type="radio" name="character" value="punto" onclick="selectCharacter('punto')">
+            <img src="static/images/dino/punto.png" alt="Fiat Punto" class="character-icon">
+            Fiat Punto
+        </label>
+        <label>
+            <input type="radio" name="character" value="megane_2" onclick="selectCharacter('megane_2')">
+            <img src="static/images/dino/megane_2.png" alt="Renault Megane 2" class="character-icon">
+            Renault Megane 2
+        </label>
+    </form>
 </div>
 
     <canvas id="gameCanvasDino" width="800" height="400" style="display: none;"></canvas>

@@ -164,3 +164,33 @@ canvas {
     max-width: 300px;
     height: auto;
 }
+
+ #characterSelect {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        #characterSelect label {
+            display: inline-block;
+            text-align: center;
+            margin: 10px;
+            cursor: pointer;
+        }
+
+        #characterSelect input[type="radio"] {
+            display: none; /* Ukrycie rzeczywistego radio buttona */
+        }
+
+        .character-icon {
+            width: 50px; /* Ustaw szerokość ikon */
+            height: 50px;
+            border: 2px solid transparent;
+            border-radius: 5px;
+            transition: 0.3s;
+        }
+
+        /* Podświetlenie zaznaczonej ikony */
+        #characterSelect input[type="radio"]:checked + img {
+            border-color: #007bff; /* Kolor obramowania przy zaznaczeniu */
+            box-shadow: 0 0 8px #007bff;
+        }
