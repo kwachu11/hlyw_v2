@@ -3,12 +3,7 @@
 
 <div class="camera-container">
     <h3>Co dzieje się na Hlywie</h3>
-    <div class="video-container">
-        <video id="video" width="100%" controls autoplay muted>
-        <source src="https://hlyw.pl/static/stream.m3u8" type="application/x-mpegURL">
-        Twoja przeglądarka nie obsługuje elementu wideo.
-    </video>
-        </div>
+       <iframe id="camera-frame" src="https://rtsp.me/embed/62bBnQNN" frameborder="0" allowfullscreen></iframe>
 
     <!-- Sekcja czatu -->
     <div class="chat-container mt-4">
@@ -16,6 +11,10 @@
         <div id="chat-messages" class="chat-messages">
             <!-- Wiadomości czatu będą wyświetlane tutaj -->
         </div>
+                <div class="active-users-container">
+    <h3>Kto teraz patrzy</h3>
+    <div id="active-users"></div>
+</div>
         <form id="chat-form">
             <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość..." rows="3"></textarea>
             <button type="submit" class="btn btn-primary mt-2">Wyślij</button>

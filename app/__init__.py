@@ -1,6 +1,7 @@
 
 from dotenv import load_dotenv
 import os
+import glob
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import json
@@ -26,6 +27,9 @@ from datetime import date
 
 from flask_mail import Mail, Message as Message_
 import base64
+from ftplib import FTP
+from flask import session
+import time
 
 # Wczytaj zmienne środowiskowe z pliku .env
 
@@ -62,6 +66,7 @@ def create_app():
     app.config['MAIL_DEFAULT_SENDER'] = 'support@hlyw.pl'
 
     mail = Mail(app)
+    active_users = {}
 
     def convert_to_unix_path(path):
         return path.replace('\\', '/')
@@ -99,6 +104,23 @@ def create_app():
         subject = "Proszę potwierdzić swoje konto"
         msg = Message_(subject=subject, recipients=[user_email], html=html)
         mail.send(msg)
+
+    def manage_files(folder_path, max_files):
+        """
+        Funkcja usuwa najstarsze pliki w folderze, zostawiając tylko max_files najnowszych.
+        """
+        # Pobierz listę plików w folderze, posortowaną według daty modyfikacji (od najstarszych do najnowszych)
+        files = sorted(
+            [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
+             os.path.isfile(os.path.join(folder_path, f))],
+            key=os.path.getmtime
+        )
+
+        # Usuń pliki, jeśli jest ich więcej niż max_files
+        while len(files) > max_files:
+            oldest_file = files.pop(0)  # Pobierz najstarszy plik
+            os.remove(oldest_file)  # Usuń plik
+            print(f"Usunięto plik: {oldest_file}")  # Logowanie usunięcia pliku (opcjonalne)
 
     class User(db.Model, UserMixin):
         id = db.Column(db.Integer, primary_key=True)
@@ -211,6 +233,41 @@ def create_app():
         points = db.Column(db.Integer)
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
+
+    class Dino(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
+    class QuizParticipant(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
+        id = db.Column(db.Integer, primary_key=True)
+        username = db.Column(db.String(500), nullable=False)  # Dodano ograniczenie NOT NULL
+        score = db.Column(db.Integer, default=0)  # Wynik domyślnie 0
+
+        # Powiązanie z odpowiedziami (relacja odwrotna)
+        answers = db.relationship('QuizAnswer', backref='participant', lazy=True)
+
+    class QuizQuestion(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
+        id = db.Column(db.Integer, primary_key=True)
+        question_text = db.Column(db.Text, nullable=False)  # Użyto Text zamiast String dla dłuższych pytań
+        is_active = db.Column(db.Boolean, default=False)
+        type = db.Column(db.Integer, nullable=False, default="0")
+        correct_answer=db.Column(db.String(500), nullable=False)
+        options=db.Column(db.String(500), nullable=True)
+
+        # Powiązanie z odpowiedziami (relacja odwrotna)
+        answers = db.relationship('QuizAnswer', backref='question', lazy=True)
+
+    class QuizAnswer(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
+        id = db.Column(db.Integer, primary_key=True)
+        answer = db.Column(db.Text, nullable=False)  # Użyto Text zamiast String dla dłuższych odpowiedzi
+
+        # Powiązanie z uczestnikiem
+        participant_id = db.Column(db.Integer, db.ForeignKey('quiz_participant.id'), nullable=False)
+
+        # Powiązanie z pytaniem
+        question_id = db.Column(db.Integer, db.ForeignKey('quiz_question.id'), nullable=False)
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     with app.app_context():
@@ -687,9 +744,12 @@ def create_app():
         user=User.query.filter_by(id=snake_leader.created_by).first()
         tetris_leader = Tetris.query.order_by(Tetris.points.desc()).first()
         user2 = User.query.filter_by(id=tetris_leader.created_by).first()
+        dino_leader = Dino.query.order_by(Dino.points.desc()).first()
+        user3 = User.query.filter_by(id=dino_leader.created_by).first()
         games=[]
         games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake', 'ranking_snake'])
         games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris', 'ranking_tetris'])
+        games.append(['Dino', 'static/images/dino.png', dino_leader, user3, 'dino', 'ranking_dino'])
         print(games)
         return render_template('games.html', games=games)
 
@@ -712,6 +772,21 @@ def create_app():
 
         # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
         return jsonify({'redirect_url': url_for('tetris')})
+
+    @app.route('/dino/save_score', methods=['POST'])
+    def save_score_dino():
+        data = request.get_json()
+        score = data.get('score')
+
+        # Dodaj wiadomość flash
+        flash(f'Wynik: {score}.', 'success')  # Użyj 'success' jako kategorii
+
+        new_game = Dino(points=int(score), created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
+        return jsonify({'redirect_url': url_for('dino')})
 
     @app.route('/ranking_snake', methods=['GET', 'POST'])
     @login_required
@@ -754,11 +829,180 @@ def create_app():
         return render_template('ranking_tetris.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
 
+    @app.route('/ranking_dino', methods=['GET', 'POST'])
+    @login_required
+    def ranking_dino():
+        ranking_data = db.session.query(
+            User.id,
+            User.username,
+            User.photo,
+            func.count(Dino.id).label('attempts'),  # Ilość prób
+            func.sum(Dino.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(Dino.points).label('high_score')  # Najwyższy wynik (rekord)
+        ).outerjoin(Dino, Dino.created_by == User.id) \
+            .group_by(User.id) \
+            .having(func.max(Dino.points) != None) \
+            .order_by(func.max(Dino.points).desc()) \
+            .all()
+
+        rozegranych_gier = Dino.query.count()
+
+        return render_template('ranking_dino.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required
     def dino():
         return render_template('dino.html')
+
+    @app.route('/quiz', methods=['GET', 'POST'])
+    @login_required
+    def quiz():
+        options = []
+        pobrane = ""
+        pytanie = QuizQuestion.query.filter_by(is_active="1").first()
+        if pytanie == None:
+            pytanie="Czekaj na pytanie..."
+
+
+
+
+        odpowiedz = QuizAnswer.query.filter_by(question_id=pytanie.id, participant_id=current_user.id).first()
+
+
+
+        return render_template('quiz.html', pytanie=pytanie, options=options, odpowiedz=odpowiedz.answer)
+
+    @app.route('/dodaj_pytania', methods=['GET', 'POST'])
+    @login_required
+    def dodaj_pytania():
+
+        db.session.query(QuizQuestion).delete()
+        db.session.commit()
+
+
+        question1 = QuizQuestion(id=1, question_text="W którym roku powstał Hlyw?", correct_answer="2021")
+        question2 = QuizQuestion(id=2, type="1", question_text="Podaj liczbę powierzchni użytkowej Hlywa w m²",
+                                 correct_answer="b",
+                                 options=json.dumps({"a": "15,91 m²", "b": "16,88 m²", "c": "14,92 m²", "d": "17,08 m²"}))
+        question3 = QuizQuestion(id=3, type="1", question_text="Jaką pierwszą rzecz Prezes Hlywu wydrukował na drukarce 3D?",
+                                 correct_answer="c",
+                                 options=json.dumps({"a": "Papież", "b": "Napis HLYW", "c": "Sześcian", "d": "BMW"}))
+        question4 = QuizQuestion(id=4, type="1", question_text="Ile Czucz miał lat?",
+                                 correct_answer="a",
+                                 options=json.dumps({"a": "16", "b": "17", "c": "18", "d": "19"}))
+        question5 = QuizQuestion(id=5, question_text="Ile najwięcej osób było jednocześnie w Hlywie?", correct_answer="23")
+
+
+        db.session.add_all([question1, question2, question3, question4, question5])
+        db.session.commit()
+
+        return "Pytania zostały dodane"
+
+    @app.route('/current_question/', defaults={'answer': None}, methods=['GET', 'POST'])
+    @app.route('/current_question/<string:answer>', methods=['GET', 'POST'])
+    def current_question(answer):
+        question = QuizQuestion.query.filter_by(is_active=True).first()
+        odpowiedz=QuizAnswer.query.filter_by(question_id=question.id, participant_id=current_user.id).first()
+        if odpowiedz:
+            odpowiedz.answer=answer
+        else:
+            odpowiedz=QuizAnswer(answer=answer, question_id=question.id, participant_id=current_user.id)
+
+        if odpowiedz:
+            db.session.add(odpowiedz)
+            db.session.commit()
+
+
+        if question:
+            return jsonify({
+                'question_id': question.id,
+                'question_text': question.question_text,
+                'odpowiedz':answer
+            })
+        return jsonify({'question_id': None, 'question_text': "Czekaj na pytanie..."})
+
+    @app.route('/set_active_question/<int:question_id>', methods=['POST'])
+    def set_active_question(question_id):
+        # Wyłącz wszystkie pytania
+        QuizQuestion.query.update({'is_active': False})
+        db.session.commit()
+
+        # Włącz wybrane pytanie
+        question = QuizQuestion.query.get(question_id)
+        if question:
+            question.is_active = True
+            db.session.commit()
+            return jsonify({'status': 'success', 'message': f'Pytanie {question_id} ustawione jako aktywne'})
+        return jsonify({'status': 'error', 'message': 'Nie znaleziono pytania'})
+
+    @app.route('/api/upload', methods=['POST'])
+    def upload_file():
+        if 'file' not in request.files:
+            return "Brak pliku", 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return "Brak nazwy pliku", 400
+
+        # Folder docelowy
+        UPLOAD_FOLDER = os.path.join('app', 'static', 'videos')
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)  # Upewnij się, że folder istnieje
+
+        # Zapisanie pliku
+        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(filepath)
+
+        # Ograniczenie liczby plików do 5
+        manage_files(UPLOAD_FOLDER, max_files=5)
+
+        return "Plik zapisany", 200
+
+    @app.route("/api/videos", methods=["GET"])
+    def get_videos():
+        UPLOAD_FOLDER = os.path.join('app', 'static', 'videos')
+
+        # Pobierz wszystkie pliki w folderze
+        files = glob.glob(os.path.join(UPLOAD_FOLDER, "*"))
+
+        # Posortuj pliki po nazwie (alfabetycznie)
+        #files = sorted(files, key=lambda x: os.path.basename(x), reverse=True)
+        files = sorted(files, key=lambda x: os.path.basename(x))
+
+        # Tworzenie listy URL-i
+        file_urls = [f"/static/videos/{os.path.basename(file)}" for file in files]
+
+        return jsonify(file_urls)
+
+    @app.after_request
+    def set_csp(response):
+        response.headers['Content-Security-Policy'] = "frame-ancestors 'self' https://player.twitch.tv"
+        return response
+
+    @app.route('/user_active', methods=['POST'])
+    @login_required
+    def user_active():
+        """Rejestruje użytkownika jako aktywnego na stronie streamu"""
+        user_id = current_user.id
+        active_users[user_id] = {
+            "username": current_user.username,
+            "photo": current_user.photo,
+            "last_seen": datetime.utcnow()
+        }
+        return jsonify({"status": "ok"})
+
+    @app.route('/get_active_users')
+    @login_required
+    def get_active_users():
+        """Zwraca listę aktywnych użytkowników"""
+        now = datetime.utcnow()
+        time.sleep(1)
+        # Usuwamy użytkowników, którzy nie odświeżali statusu przez 10 sekund
+        active_users_filtered = {
+            uid: data for uid, data in active_users.items()
+            if now - data["last_seen"] < timedelta(seconds=30)
+        }
+        return jsonify({"users": list(active_users_filtered.values())})
+
 
     return app
 

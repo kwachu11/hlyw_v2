@@ -165,6 +165,11 @@ canvas {
     height: auto;
 }
 
+    #gameCanvasDino {
+    width: 100%;
+    height: auto;
+}
+
  #characterSelect {
             text-align: center;
             margin-top: 20px;
@@ -194,3 +199,16 @@ canvas {
             border-color: #007bff; /* Kolor obramowania przy zaznaczeniu */
             box-shadow: 0 0 8px #007bff;
         }
+
+
+ .camera-container {
+    width: 100%;
+    max-width: 1200px; /* Opcjonalnie, jeśli chcesz ustawić maksymalną szerokość */
+    margin: 0 auto;
+}
+
+#camera-frame {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16/9;
+}

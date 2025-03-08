@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+{% if 'quiz' in request.url %}<meta http-equiv="refresh" content="5">{% endif %}
     <title>hlyw.pl</title>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
@@ -12,6 +15,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <link href="https://unpkg.com/video.js@7.10.2/dist/video-js.css" rel="stylesheet">
 
 </head>
 <body>
@@ -64,7 +69,53 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('modalImage').src = imagePaths[currentIndex];
     };
 });
-//czat
+
+
+{% if 'quiz' in request.url %}
+// quiz
+
+  function fetchCurrentQuestion() {
+  const odpowiedz = document.querySelector('#odpowiedz').value;
+
+    fetch('/current_question/'+ encodeURIComponent(odpowiedz))
+        .then(response => response.json())
+        .then(data => {
+            const questionText = document.getElementById('question-text');
+            if (data.question_id) {
+                questionText.textContent = data.question_text;
+                 const poleTekstowe = document.getElementById('odpowiedz'); // Pobierz element input
+                poleTekstowe.value = data.odpowiedz; // Ustaw wartość pola tekstowego
+            }
+        })
+        .catch(error => console.error('Błąd podczas pobierania pytania:', error));
+}
+
+// Regularne odświeżanie pytania co 5 sekund
+setInterval(fetchCurrentQuestion, 5000);
+
+// Wywołanie funkcji od razu po załadowaniu strony
+fetchCurrentQuestion();
+
+function setActiveQuestion(questionId) {
+    fetch(`/set_active_question/${questionId}`, {
+        method: 'POST',
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(data.message);
+                fetchCurrentQuestion(); // Odśwież aktualne pytanie
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => console.error('Błąd podczas ustawiania aktywnego pytania:', error));
+}
+{% endif %}
+
+{% if 'camera' in request.url %}
+
+    //czat
    document.getElementById('chat-form').addEventListener('submit', function(event) {
     event.preventDefault(); // Zapobiega domyślnemu wysłaniu formularza
 
@@ -153,13 +204,89 @@ function loadMessages() {
 // Ładowanie wiadomości co 3 sekundy
 setInterval(loadMessages, 3000);
 
+function sendUserActive() {
+    fetch('/user_active', { method: 'POST' });
+}
 
-if(Hls.isSupported()) {
-    var video = document.getElementById('video');
-    var hls = new Hls();
-    hls.loadSource('https://hlyw.pl/static/stream.m3u8');
-    hls.attachMedia(video);
-  }
+setInterval(sendUserActive, 5000);
+
+function loadActiveUsers() {
+    fetch('/get_active_users')
+        .then(response => response.json())
+        .then(data => {
+            const usersContainer = document.getElementById('active-users');
+            usersContainer.innerHTML = '';
+
+            data.users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.classList.add('active-user');
+
+                const userImage = document.createElement('img');
+                userImage.src = `/static/images/profile_pics/${user.photo}`;
+                userImage.classList.add('user-photo');
+
+                const usernameSpan = document.createElement('span');
+                usernameSpan.textContent = user.username;
+
+                userDiv.appendChild(userImage);
+                userDiv.appendChild(usernameSpan);
+                usersContainer.appendChild(userDiv);
+            });
+        });
+}
+
+setInterval(loadActiveUsers, 5000);
+
+{% endif %}
+
+{% if 'cameras' in request.url or 'videos' in request.url %}
+
+        let videoList = [];
+        let currentIndex = 0;
+        let videoElement = document.getElementById('videoPlayer');
+
+        // Funkcja pobierająca listę plików wideo z API
+        async function fetchVideos() {
+            const response = await fetch('/api/videos');
+            if (response.ok) {
+                videoList = await response.json();
+                if (currentIndex >= videoList.length) {
+                    currentIndex = 0; // Resetuj indeks, jeśli lista się zmniejszyła
+                }
+                updatePlayer();  // Zaktualizuj odtwarzacz po pobraniu nowych plików
+            }
+        }
+
+        // Funkcja aktualizująca źródło wideo
+        function updatePlayer() {
+            if (videoList.length > 0) {
+                videoElement.src = videoList[currentIndex];  // Ustaw nowe źródło wideo
+                videoElement.play();  // Rozpocznij odtwarzanie wideo
+            } else {
+                videoElement.src = '';  // Jeśli brak plików wideo, wyczyść źródło
+            }
+        }
+
+        // Funkcja zwiększająca indeks i zmieniająca wideo co minutę
+        function changeVideoEveryMinute() {
+            currentIndex = (currentIndex + 1) % videoList.length; // Cykl przez listę
+            updatePlayer();  // Zaktualizuj źródło wideo
+        }
+
+        // Funkcja przeładowująca stronę co 5 minut
+        function reloadPageEveryFiveMinutes() {
+            window.location.reload();  // Przeładuj stronę
+        }
+
+        // Inicjalizacja
+        window.onload = () => {
+            // Pobierz pliki wideo i ustaw sprawdzanie nowych plików
+            fetchVideos();  // Pierwsze pobranie listy wideo
+            setInterval(changeVideoEveryMinute, 60000);  // Co minutę zmień wideo
+            setInterval(reloadPageEveryFiveMinutes, 300000);  // Co 5 minut przeładuj stronę i pobierz nowe pliki wideo
+        };
+
+{% endif %}
 
 </script>
 

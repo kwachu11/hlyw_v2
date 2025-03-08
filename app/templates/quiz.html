@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div id="quiz-question">
+        <h3 id="question-text">{{pytanie.question_text}}</h3>
+    </div>
+
+
+{% if pytanie.type == 0 %}
+<div class="row g-3 align-items-center">
+  <div class="col-auto">
+    <label for="odpowiedz" class="col-form-label">Twoja odpowiedź: </label>
+  </div>
+  <div class="col-auto">
+    <input type="text" id="odpowiedz" class="form-control" value="{{odpowiedz}}">
+  </div>
+</div>
+{% endif %}
+
+{% if pytanie.type == 1 %}
+{% for key, value in options.items() %}
+<div class="form-check">
+  <input class="form-check-input" type="radio" name="exampleRadios" id="exampleRadios1" value="{{ key }}">
+  <label class="form-check-label" for="exampleRadios1">
+    {{ value }}
+  </label>
+</div>
+        {% endfor %}
+{% endif %}
+
+
+<br><br>
+
+    <div>
+        <button onclick="setActiveQuestion(0)">Wyłącz Quiz</button>
+        <button onclick="setActiveQuestion(1)">Aktywuj pytanie 1</button>
+        <button onclick="setActiveQuestion(2)">Aktywuj pytanie 2</button>
+        <button onclick="setActiveQuestion(3)">Aktywuj pytanie 3</button>
+      <button onclick="setActiveQuestion(4)">Aktywuj pytanie 4</button>
+      <button onclick="setActiveQuestion(5)">Aktywuj pytanie 5</button>
+
+        <a href="/dodaj_pytania"><button>Dodaj Pytania</button></a>
+    </div>
+
+{% endblock %}
