@@ -17,7 +17,7 @@ from flask_login import login_user, logout_user, login_required, current_user, L
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
 
-from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm
+from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail
 
 import locale
 
@@ -169,7 +169,7 @@ def create_app():
         id = db.Column(db.Integer, primary_key=True)
         title = db.Column(db.String(100), nullable=False)
         description = db.Column(db.String(500))
-        date = db.Column(db.Date, nullable=False)
+        date = db.Column(db.DateTime, nullable=False)
         created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
         created_by = db.Column(db.String(500))
         participants = db.relationship('Participant', backref='calendar', lazy=True)
@@ -269,6 +269,15 @@ def create_app():
         # Powiązanie z pytaniem
         question_id = db.Column(db.Integer, db.ForeignKey('quiz_question.id'), nullable=False)
 
+    class FifaParticipant(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'))
+        participant_id = db.Column(db.Integer, db.ForeignKey('participant.id'))
+        role = db.Column(db.String(20))  # 'gracz' / 'obserwator'
+        club = db.Column(db.String(100), nullable=True)
+
+        participant = db.relationship('Participant', backref='fifa_data')
+
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     with app.app_context():
         db.create_all()
@@ -281,7 +290,7 @@ def create_app():
     @app.route('/')
     def index():
         images=[]
-        images.append("static\images\hlyw_1.jpg")
+        images.append("static\images\hlyw_1.png")
         images.append("static\images\hlyw_2.jpg")
         images.append("static\images\hlyw_3.jpg")
         images.append("static\images\hlyw_4.jpg")
@@ -472,6 +481,7 @@ def create_app():
             title = form.title.data
             description = form.description.data
             date = form.date.data
+            print(date)
             user_id = current_user.id
             new_entry = Calendar(title=title, description=description, date=date, created_by=user_id)
             db.session.add(new_entry)
@@ -490,8 +500,9 @@ def create_app():
 
 
         query_date = date(year, month, day)
+        #print("query date: ", query_date)
 
-        event = Calendar.query.filter_by(date=query_date).first()
+        event = Calendar.query.filter(Calendar.date.like(str(query_date)+'%')).first()
         owner= User.query.filter_by(id=event.created_by).first()
 
         if add_user!=None:
@@ -1002,6 +1013,23 @@ def create_app():
             if now - data["last_seen"] < timedelta(seconds=30)
         }
         return jsonify({"users": list(active_users_filtered.values())})
+
+    @app.route('/send_test_mail', methods=['GET', 'POST'])
+    @login_required
+    def send_test_mail():
+        form = TestEmail()
+
+        if form.validate_on_submit():
+            msg = Message_(subject=form.subject.data, recipients=[form.email.data], html=form.content.data)
+            mail.send(msg)
+            flash('Email wysłano - zobacz spam', 'success')
+            return render_template('test_email.html', form=form)
+        else:
+            form.email.data = 'kwasek18@gmail.com'
+            form.content.data = 'test'
+            form.subject.data = "Test subject"
+        return render_template('test_email.html', form=form)
+
 
 
     return app

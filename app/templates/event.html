@@ -5,7 +5,7 @@
 <div class="container mt-4">
     <h1>Informacje o wydarzeniu</h1>
             <div class="mb-3">
-            Wydarzenie w dniu: <b>{{day}}.{{month}}.{{year}}</b>
+            Wydarzenie w dniu: <b>{{ event.date.strftime('%d.%m.%Y %H:%M') if event.date.hour != 0 or event.date.minute != 0 else event.date.strftime('%d.%m.%Y') }}</b>
         </div>
     <div class="mb-3">
         Tytuł: <b>{{event.title}}</b>

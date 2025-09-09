@@ -1,5 +1,5 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, EmailField, FileField, DateField, TextAreaField
+from wtforms import StringField, PasswordField, SubmitField, EmailField, FileField, DateField, TextAreaField, DateTimeLocalField
 from wtforms.validators import DataRequired, EqualTo, Length
 
 class LoginForm(FlaskForm):
@@ -30,7 +30,8 @@ class NewsForm(FlaskForm):
     submit = SubmitField('Dodaj Newsa')
 
 class CalendarForm(FlaskForm):
-    date = DateField('Data', validators=[DataRequired()])
+    #date = DateTimeLocalField('Data i godzina', format='%Y-%m-%d %H:%M', validators=[DataRequired()])
+    date = DateTimeLocalField('Data', validators=[DataRequired()])
     title = StringField('Tytuł', validators=[DataRequired()])
     description = StringField('Opis', validators=[DataRequired()])
     submit = SubmitField('Dodaj Wydarzenie')
@@ -48,4 +49,10 @@ class ReportForm(FlaskForm):
 class CommentForm(FlaskForm):
     content = TextAreaField('Komentarz', validators=[DataRequired()])
     submit = SubmitField('Dodaj komentarz')
+
+class TestEmail(FlaskForm):
+    email = EmailField('Email', validators=[DataRequired()])
+    subject = StringField('Temat', validators=[DataRequired()])
+    content = TextAreaField('Treść', validators=[DataRequired()])
+    submit = SubmitField('Wyślij testowego maila')
 
