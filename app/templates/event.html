@@ -16,16 +16,93 @@
     <div class="mb-3">
             Organizator: <b>{{owner.username}}</b>
         </div>
-    <div class="mb-3">
-            Uczestnicy: <b>{% for participant in participants_names %}
-    {{ participant.username }},
-{% endfor %}</b>
-        </div>
-                {% if czy_zapisany == False %}
-                    <h5>Nie jesteś jeszcze zapisany? -> <a href="/event?day={{day}}&month={{month}}&year={{year}}&add_user={{current_user.id}}">Zapisz się !</a> </h5>
-                {% else %}
-                    <h5>Jesteś już zapisany na to wydarzenie :)</h5>
-                {% endif %}
+<div class="mb-3">
+    <h5>Uczestnicy:</h5>
+
+    {% if participants %}
+        <ul class="list-group">
+            {% for part, user, fifa in participants %}
+                <li class="list-group-item d-flex flex-column flex-md-row align-items-start align-items-md-center">
+
+                    <!-- Avatar -->
+                    <img src="static/images/profile_pics/{{ user.photo }}"
+                         alt="{{ user.username }}"
+                         class="rounded-circle me-3 mb-2 mb-md-0"
+                         width="50" height="50"
+                         onerror="this.src='{{ url_for('static', filename='default.jpg') }}'">
+
+                    <!-- Nazwa + rola + klub -->
+                    <div class="flex-grow-1 d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center w-100">
+                        <div>
+                            <strong>{{ user.username }}</strong>
+                            {% if fifa %}
+                                {% if fifa.role == "gracz" %}
+                                    <span class="badge bg-success ms-2">Gracz</span>
+                                    <span class="text-muted ms-1">({{ fifa.club }})</span>
+                                {% elif fifa.role == "obserwator" %}
+                                    <span class="badge bg-info ms-2">Obserwator</span>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">Brak uczestników.</p>
+    {% endif %}
+</div>
+                {% if "FIFA" in event.title.upper() %}
+    {% if not czy_zapisany %}
+        <form method="POST" action="{{ url_for('event', day=day, month=month, year=year) }}">
+            <input type="hidden" name="add_user" value="{{ current_user.id }}">
+
+            <div class="mb-3">
+                <label><b>Rola:</b></label><br>
+                <input type="radio" name="role" value="gracz" required> Gracz
+                <input type="radio" name="role" value="obserwator"> Obserwator
+            </div>
+
+            <div class="mb-3" id="clubSelect" style="display:none;">
+                <label for="club"><b>Wybierz klub:</b></label>
+                <select name="club" class="form-control">
+                    <option value="">-- wybierz klub --</option>
+                    <option value="Real Madrid">Real Madrid</option>
+                    <option value="FC Barcelona">FC Barcelona</option>
+                    <option value="Manchester United">Manchester United</option>
+                    <option value="Bayern Monachium">Bayern Monachium</option>
+                    <option value="PSG">PSG</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Zapisz się</button>
+        </form>
+
+        <script>
+        // Pokaż wybór klubu tylko gdy wybrano "Gracz"
+        document.querySelectorAll('input[name="role"]').forEach(el => {
+            el.addEventListener('change', () => {
+                if (el.value === 'gracz' && el.checked) {
+                    document.getElementById('clubSelect').style.display = 'block';
+                } else {
+                    document.getElementById('clubSelect').style.display = 'none';
+                }
+            });
+        });
+        </script>
+    {% else %}
+        <h5>Jesteś już zapisany na to wydarzenie :)</h5>
+    {% endif %}
+{% else %}
+    {% if not czy_zapisany %}
+        <form method="POST" action="{{ url_for('event', day=day, month=month, year=year) }}">
+            <input type="hidden" name="add_user" value="{{ current_user.id }}">
+            <button type="submit" class="btn btn-primary">Zapisz się!</button>
+        </form>
+    {% else %}
+        <h5>Jesteś już zapisany na to wydarzenie :)</h5>
+    {% endif %}
+{% endif %}
 
 </div>
 

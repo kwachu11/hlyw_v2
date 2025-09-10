@@ -495,40 +495,69 @@ def create_app():
         day = request.args.get('day', type=int)
         month = request.args.get('month', type=int)
         year = request.args.get('year', type=int)
-        add_user=request.args.get('add_user', type=int)
-
-
 
         query_date = date(year, month, day)
-        #print("query date: ", query_date)
 
-        event = Calendar.query.filter(Calendar.date.like(str(query_date)+'%')).first()
-        owner= User.query.filter_by(id=event.created_by).first()
+        # pobranie wydarzenia
+        event = Calendar.query.filter(Calendar.date.like(str(query_date) + '%')).first_or_404()
+        owner = User.query.filter_by(id=event.created_by).first()
 
-        if add_user!=None:
-            new_Participant = Participant(user_id=add_user, event_id=event.id)
-            db.session.add(new_Participant)
+        # obsługa zapisu
+        if request.method == 'POST' and request.form.get("add_user"):
+            # sprawdzamy czy już jest zapisany
+            already = Participant.query.filter_by(event_id=event.id, user_id=current_user.id).first()
+            if already:
+                flash("Już jesteś zapisany na to wydarzenie!", "warning")
+                return redirect(url_for('event', day=day, month=month, year=year))
+
+            # zapis do głównej tabeli Participant
+            new_participant = Participant(
+                user_id=current_user.id,
+                event_id=event.id
+            )
+            db.session.add(new_participant)
             db.session.commit()
-            flash('Zapisałeś się na wydarzenie !', 'success')
 
-        participants=Participant.query.filter_by(event_id=event.id).all()
+            # jeśli wydarzenie to FIFA → dodaj wpis do FifaParticipant
+            if "FIFA" in event.title.upper():
+                role = request.form.get("role", "uczestnik")
+                club = request.form.get("club") if role == "gracz" else None
 
+                fifa_participant = FifaParticipant(
+                    event_id=event.id,
+                    participant_id=new_participant.id,
+                    role=role,
+                    club=club
+                )
+                db.session.add(fifa_participant)
+                db.session.commit()
 
+            flash("Zapisałeś się na wydarzenie!", "success")
+            return redirect(url_for('event', day=day, month=month, year=year))
 
-        czy_zapisany=False
-        participants_names=[]
-        for i in participants:
-            name = User.query.filter_by(id=i.user_id).first()
-            participants_names.append(name)
-            if current_user.id == int(i.user_id):
-                czy_zapisany=True
+        # pobieranie uczestników
+        participants = (
+            db.session.query(Participant, User, FifaParticipant)
+            .join(User, User.id == Participant.user_id)
+            .outerjoin(FifaParticipant, FifaParticipant.participant_id == Participant.id)
+            .filter(Participant.event_id == event.id)
+            .all()
+        )
 
+        # sprawdzanie czy obecny user jest zapisany
+        czy_zapisany = any(p.User.id == current_user.id for p in participants)
 
-        return render_template('event.html', day=day, month=month, year=year,
-                               event=event, owner=owner, participants=participants, czy_zapisany=czy_zapisany,
-                               current_user=current_user, participants_names=participants_names)
-
-
+        return render_template(
+            'event.html',
+            day=day,
+            month=month,
+            year=year,
+            event=event,
+            owner=owner,
+            participants=participants,
+            czy_zapisany=czy_zapisany,
+            current_user=current_user
+        )
 
     @app.route('/camera')
     @login_required
