@@ -30,6 +30,8 @@ import base64
 from ftplib import FTP
 from flask import session
 import time
+from itertools import combinations
+import random
 
 # Wczytaj zmienne środowiskowe z pliku .env
 
@@ -121,6 +123,156 @@ def create_app():
             oldest_file = files.pop(0)  # Pobierz najstarszy plik
             os.remove(oldest_file)  # Usuń plik
             print(f"Usunięto plik: {oldest_file}")  # Logowanie usunięcia pliku (opcjonalne)
+
+    def generate_groups_and_matches(tournament, players):
+        random.shuffle(players)
+        half = len(players) // 2
+        groups = {
+            "A": players[:half],
+            "B": players[half:]
+        }
+
+        for name, group_players in groups.items():
+            group = TournamentGroup(tournament_id=tournament.id, name=name)
+            db.session.add(group)
+            db.session.flush()  # żeby mieć group.id
+
+            # każdy z każdym
+            for i in range(len(group_players)):
+                for j in range(i + 1, len(group_players)):
+                    match = TournamentMatch(
+                        tournament_id=tournament.id,
+                        group_id=group.id,
+                        round="grupa",
+                        home_player_id=group_players[i].user_id,
+                        away_player_id=group_players[j].user_id
+                    )
+                    db.session.add(match)
+
+    def generate_knockout_stage(tournament):
+        groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).all()
+        if len(groups) < 2:
+            return
+
+        ranking = {g.id: calculate_group_ranking(g) for g in groups}
+
+        # top 2 z każdej grupy
+        a1, a2 = ranking[groups[0].id][:2]
+        b1, b2 = ranking[groups[1].id][:2]
+
+        # półfinały: A1 vs B2, B1 vs A2
+        semi1 = TournamentMatch(
+            tournament_id=tournament.id,
+            round="1/2 finału",
+            home_player_id=a1[0].id,  # User
+            away_player_id=b2[0].id
+        )
+        semi2 = TournamentMatch(
+            tournament_id=tournament.id,
+            round="1/2 finału",
+            home_player_id=b1[0].id,
+            away_player_id=a2[0].id
+        )
+        db.session.add_all([semi1, semi2])
+        db.session.commit()
+
+
+    def generate_final(tournament):
+        semis = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="1/2 finału").all()
+        if len(semis) < 2:
+            return
+
+        winners = []
+        for match in semis:
+            if match.home_score is None or match.away_score is None:
+                return  # jeszcze nie gotowe
+            if match.home_score > match.away_score:
+                winners.append(match.home_player)
+            else:
+                winners.append(match.away_player)
+
+        final = TournamentMatch(
+            tournament_id=tournament.id,
+            round="finał",
+            home_player_id=winners[0].id,
+            away_player_id=winners[1].id
+        )
+        db.session.add(final)
+        db.session.commit()
+
+    def calculate_group_ranking(group):
+        ranking = {}
+        for match in group.matches:
+            if match.home_score is None or match.away_score is None:
+                continue
+            for pid in [match.home_player_id, match.away_player_id]:
+                ranking.setdefault(pid, 0)
+
+            if match.home_score > match.away_score:
+                ranking[match.home_player_id] += 3
+            elif match.home_score < match.away_score:
+                ranking[match.away_player_id] += 3
+            else:
+                ranking[match.home_player_id] += 1
+                ranking[match.away_player_id] += 1
+
+        sorted_ranking = sorted(ranking.items(), key=lambda x: x[1], reverse=True)
+        return [(User.query.get(uid), pts) for uid, pts in sorted_ranking]
+
+    def calculate_group_table(group):
+        players = set()
+        for match in group.matches:
+            players.add(match.home_player)
+            players.add(match.away_player)
+
+        table = []
+        for player in players:
+            points = 0
+            goals_for = 0
+            goals_against = 0
+            wins = 0
+            draws = 0
+            losses = 0
+
+            for match in group.matches:
+                if match.home_score is None or match.away_score is None:
+                    continue
+                if match.home_player == player:
+                    goals_for += match.home_score
+                    goals_against += match.away_score
+                    if match.home_score > match.away_score:
+                        points += 3;
+                        wins += 1
+                    elif match.home_score == match.away_score:
+                        points += 1;
+                        draws += 1
+                    else:
+                        losses += 1
+                elif match.away_player == player:
+                    goals_for += match.away_score
+                    goals_against += match.home_score
+                    if match.away_score > match.home_score:
+                        points += 3;
+                        wins += 1
+                    elif match.away_score == match.home_score:
+                        points += 1;
+                        draws += 1
+                    else:
+                        losses += 1
+
+            table.append({
+                "player": player,
+                "points": points,
+                "wins": wins,
+                "draws": draws,
+                "losses": losses,
+                "goals_for": goals_for,
+                "goals_against": goals_against,
+                "goal_diff": goals_for - goals_against
+            })
+
+        return sorted(table, key=lambda x: (x["points"], x["goal_diff"], x["goals_for"]), reverse=True)
+
 
     class User(db.Model, UserMixin):
         id = db.Column(db.Integer, primary_key=True)
@@ -272,11 +424,38 @@ def create_app():
     class FifaParticipant(db.Model):
         id = db.Column(db.Integer, primary_key=True)
         event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'))
-        participant_id = db.Column(db.Integer, db.ForeignKey('participant.id'))
-        role = db.Column(db.String(20))  # 'gracz' / 'obserwator'
-        club = db.Column(db.String(100), nullable=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+        role = db.Column(db.String(20))  # "player" albo "observer"
+        club = db.Column(db.String(100), nullable=True)  # tylko jeśli player
 
-        participant = db.relationship('Participant', backref='fifa_data')
+    class Tournament(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'))
+        started = db.Column(db.Boolean, default=False)
+        finished = db.Column(db.Boolean, default=False)
+
+        groups = db.relationship('TournamentGroup', backref='tournament')
+        matches = db.relationship('TournamentMatch', backref='tournament')
+
+    class TournamentGroup(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'))
+        name = db.Column(db.String(10))  # np. "Grupa A"
+
+        matches = db.relationship('TournamentMatch', backref='group')
+
+    class TournamentMatch(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'))
+        group_id = db.Column(db.Integer, db.ForeignKey('tournament_group.id'), nullable=True)
+        round = db.Column(db.String(50))  # "grupy", "1/2 finału", "finał"
+        home_player_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+        away_player_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+        home_score = db.Column(db.Integer, nullable=True)
+        away_score = db.Column(db.Integer, nullable=True)
+
+        home_player = db.relationship('User', foreign_keys=[home_player_id])
+        away_player = db.relationship('User', foreign_keys=[away_player_id])
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     with app.app_context():
@@ -497,66 +676,80 @@ def create_app():
         year = request.args.get('year', type=int)
 
         query_date = date(year, month, day)
-
-        # pobranie wydarzenia
         event = Calendar.query.filter(Calendar.date.like(str(query_date) + '%')).first_or_404()
-        owner = User.query.filter_by(id=event.created_by).first()
+        owner = User.query.get(event.created_by)
 
-        # obsługa zapisu
-        if request.method == 'POST' and request.form.get("add_user"):
-            # sprawdzamy czy już jest zapisany
-            already = Participant.query.filter_by(event_id=event.id, user_id=current_user.id).first()
-            if already:
-                flash("Już jesteś zapisany na to wydarzenie!", "warning")
-                return redirect(url_for('event', day=day, month=month, year=year))
+        fifa_mode = "fifa" in event.title.lower()
+        czy_zapisany = False
+        participants_names = []
 
-            # zapis do głównej tabeli Participant
-            new_participant = Participant(
-                user_id=current_user.id,
-                event_id=event.id
-            )
-            db.session.add(new_participant)
-            db.session.commit()
+        if fifa_mode:
+            fifa_participants = FifaParticipant.query.filter_by(event_id=event.id).all()
+            for fp in fifa_participants:
+                user = User.query.get(fp.user_id)
+                participants_names.append({
+                    "username": user.username,
+                    "role": fp.role,
+                    "club": fp.club
+                })
+                if fp.user_id == current_user.id:
+                    czy_zapisany = True
 
-            # jeśli wydarzenie to FIFA → dodaj wpis do FifaParticipant
-            if "FIFA" in event.title.upper():
-                role = request.form.get("role", "uczestnik")
-                club = request.form.get("club") if role == "gracz" else None
+            # Turniej
+            tournament = Tournament.query.filter_by(event_id=event.id).first()
+            groups = []
+            semifinals = []
+            final = None
+            winner = None
 
-                fifa_participant = FifaParticipant(
-                    event_id=event.id,
-                    participant_id=new_participant.id,
-                    role=role,
-                    club=club
-                )
-                db.session.add(fifa_participant)
-                db.session.commit()
+            if tournament:
+                groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).all()
+                for group in groups:
+                    group.matches = TournamentMatch.query.filter_by(group_id=group.id, round="grupa").all()
+                    group.table = calculate_group_table(group)
 
-            flash("Zapisałeś się na wydarzenie!", "success")
-            return redirect(url_for('event', day=day, month=month, year=year))
+                semifinals = TournamentMatch.query.filter_by(
+                    tournament_id=tournament.id, round="1/2 finału"
+                ).all()
+                final = TournamentMatch.query.filter_by(
+                    tournament_id=tournament.id, round="finał"
+                ).first()
 
-        # pobieranie uczestników
-        participants = (
-            db.session.query(Participant, User, FifaParticipant)
-            .join(User, User.id == Participant.user_id)
-            .outerjoin(FifaParticipant, FifaParticipant.participant_id == Participant.id)
-            .filter(Participant.event_id == event.id)
-            .all()
-        )
+                if final and final.home_score is not None and final.away_score is not None:
+                    if final.home_score > final.away_score:
+                        winner = final.home_player
+                    elif final.away_score > final.home_score:
+                        winner = final.away_player
 
-        # sprawdzanie czy obecny user jest zapisany
-        czy_zapisany = any(p.User.id == current_user.id for p in participants)
+        else:
+            add_user = request.args.get('add_user', type=int)
+            if add_user:
+                if not Participant.query.filter_by(event_id=event.id, user_id=add_user).first():
+                    new_participant = Participant(user_id=add_user, event_id=event.id)
+                    db.session.add(new_participant)
+                    db.session.commit()
+                    flash('Zapisałeś się na wydarzenie!', 'success')
+
+            participants = Participant.query.filter_by(event_id=event.id).all()
+            for p in participants:
+                user = User.query.get(p.user_id)
+                participants_names.append({"username": user.username})
+                if p.user_id == current_user.id:
+                    czy_zapisany = True
 
         return render_template(
             'event.html',
-            day=day,
-            month=month,
-            year=year,
+            day=day, month=month, year=year,
             event=event,
             owner=owner,
-            participants=participants,
+            participants_names=participants_names,
+            fifa_mode=fifa_mode,
             czy_zapisany=czy_zapisany,
-            current_user=current_user
+            current_user=current_user,
+            groups=groups if fifa_mode else [],
+            semifinals=semifinals if fifa_mode else [],
+            final=final if fifa_mode else None,
+            winner=winner if fifa_mode else None
         )
 
     @app.route('/camera')
@@ -1059,7 +1252,183 @@ def create_app():
             form.subject.data = "Test subject"
         return render_template('test_email.html', form=form)
 
+    @app.route("/start_tournament/<int:event_id>", methods=["POST"])
+    @login_required
+    def start_tournament(event_id):
+        if not current_user.is_admin:
+            flash("Brak uprawnień", "danger")
+            return redirect(request.referrer)
 
+        event = Calendar.query.get_or_404(event_id)
+
+        tournament = Tournament.query.filter_by(event_id=event.id).first()
+        if tournament and tournament.started:
+            flash("Turniej już został rozpoczęty.", "warning")
+            return redirect(request.referrer)
+
+        if not tournament:
+            tournament = Tournament(event_id=event.id, started=True, finished=False)
+            db.session.add(tournament)
+            db.session.flush()
+        else:
+            tournament.started = True
+
+        # gracze z eventu
+        fifa_players = FifaParticipant.query.filter_by(event_id=event.id, role="player").all()
+        if len(fifa_players) < 4:
+            flash("Za mało graczy do rozpoczęcia turnieju.", "danger")
+            return redirect(request.referrer)
+
+        generate_groups_and_matches(tournament, fifa_players)
+        db.session.commit()
+
+        flash("Turniej rozpoczęty 🚀", "success")
+        return redirect(url_for("event", day=event.date.day, month=event.date.month, year=event.date.year))
+
+    @app.route("/update_match/<int:match_id>", methods=["POST"])
+    @login_required
+    def update_match(match_id):
+        if not current_user.is_admin:
+            flash("Brak uprawnień", "danger")
+            return redirect(request.referrer)
+
+        match = TournamentMatch.query.get_or_404(match_id)
+        match.home_score = request.form.get("home_score", type=int)
+        match.away_score = request.form.get("away_score", type=int)
+
+        db.session.commit()
+        flash("Wynik meczu zapisany ✅", "success")
+        return redirect(request.referrer)
+
+    @app.route('/generate_playoffs/<int:tournament_id>', methods=['POST'])
+    @login_required
+    def generate_playoffs(tournament_id):
+        tournament = Tournament.query.get_or_404(tournament_id)
+        event = Calendar.query.get_or_404(tournament.event_id)
+
+        if current_user.id != int(event.created_by):
+            flash("Tylko organizator może generować fazę pucharową!", "danger")
+            return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year))
+
+        # dla każdej grupy obliczamy zwycięzców (2 najlepszych)
+        playoff_players = []
+        for group in tournament.groups:
+            # policz punkty: zwycięstwo=3, remis=1, przegrana=0
+            points = {}
+            for match in group.matches:
+                if match.home_score is None or match.away_score is None:
+                    continue  # mecz nie rozegrany
+                if match.home_score > match.away_score:
+                    points[match.home_player_id] = points.get(match.home_player_id, 0) + 3
+                    points[match.away_player_id] = points.get(match.away_player_id, 0)
+                elif match.home_score < match.away_score:
+                    points[match.away_player_id] = points.get(match.away_player_id, 0) + 3
+                    points[match.home_player_id] = points.get(match.home_player_id, 0)
+                else:
+                    points[match.home_player_id] = points.get(match.home_player_id, 0) + 1
+                    points[match.away_player_id] = points.get(match.away_player_id, 0) + 1
+
+            # sortowanie po punktach i wybór 2 najlepszych
+            sorted_players = sorted(points.items(), key=lambda x: x[1], reverse=True)
+            top_players = [player_id for player_id, pts in sorted_players[:2]]
+            playoff_players.extend(top_players)
+
+        # losujemy półfinały (1 z grupy A vs 2 z grupy B i odwrotnie)
+        if len(playoff_players) < 4:
+            flash("Za mało danych do wygenerowania fazy pucharowej!", "warning")
+            return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year))
+
+        # zakładamy: playoff_players = [A1, A2, B1, B2]
+        semifinals = [
+            (playoff_players[0], playoff_players[3]),  # A1 vs B2
+            (playoff_players[2], playoff_players[1]),  # B1 vs A2
+        ]
+
+        # generowanie półfinałów
+        for home_id, away_id in semifinals:
+            match = TournamentMatch(
+                tournament_id=tournament.id,
+                round="1/2 finału",
+                home_player_id=home_id,
+                away_player_id=away_id
+            )
+            db.session.add(match)
+
+        # generowanie finału (puste miejsca, uzupełni admin po rozegraniu półfinałów)
+        match_final = TournamentMatch(
+            tournament_id=tournament.id,
+            round="finał",
+            home_player_id=None,
+            away_player_id=None
+        )
+        db.session.add(match_final)
+
+        db.session.commit()
+        flash("Faza pucharowa wygenerowana!", "success")
+        return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year))
+
+    @app.route("/finish_tournament/<int:event_id>", methods=["POST"])
+    @login_required
+    def finish_tournament(event_id):
+        if not current_user.is_admin:
+            flash("Brak uprawnień", "danger")
+            return redirect(request.referrer)
+
+        tournament = Tournament.query.filter_by(event_id=event_id).first()
+        if not tournament:
+            flash("Brak aktywnego turnieju", "warning")
+            return redirect(request.referrer)
+
+        tournament.finished = True
+        db.session.commit()
+
+        flash("Turniej zakończony 🏁", "success")
+        return redirect(request.referrer)
+
+    @app.route("/generate_knockout/<int:event_id>", methods=["POST"])
+    @login_required
+    def generate_knockout(event_id):
+        if not current_user.is_admin:
+            flash("Brak uprawnień", "danger")
+            return redirect(request.referrer)
+
+        tournament = Tournament.query.filter_by(event_id=event_id).first()
+        generate_knockout_stage(tournament)
+        flash("Półfinały wygenerowane ✅", "success")
+        return redirect(request.referrer)
+
+    @app.route("/generate_final/<int:event_id>", methods=["POST"])
+    @login_required
+    def generate_final_route(event_id):
+        if not current_user.is_admin:
+            flash("Brak uprawnień", "danger")
+            return redirect(request.referrer)
+
+        tournament = Tournament.query.filter_by(event_id=event_id).first()
+        generate_final(tournament)
+        flash("Finał wygenerowany 🏆", "success")
+        return redirect(request.referrer)
+
+    @app.route("/join_fifa_event/<int:event_id>", methods=["POST"])
+    @login_required
+    def join_fifa_event(event_id):
+        role = request.form.get("role")
+        club = request.form.get("club") if role == "player" else None
+
+        if FifaParticipant.query.filter_by(event_id=event_id, user_id=current_user.id).first():
+            flash("Już jesteś zapisany na to wydarzenie.", "warning")
+            return redirect(request.referrer)
+
+        fifa_participant = FifaParticipant(
+            event_id=event_id,
+            user_id=current_user.id,
+            role=role,
+            club=club
+        )
+        db.session.add(fifa_participant)
+        db.session.commit()
+        flash("Zapisano do turnieju FIFA ✅", "success")
+        return redirect(request.referrer)
 
     return app
 

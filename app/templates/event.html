@@ -1,113 +1,278 @@
 {% extends "base.html" %}
 
 {% block content %}
-
 <div class="container mt-4">
     <h1>Informacje o wydarzeniu</h1>
-            <div class="mb-3">
-            Wydarzenie w dniu: <b>{{ event.date.strftime('%d.%m.%Y %H:%M') if event.date.hour != 0 or event.date.minute != 0 else event.date.strftime('%d.%m.%Y') }}</b>
-        </div>
+
     <div class="mb-3">
-        Tytuł: <b>{{event.title}}</b>
-        </div>
-        <div class="mb-3">
-            Opis: <b>{{event.description}}</b>
-        </div>
+        Wydarzenie w dniu:
+        <b>
+            {{ event.date.strftime('%d.%m.%Y %H:%M') if event.date.hour != 0 or event.date.minute != 0 else event.date.strftime('%d.%m.%Y') }}
+        </b>
+    </div>
+
     <div class="mb-3">
-            Organizator: <b>{{owner.username}}</b>
-        </div>
+        Tytuł: <b>{{ event.title }}</b>
+    </div>
+
+    <div class="mb-3">
+        Opis: <b>{{ event.description }}</b>
+    </div>
+
+    <div class="mb-3">
+        Organizator: <b>{{ owner.username }}</b>
+    </div>
+
 <div class="mb-3">
-    <h5>Uczestnicy:</h5>
-
-    {% if participants %}
-        <ul class="list-group">
-            {% for part, user, fifa in participants %}
-                <li class="list-group-item d-flex flex-column flex-md-row align-items-start align-items-md-center">
-
-                    <!-- Avatar -->
-                    <img src="static/images/profile_pics/{{ user.photo }}"
-                         alt="{{ user.username }}"
-                         class="rounded-circle me-3 mb-2 mb-md-0"
-                         width="50" height="50"
-                         onerror="this.src='{{ url_for('static', filename='default.jpg') }}'">
-
-                    <!-- Nazwa + rola + klub -->
-                    <div class="flex-grow-1 d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center w-100">
-                        <div>
-                            <strong>{{ user.username }}</strong>
-                            {% if fifa %}
-                                {% if fifa.role == "gracz" %}
-                                    <span class="badge bg-success ms-2">Gracz</span>
-                                    <span class="text-muted ms-1">({{ fifa.club }})</span>
-                                {% elif fifa.role == "obserwator" %}
-                                    <span class="badge bg-info ms-2">Obserwator</span>
-                                {% endif %}
-                            {% endif %}
-                        </div>
-                    </div>
+    <b>Uczestnicy:</b>
+    <ul>
+        {% if fifa_mode %}
+            {% for p in participants_names %}
+                <li>
+                    {{ p.username }} –
+                    {% if p.role == "player" %}
+                        Gracz ({{ p.club }})
+                    {% else %}
+                        Obserwator
+                    {% endif %}
                 </li>
             {% endfor %}
-        </ul>
-    {% else %}
-        <p class="text-muted">Brak uczestników.</p>
-    {% endif %}
+        {% else %}
+            {% for p in participants_names %}
+                <li>{{ p.username }}</li>
+            {% endfor %}
+        {% endif %}
+    </ul>
 </div>
-                {% if "FIFA" in event.title.upper() %}
-    {% if not czy_zapisany %}
-        <form method="POST" action="{{ url_for('event', day=day, month=month, year=year) }}">
-            <input type="hidden" name="add_user" value="{{ current_user.id }}">
 
-            <div class="mb-3">
+{% if not czy_zapisany %}
+    {% if fifa_mode %}
+        <!-- Formularz zapisu do turnieju FIFA -->
+        <h5>Zapisz się do turnieju FIFA:</h5>
+        <form action="{{ url_for('join_fifa_event', event_id=event.id) }}" method="POST" class="mb-3">
+            <div class="mb-2">
                 <label><b>Rola:</b></label><br>
-                <input type="radio" name="role" value="gracz" required> Gracz
-                <input type="radio" name="role" value="obserwator"> Obserwator
+                <input type="radio" name="role" value="player" required> Gracz
+                <input type="radio" name="role" value="observer"> Obserwator
             </div>
-
-            <div class="mb-3" id="clubSelect" style="display:none;">
+            <div class="mb-2" id="club-select" style="display:none;">
                 <label for="club"><b>Wybierz klub:</b></label>
-                <select name="club" class="form-control">
-                    <option value="">-- wybierz klub --</option>
-                    <option value="Real Madrid">Real Madrid</option>
+                <select name="club" class="form-select">
                     <option value="FC Barcelona">FC Barcelona</option>
+                    <option value="Real Madrid">Real Madrid</option>
                     <option value="Manchester United">Manchester United</option>
-                    <option value="Bayern Monachium">Bayern Monachium</option>
+                    <option value="Liverpool">Liverpool</option>
                     <option value="PSG">PSG</option>
+                    <option value="Juventus">Juventus</option>
                 </select>
             </div>
-
-            <button type="submit" class="btn btn-primary">Zapisz się</button>
+            <button type="submit" class="btn btn-success">Zapisz się</button>
         </form>
 
         <script>
-        // Pokaż wybór klubu tylko gdy wybrano "Gracz"
+        // pokazanie wyboru klubu tylko jeśli gracz
         document.querySelectorAll('input[name="role"]').forEach(el => {
-            el.addEventListener('change', () => {
-                if (el.value === 'gracz' && el.checked) {
-                    document.getElementById('clubSelect').style.display = 'block';
+            el.addEventListener('change', function() {
+                if (this.value === "player") {
+                    document.getElementById('club-select').style.display = 'block';
                 } else {
-                    document.getElementById('clubSelect').style.display = 'none';
+                    document.getElementById('club-select').style.display = 'none';
                 }
             });
         });
         </script>
     {% else %}
-        <h5>Jesteś już zapisany na to wydarzenie :)</h5>
+        <h5>
+            Nie jesteś jeszcze zapisany?
+            -> <a href="/event?day={{day}}&month={{month}}&year={{year}}&add_user={{current_user.id}}">Zapisz się!</a>
+        </h5>
     {% endif %}
 {% else %}
-    {% if not czy_zapisany %}
-        <form method="POST" action="{{ url_for('event', day=day, month=month, year=year) }}">
-            <input type="hidden" name="add_user" value="{{ current_user.id }}">
-            <button type="submit" class="btn btn-primary">Zapisz się!</button>
-        </form>
-    {% else %}
-        <h5>Jesteś już zapisany na to wydarzenie :)</h5>
-    {% endif %}
+    <h5>Jesteś już zapisany 🙂</h5>
 {% endif %}
 
+
+    <!-- ======================== TURNIEJ FIFA ======================== -->
+    {% if fifa_mode %}
+    <hr>
+    <h2 class="mt-4">⚽ Turniej FIFA</h2>
+
+    {% if current_user.is_admin %}
+        <div class="mb-3">
+            {% if not tournament %}
+                <form action="{{ url_for('start_tournament', event_id=event.id) }}" method="POST">
+                    <button type="submit" class="btn btn-primary">🚀 Rozpocznij turniej</button>
+                </form>
+            {% elif tournament and tournament.started and not tournament.finished %}
+                <form action="{{ url_for('generate_knockout', event_id=event.id) }}" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-warning">🔀 Generuj półfinały</button>
+                </form>
+                <form action="{{ url_for('generate_final_route', event_id=event.id) }}" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-warning">🏆 Generuj finał</button>
+                </form>
+                <form action="{{ url_for('finish_tournament', event_id=event.id) }}" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-danger">🏁 Zakończ turniej</button>
+                </form>
+            {% endif %}
+        </div>
+    {% endif %}
+
+   {% for group in groups %}
+    <h4>Grupa {{ group.name }}</h4>
+
+    <h5>Tabela</h5>
+    <table class="table table-sm table-bordered">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Zawodnik</th>
+                <th>P</th>
+                <th>W</th>
+                <th>R</th>
+                <th>Pp</th>
+                <th>Br+ </th>
+                <th>Br- </th>
+                <th>+/-</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in group.table %}
+<tr>
+    <td>{{ loop.index }}</td>  {# numer w tabeli, zaczyna od 1 #}
+    <td>{{ row.player.username }}</td>
+    <td>{{ row.points }}</td>
+    <td>{{ row.wins }}</td>
+    <td>{{ row.draws }}</td>
+    <td>{{ row.losses }}</td>
+    <td>{{ row.goals_for }}</td>
+    <td>{{ row.goals_against }}</td>
+    <td>{{ row.goal_diff }}</td>
+</tr>
+{% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Tabela meczów grupy -->
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Gospodarz</th>
+                <th>Gość</th>
+                <th>Wynik</th>
+                {% if current_user.is_admin %}<th>Akcja</th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for match in group.matches %}
+            <tr>
+                <td>{{ match.home_player.username }}</td>
+                <td>{{ match.away_player.username }}</td>
+                <td>
+                    {% if match.home_score is not none and match.away_score is not none %}
+                        {{ match.home_score }} : {{ match.away_score }}
+                    {% else %}
+                        <span class="text-muted">Brak</span>
+                    {% endif %}
+                </td>
+                {% if current_user.is_admin %}
+                <td>
+                    <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex gap-2">
+                        <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px" value="{{ match.home_score if match.home_score is not none }}">
+                        <input type="number" name="away_score" class="form-control form-control-sm" style="width:60px" value="{{ match.away_score if match.away_score is not none }}">
+                        <button type="submit" class="btn btn-success btn-sm">💾</button>
+                    </form>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endfor %}
+
+    {% if semifinals %}
+        <h3 class="mt-4">1/2 finału</h3>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Gospodarz</th>
+                    <th>Gość</th>
+                    <th>Wynik</th>
+                    {% if current_user.is_admin %}<th>Akcja</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for match in semifinals %}
+                <tr>
+                    <td>{{ match.home_player.username }}</td>
+                    <td>{{ match.away_player.username }}</td>
+                    <td>
+                        {% if match.home_score is not none and match.away_score is not none %}
+                            {{ match.home_score }} : {{ match.away_score }}
+                        {% else %}
+                            <span class="text-muted">Brak</span>
+                        {% endif %}
+                    </td>
+                    {% if current_user.is_admin %}
+                    <td>
+                        <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex gap-2">
+                            <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px"
+                                   value="{{ match.home_score if match.home_score is not none }}">
+                            <input type="number" name="away_score" class="form-control form-control-sm" style="width:60px"
+                                   value="{{ match.away_score if match.away_score is not none }}">
+                            <button type="submit" class="btn btn-success btn-sm">💾</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if final %}
+        <h3 class="mt-4">Finał</h3>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Gospodarz</th>
+                    <th>Gość</th>
+                    <th>Wynik</th>
+                    {% if current_user.is_admin %}<th>Akcja</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ final.home_player.username }}</td>
+                    <td>{{ final.away_player.username }}</td>
+                    <td>
+                        {% if final.home_score is not none and final.away_score is not none %}
+                            {{ final.home_score }} : {{ final.away_score }}
+                        {% else %}
+                            <span class="text-muted">Brak</span>
+                        {% endif %}
+                    </td>
+                    {% if current_user.is_admin %}
+                    <td>
+                        <form action="{{ url_for('update_match', match_id=final.id) }}" method="POST" class="d-flex gap-2">
+                            <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px"
+                                   value="{{ final.home_score if final.home_score is not none }}">
+                            <input type="number" name="away_score" class="form-control form-control-sm" style="width:60px"
+                                   value="{{ final.away_score if final.away_score is not none }}">
+                            <button type="submit" class="btn btn-success btn-sm">💾</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if winner %}
+        <div class="alert alert-success mt-4">
+            🏆 Zwycięzcą turnieju jest <b>{{ winner.username }}</b>!
+        </div>
+    {% endif %}
+
+    {% endif %}
 </div>
-
 {% endblock %}
-
-
-
-
