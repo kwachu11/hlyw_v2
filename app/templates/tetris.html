@@ -1,262 +1,654 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  @font-face{font-family:'Pricedown';src:url("{{ url_for('static', filename='css/fonts/pricedown.otf') }}") format('opentype');font-display:swap}
+  .tt-wrap{max-width:520px;margin:0 auto;padding:10px 8px 28px;text-align:center}
+  .tt-title{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;letter-spacing:1px;margin:4px 0 10px;
+    text-shadow:2px 2px 4px rgba(0,0,0,.35)}
+  #tetrisCanvas{display:block;margin:0 auto;width:min(100%,480px,calc(64vh * .8));aspect-ratio:4/5;border-radius:4px;background:#000;
+    box-shadow:0 0 0 6px #ffcc00,0 14px 40px rgba(0,0,0,.45);touch-action:none;outline:none;user-select:none;-webkit-user-select:none}
+  .tt-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0 0;flex-wrap:wrap}
+  .tt-bar .tt-score{font-family:'Pricedown',Impact,sans-serif;font-size:1.8rem;color:#b59a00;margin-right:6px;-webkit-text-stroke:1px #000}
+  .tt-bar .tt-best{font-weight:800;margin-right:6px}
+  .tt-pad{display:none;grid-template-columns:repeat(3,76px);grid-template-rows:repeat(2,58px);gap:6px;justify-content:center;margin:14px auto 0}
+  .tt-pad button{font-size:1.6rem;font-weight:900;border-radius:16px;border:2px solid #000;background:#ffcc00;color:#000;line-height:1;
+    box-shadow:0 4px 0 #000;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent}
+  .tt-pad button small{display:block;font-size:.6rem;font-weight:800;margin-top:2px}
+  .tt-pad button.on{transform:translateY(3px);box-shadow:0 1px 0 #000;background:#e6b800}
+  .tt-mode{display:none;margin:12px auto 0;justify-content:center}
+  .tt-mode button{border:2px solid #000;background:#fff;color:#000;font-weight:800;font-size:.85rem;padding:5px 14px;touch-action:manipulation}
+  .tt-mode button:first-child{border-radius:10px 0 0 10px}.tt-mode button:last-child{border-radius:0 10px 10px 0;border-left:0}
+  .tt-mode button.active{background:#ffcc00}
+  .tt-bar button,.tt-bar a{touch-action:manipulation}
+  /* urządzenia dotykowe */
+  .touch .tt-mode{display:flex}
+  .touch.pad-mode .tt-pad{display:grid}
+  .touch.pad-mode #tetrisCanvas{width:min(100%,480px,calc(52vh * .8))}
+  .touch .tt-keys{display:none}
+  .tt-touchhelp{display:none}.touch .tt-touchhelp{display:inline}
+  /* w trakcie gry: bez przewijania, zaznaczania i pull-to-refresh */
+  html.tt-playing,html.tt-playing body{overscroll-behavior:none}
+  .tt-playing .tt-wrap{touch-action:none;user-select:none;-webkit-user-select:none}
+  /* telefon poziomo: plansza z lewej, sterowanie z prawej */
+  @media (orientation:landscape) and (max-height:520px){
+    .tt-title,.tt-help{display:none}
+    .tt-wrap{max-width:none;display:grid;grid-template-columns:auto minmax(240px,1fr);gap:4px 18px;align-items:center;padding-top:6px}
+    .tt-wrap > *{grid-column:2}
+    #tetrisCanvas,.touch.pad-mode #tetrisCanvas{grid-column:1;grid-row:1 / span 6;width:min(calc(90vh * .8),55vw)}
+  }
+  .tt-help{font-size:.82rem;color:#6c7a89;margin-top:12px;line-height:1.7}
+  .tt-help kbd{background:#1d1d1d;color:#ffcc00;border-radius:4px;padding:1px 6px;font-size:.75rem}
+  .tt-again{margin-top:36px}
+</style>
 
-        <h1>Tetris by Hlyw</h1>
-    <center>
-        <canvas id="gameCanvasTetris" width="300" height="600"></canvas>
-        <div id="score" class="mt-2">Wynik: 0</div>
+<div class="tt-wrap">
+  <h1 class="tt-title">Tetris by Hlyw</h1>
 
-        <div class="col-6 mb-2">
-        <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
-    </div>
-        <div class="controls col-6 mt-3 d-flex flex-column align-items-center">
-            <div class="controls mb-2 mt-3 d-flex justify-content-center">
-                 <div class="d-flex">
-            <button id="left" class="btn btn-secondary me-1">←</button>
-                     <div>&nbsp;&nbsp;&nbsp;</div>
-            <button id="right" class="btn btn-secondary">→</button>
-                 </div>
-                </div>
-            <button id="rotate" class="btn btn-secondary mt-1">Obróć<br>(spacja)</button>
-            <button id="down" class="btn btn-secondary mt-1">↓</button>
-        </div></center>
+  <canvas id="tetrisCanvas" width="480" height="600" tabindex="0" aria-label="Gra Tetris"></canvas>
 
+  <div class="tt-pad" aria-hidden="true">
+    <button data-act="hold">⇄<small>schowaj</small></button>
+    <button data-act="rotate">⟳<small>obróć</small></button>
+    <button data-act="drop">⤓<small>zrzuć</small></button>
+    <button data-act="left">←</button>
+    <button data-act="down">↓</button>
+    <button data-act="right">→</button>
+  </div>
 
+  <div class="tt-bar">
+    <span class="tt-score" id="tt-score">Wynik: 0</span>
+    <span class="tt-best" id="tt-best">Twój rekord: {{ best|default(0)|int }}</span>
+  </div>
+  <div class="tt-bar">
+    <button id="tt-pause" class="btn btn-secondary btn-sm" disabled>Pauza</button>
+    <a href="{{ url_for('ranking_tetris') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
+  </div>
 
-    <script>
-const canvas = document.getElementById("gameCanvasTetris");
-canvas.width = 300;
-canvas.height = 600;
-const ctx = canvas.getContext("2d");
+  <div class="tt-mode" role="group" aria-label="Sterowanie">
+    <button type="button" data-mode="swipe">👆 Gesty</button>
+    <button type="button" data-mode="pad">🎮 Przyciski</button>
+  </div>
 
-const box = 30; // Rozmiar pojedynczego kwadratu
-const rows = canvas.height / box; // Liczba wierszy
-const columns = canvas.width / box; // Liczba kolumn
-let score = 0;
-let gameOver = false;
-let showWelcomeMessage = true;
+  <div class="tt-help">
+    <span class="tt-keys"><kbd>←</kbd> <kbd>→</kbd> ruch &nbsp;•&nbsp; <kbd>↓</kbd> szybciej &nbsp;•&nbsp; <kbd>↑</kbd> / <kbd>X</kbd> obrót
+    (<kbd>Z</kbd> w lewo) &nbsp;•&nbsp; <kbd>Spacja</kbd> zrzuć<br>
+    <kbd>C</kbd> / <kbd>Shift</kbd> schowek &nbsp;•&nbsp; <kbd>P</kbd> / <kbd>Esc</kbd> pauza &nbsp;•&nbsp; <kbd>Enter</kbd> start<br></span>
+    <span class="tt-touchhelp">Przesuń palcem w bok — klocek jedzie za palcem. Przeciągnij w dół, żeby przyspieszyć,
+    szybko machnij w dół, żeby zrzucić, machnij w górę — schowek. Dotknięcie obraca klocek.<br></span>
+    Punkty: 1/2/3/4 linie = 100/300/500/800 × poziom. Co 10 linii poziom w górę i klocki spadają szybciej.
+  </div>
 
-    function drawText(text, x, y) {
-    ctx.font = "50px Pricedown"; // Ustaw czcionkę
-    ctx.fillStyle = "white"; // Ustaw kolor tekstu
-    ctx.fillText(text, x, y); // Narysuj tekst
+  <!-- celowo na samym dole, żeby nie kliknąć go przypadkiem w trakcie gry -->
+  <div class="tt-bar tt-again">
+    <button id="tt-start" class="btn btn-primary">Rozpocznij grę</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const SAVE_URL = "{{ url_for('save_score_tetris') }}";
+let best = {{ best|default(0)|int }};
+
+const cv = document.getElementById('tetrisCanvas'), ctx = cv.getContext('2d');
+const scoreEl = document.getElementById('tt-score'), bestEl = document.getElementById('tt-best');
+const startBtn = document.getElementById('tt-start'), pauseBtn = document.getElementById('tt-pause');
+const wrapEl = document.querySelector('.tt-wrap');
+
+// --- stałe -------------------------------------------------------------
+const COLS = 10, ROWS = 20, B = 30, BW = COLS * B, W = 480, H = ROWS * B;   // plansza 300x600 + panel boczny
+const SIDE = BW + (W - BW) / 2;                                                // środek panelu bocznego
+const COLORS = [null, '#00e5ff', '#2f6bff', '#ff9a1f', '#ffd500', '#2fd34a', '#b44dff', '#ff3b3b'];
+const SHAPES = [null,
+  [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],   // I
+  [[2,0,0],[2,2,2],[0,0,0]],                   // J
+  [[0,0,3],[3,3,3],[0,0,0]],                   // L
+  [[4,4],[4,4]],                               // O
+  [[0,5,5],[5,5,0],[0,0,0]],                   // S
+  [[0,6,0],[6,6,6],[0,0,0]],                   // T
+  [[7,7,0],[0,7,7],[0,0,0]]];                  // Z
+// przesunięcia próbowane przy obrocie przy ścianie / podłodze
+const KICKS = [[0,0],[-1,0],[1,0],[0,-1],[-2,0],[2,0],[-1,-1],[1,-1]];
+const DAS = 170, ARR = 50;              // ms do auto-powtarzania ruchu w bok i co ile powtarza
+const LOCK = 500, MAX_RESETS = 15;      // czas na poprawki po dotknięciu dna
+const SOFT_MS = 35, CLEAR_MS = 220;
+const LINE_PTS = [0, 100, 300, 500, 800];
+const LINE_NAMES = ['', '', 'PODWÓJNA!', 'POTRÓJNA!', 'TETRIS!'];
+const KEYS = {ArrowLeft:'left', a:'left', A:'left', ArrowRight:'right', d:'right', D:'right',
+              ArrowDown:'down', s:'down', S:'down', ArrowUp:'rotate', w:'rotate', W:'rotate', x:'rotate', X:'rotate',
+              z:'rotateL', Z:'rotateL', q:'rotateL', Q:'rotateL', ' ':'drop', c:'hold', C:'hold', Shift:'hold'};
+const IS_TOUCH = matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
+const BIG = "'Pricedown',Impact,sans-serif", FONT = "system-ui,-apple-system,'Segoe UI',Roboto,sans-serif";
+const MENU_COLOR = '#ffcc00';
+
+function fit(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const css = cv.getBoundingClientRect().width || W;
+  cv.width = Math.round(css * dpr); cv.height = Math.round(css * H / W * dpr);
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+  render();
 }
 
-const colors = [
-    null,
-    'cyan', // I
-    'blue', // J
-    'orange', // L
-    'yellow', // O
-    'green', // S
-    'purple', // T
-    'red' // Z
-];
+// --- stan --------------------------------------------------------------
+let state = 'idle';          // idle | run | pause | over
+let board, piece, nextQ, bag, hold, canHold, score, lines, level;
+let gravAcc, lockT, lockResets, clearing, popup, saveState, newRecord, softDrop;
+let diedAt = 0, last = performance.now();
+const held = {left:false, right:false};
+let dasDir = null, dasT = 0;
 
-// Zdefiniuj kształty Tetrisa
-const pieces = [
-    [],
-    [[1, 1, 1, 1]], // I
-    [[0, 0, 2], [2, 2, 2]], // J
-    [[3, 3, 3], [0, 0, 3]], // L
-    [[4, 4], [4, 4]], // O
-    [[0, 5, 5], [5, 5, 0]], // S
-    [[6, 6, 6], [0, 6, 0]], // T
-    [[0, 7, 7], [7, 7, 0]]  // Z
-];
+const emptyRow = () => Array(COLS).fill(0);
 
-let board = Array.from({ length: rows }, () => Array(columns).fill(0));
-let currentPiece;
-let currentPosition;
+function reset(){
+  board = Array.from({length:ROWS}, emptyRow);
+  bag = []; nextQ = [fromBag(), fromBag(), fromBag()];
+  hold = 0; canHold = true; piece = null;
+  score = 0; lines = 0; level = 1;
+  gravAcc = 0; lockT = 0; lockResets = 0; clearing = null; popup = null;
+  saveState = null; newRecord = false;
+  releaseAll();
+  updateScore();
+}
 
-// Funkcja do rysowania planszy
-function drawBoard() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < columns; c++) {
-            if (board[r][c] !== 0) {
-                ctx.fillStyle = colors[board[r][c]];
-                ctx.fillRect(c * box, r * box, box, box);
-            }
-        }
+// "worek" 7 klocków - każdy kształt raz na 7, bez długich serii bez kreski
+function fromBag(){
+  if (!bag.length) {
+    bag = [1, 2, 3, 4, 5, 6, 7];
+    for (let i = 6; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+  }
+  return bag.pop();
+}
+
+function spawn(type){
+  const m = SHAPES[type].map(r => r.slice());
+  piece = {type, m, x: Math.floor((COLS - m[0].length) / 2), y: type === 1 ? -1 : 0};
+  gravAcc = 0; lockT = 0; lockResets = 0;
+  if (collides(piece.m, piece.x, piece.y)) die();
+}
+
+function nextPiece(){
+  canHold = true;
+  nextQ.push(fromBag());
+  spawn(nextQ.shift());
+}
+
+// pola nad planszą (y < 0) są wolne, żeby klocek mógł się obrócić tuż po pojawieniu się
+function collides(m, x, y){
+  for (let r = 0; r < m.length; r++) for (let c = 0; c < m[r].length; c++) {
+    if (!m[r][c]) continue;
+    const bx = x + c, by = y + r;
+    if (bx < 0 || bx >= COLS || by >= ROWS) return true;
+    if (by >= 0 && board[by][bx]) return true;
+  }
+  return false;
+}
+
+function rotateM(m, dir){
+  const n = m.length, out = Array.from({length:n}, () => Array(n).fill(0));
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (dir > 0) out[c][n - 1 - r] = m[r][c]; else out[n - 1 - c][r] = m[r][c];
+  }
+  return out;
+}
+
+const grounded = () => collides(piece.m, piece.x, piece.y + 1);
+
+// ruch/obrót na dnie daje chwilę więcej, ale tylko kilka razy - inaczej dałoby się kręcić w nieskończoność
+function moved(){
+  if (lockT > 0 && lockResets < MAX_RESETS) { lockT = 0; lockResets++; }
+}
+
+function shift(dx){
+  if (!piece || clearing || collides(piece.m, piece.x + dx, piece.y)) return false;
+  piece.x += dx; moved();
+  return true;
+}
+
+function fall(){
+  if (!piece || clearing || grounded()) return false;
+  piece.y++; lockT = 0;
+  return true;
+}
+
+function softStep(){
+  if (fall()) { score++; updateScore(); }
+}
+
+function rotate(dir){
+  if (!piece || clearing || piece.type === 4) return;
+  const m = rotateM(piece.m, dir);
+  for (const [kx, ky] of KICKS) {
+    if (!collides(m, piece.x + kx, piece.y + ky)) {
+      piece.m = m; piece.x += kx; piece.y += ky; moved();
+      return;
     }
+  }
 }
 
-// Funkcja do rysowania aktualnego kawałka
-function drawPiece() {
-    currentPiece.shape.forEach((row, r) => {
-        row.forEach((value, c) => {
-            if (value !== 0) {
-                ctx.fillStyle = colors[value];
-                ctx.fillRect((currentPosition.x + c) * box, (currentPosition.y + r) * box, box, box);
-            }
-        });
-    });
+function ghostY(){
+  let y = piece.y;
+  while (!collides(piece.m, piece.x, y + 1)) y++;
+  return y;
 }
 
-// Sprawdź, czy kawałek może być umieszczony w danej pozycji
-function canMove(offsetX, offsetY) {
-    return currentPiece.shape.every((row, r) => {
-        return row.every((value, c) => {
-            if (value === 0) return true;
-            const newX = currentPosition.x + c + offsetX;
-            const newY = currentPosition.y + r + offsetY;
-            return newY >= 0 && newY < rows && newX >= 0 && newX < columns && !board[newY][newX];
-        });
-    });
+function hardDrop(){
+  if (!piece || clearing) return;
+  const y = ghostY();
+  score += 2 * (y - piece.y); piece.y = y;
+  buzz(15); lock();
 }
 
-// Dodaj kawałek do planszy
-function addPieceToBoard() {
-    currentPiece.shape.forEach((row, r) => {
-        row.forEach((value, c) => {
-            if (value !== 0) {
-                board[currentPosition.y + r][currentPosition.x + c] = value;
-            }
-        });
-    });
+function doHold(){
+  if (!piece || clearing || !canHold) return;
+  const t = piece.type;
+  if (hold) spawn(hold); else { nextQ.push(fromBag()); spawn(nextQ.shift()); }
+  hold = t; canHold = false;
 }
 
-// Usuń pełne linie
-function removeFullLines() {
-    for (let r = rows - 1; r >= 0; r--) {
-        if (board[r].every(value => value !== 0)) {
-            board.splice(r, 1);
-            board.unshift(Array(columns).fill(0));
-            score += 10;
-            document.getElementById("score").innerText = "Score: " + score;
-            r++; // Sprawdź ponownie tę samą linię
-        }
+function lock(){
+  let top = false;
+  piece.m.forEach((row, r) => row.forEach((v, c) => {
+    if (!v) return;
+    const by = piece.y + r;
+    if (by < 0) top = true; else board[by][piece.x + c] = v;
+  }));
+  piece = null;
+  if (top) return die();
+
+  const full = [];
+  board.forEach((row, r) => { if (row.every(v => v)) full.push(r); });
+  if (full.length) {
+    const lvl = level;
+    score += LINE_PTS[full.length] * level;
+    lines += full.length;
+    level = Math.floor(lines / 10) + 1;
+    clearing = {rows: full, t: 0};
+    const msg = level > lvl ? 'POZIOM ' + level + '!' : LINE_NAMES[full.length];
+    if (msg) popup = {text: msg, t: 0};
+    buzz(full.length === 4 ? [40, 30, 80] : 25);
+  } else {
+    nextPiece();
+  }
+  updateScore();
+}
+
+function finishClear(){
+  board = board.filter((_, r) => !clearing.rows.includes(r));
+  while (board.length < ROWS) board.unshift(emptyRow());
+  clearing = null;
+  nextPiece();
+}
+
+// wzór z Tetris Guideline: (0.8 - (poziom-1)*0.007)^(poziom-1) sekundy na wiersz
+function gravityMs(){
+  const l = Math.min(level, 20) - 1;
+  return Math.max(16, 1000 * Math.pow(0.8 - l * 0.007, l));
+}
+
+function update(dt){
+  if (popup && (popup.t += dt) > 1000) popup = null;
+  if (clearing) {
+    if ((clearing.t += dt) >= CLEAR_MS) finishClear();
+    return;
+  }
+  if (!piece) return;
+
+  if (dasDir) {
+    dasT += dt;
+    while (dasT >= ARR) { dasT -= ARR; if (!shift(dasDir === 'left' ? -1 : 1)) { dasT = 0; break; } }
+  }
+
+  if (grounded()) {
+    gravAcc = 0;
+    if ((lockT += dt) >= LOCK) lock();
+  } else {
+    const g = softDrop ? Math.min(SOFT_MS, gravityMs()) : gravityMs();
+    gravAcc += dt;
+    while (gravAcc >= g) {
+      gravAcc -= g;
+      if (!fall()) { gravAcc = 0; break; }
+      if (softDrop) { score++; updateScore(); }
     }
+  }
 }
 
-// Rotuj kawałek
-function rotatePiece() {
-    const rotatedShape = currentPiece.shape[0].map((val, index) =>
-        currentPiece.shape.map(row => row[index]).reverse()
-    );
-    if (canMove(0, 0)) {
-        currentPiece.shape = rotatedShape;
-    }
+function buzz(p){ if (IS_TOUCH && navigator.vibrate) try { navigator.vibrate(p); } catch (e) {} }
+
+function die(){
+  state = 'over'; diedAt = performance.now(); buzz([70, 50, 120]);
+  releaseAll();
+  newRecord = score > best && score > 0;
+  if (newRecord) best = score;
+  updateButtons(); save(score);
 }
 
-// Zainicjuj nowy kawałek
-function initPiece() {
-    const randomIndex = Math.floor(Math.random() * (pieces.length - 1)) + 1;
-    currentPiece = { shape: pieces[randomIndex] };
-    currentPosition = { x: Math.floor(columns / 2) - 1, y: 0 };
-    if (!canMove(0, 0)) {
-        gameOver = true;
-    }
+function save(s){
+  saveState = 'saving';
+  fetch(SAVE_URL, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({score:s})})
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => { saveState = 'ok'; if (d && d.best != null) best = Math.max(best, d.best); updateScore(); })
+    .catch(() => { saveState = 'err'; })
+    .finally(render);
 }
 
-// Start gry
-function startGame() {
-    showWelcomeMessage = false;
-    gameOver = false;
-    score = 0;
-    board = Array.from({ length: rows }, () => Array(columns).fill(0));
-    initPiece();
-    gameLoop();
+function updateScore(){
+  scoreEl.textContent = 'Wynik: ' + score;
+  bestEl.textContent = 'Twój rekord: ' + best;
 }
 
-napis_hlyw(false);
-
-    function napis_hlyw(aktywnosc) {
-    if(aktywnosc == false)
-    {
-        const font = new FontFace('Pricedown', 'url(static/css/fonts/pricedown.otf)');
-        document.fonts.add(font);
-
-        font.load().then(() => {
-            document.fonts.add(font);
-            drawText("Tetris", canvas.width / 2 - 120, canvas.height / 2-20); // Wyśrodkowanie tekstu
-            drawText("by", canvas.width / 2, canvas.height / 2+22);
-            drawText("Hlyw", canvas.width / 2, canvas.height / 2+65);
-        }).catch(error => {
-            console.error('Błąd podczas ładowania czcionki:', error);
-        });
-    }
-    }
-
-// Główna pętla gry
-function gameLoop() {
-    if (gameOver) {
-        //alert("Koniec gry! Twój wynik: " + score);
-        endGame(score);
-        return;
-    }
-
-    if (canMove(0, 1)) {
-        currentPosition.y++;
-    } else {
-        addPieceToBoard();
-        removeFullLines();
-        initPiece();
-    }
-
-    drawBoard();
-    drawPiece();
-
-    setTimeout(gameLoop, 200);
+function updateButtons(){
+  document.documentElement.classList.toggle('tt-playing', state === 'run' || state === 'pause');
+  startBtn.textContent = state === 'idle' ? 'Rozpocznij grę' : 'Zagraj ponownie';
+  startBtn.disabled = state === 'run';
+  pauseBtn.disabled = !(state === 'run' || state === 'pause');
+  pauseBtn.textContent = state === 'pause' ? 'Wznów' : 'Pauza';
 }
 
-// Obsługuje ruchy z przycisków
-document.getElementById("left").addEventListener("click", () => {
-    if (canMove(-1, 0)) {
-        currentPosition.x--;
+function start(){
+  reset(); state = 'run'; last = performance.now();
+  nextPiece();
+  updateButtons(); cv.focus({preventScroll:true});
+  // na telefonie cała plansza musi być w widoku
+  if (IS_TOUCH) {
+    const r = cv.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > innerHeight) cv.scrollIntoView({block:'center', behavior:'smooth'});
+  }
+}
+
+function togglePause(){
+  if (state === 'run') { state = 'pause'; releaseAll(); }
+  else if (state === 'pause') { state = 'run'; last = performance.now(); }
+  updateButtons(); render();
+}
+
+// --- akcje (klawiatura, przyciski i gesty idą przez to samo) -----------
+function press(a){
+  if (state === 'pause') togglePause();
+  if (state !== 'run') return;
+  switch (a) {
+    case 'left': case 'right':
+      held[a] = true; dasDir = a; dasT = ARR - DAS;
+      shift(a === 'left' ? -1 : 1); break;
+    case 'down': softDrop = true; gravAcc = 0; softStep(); break;
+    case 'rotate': rotate(1); break;
+    case 'rotateL': rotate(-1); break;
+    case 'drop': hardDrop(); break;
+    case 'hold': doHold(); break;
+  }
+}
+
+function release(a){
+  if (a === 'left' || a === 'right') {
+    held[a] = false;
+    if (dasDir === a) {
+      const o = a === 'left' ? 'right' : 'left';
+      dasDir = held[o] ? o : null; dasT = ARR - DAS;
     }
+  } else if (a === 'down') softDrop = false;
+}
+
+function releaseAll(){
+  held.left = held.right = false; dasDir = null; softDrop = false;
+}
+
+// --- menu: kolorowe klocki spadają w tle -------------------------------
+let rain = [];
+function rainStep(dt){
+  if (rain.length < 9 && Math.random() < dt / 350) {
+    const type = 1 + Math.floor(Math.random() * 7);
+    let m = SHAPES[type];
+    for (let i = Math.floor(Math.random() * 4); i > 0; i--) m = rotateM(m, 1);
+    rain.push({m, x: Math.floor(Math.random() * (W / B - 3)) * B, y: -4 * B, v: .06 + Math.random() * .1});
+  }
+  rain.forEach(p => p.y += p.v * dt);
+  rain = rain.filter(p => p.y < H);
+}
+
+// --- pętla -------------------------------------------------------------
+function loop(now){
+  const dt = Math.min(now - last, 100);
+  last = now;
+  if (state === 'run') update(dt);
+  else if (state === 'idle') rainStep(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// --- rysowanie ---------------------------------------------------------
+function cell(x, y, color, s){
+  s = s || B;
+  ctx.fillStyle = color; ctx.fillRect(x + 1, y + 1, s - 2, s - 2);
+  const e = Math.max(2, s * .16);
+  ctx.fillStyle = 'rgba(255,255,255,.38)';
+  ctx.fillRect(x + 1, y + 1, s - 2, e); ctx.fillRect(x + 1, y + 1, e, s - 2);
+  ctx.fillStyle = 'rgba(0,0,0,.32)';
+  ctx.fillRect(x + 1, y + s - 1 - e, s - 2, e); ctx.fillRect(x + s - 1 - e, y + 1, e, s - 2);
+}
+
+function drawMatrix(m, px, py, alpha){
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  m.forEach((row, r) => row.forEach((v, c) => { if (v) cell(px + c * B, py + r * B, COLORS[v]); }));
+  ctx.globalAlpha = 1;
+}
+
+// mały podgląd klocka wyśrodkowany w punkcie (cx, cy)
+function drawMini(type, cx, cy, s, alpha){
+  if (!type) return;
+  const m = SHAPES[type], pts = [];
+  m.forEach((row, r) => row.forEach((v, c) => { if (v) pts.push([r, c]); }));
+  const minR = Math.min(...pts.map(p => p[0])), maxR = Math.max(...pts.map(p => p[0]));
+  const minC = Math.min(...pts.map(p => p[1])), maxC = Math.max(...pts.map(p => p[1]));
+  const ox = cx - (maxC - minC + 1) * s / 2, oy = cy - (maxR - minR + 1) * s / 2;
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  pts.forEach(([r, c]) => cell(ox + (c - minC) * s, oy + (r - minR) * s, COLORS[type], s));
+  ctx.globalAlpha = 1;
+}
+
+function text(t, x, y, size, color, font, stroke){
+  ctx.font = `${size}px ${font || FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  if (stroke) { ctx.lineWidth = stroke; ctx.strokeStyle = '#000'; ctx.lineJoin = 'round'; ctx.strokeText(t, x, y); }
+  ctx.fillStyle = color; ctx.fillText(t, x, y);
+}
+
+function drawGrid(){
+  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let c = 1; c < COLS; c++) { ctx.moveTo(c * B + .5, 0); ctx.lineTo(c * B + .5, H); }
+  for (let r = 1; r < ROWS; r++) { ctx.moveTo(0, r * B + .5); ctx.lineTo(BW, r * B + .5); }
+  ctx.stroke();
+}
+
+function drawSide(){
+  ctx.fillStyle = '#12141f'; ctx.fillRect(BW, 0, W - BW, H);
+  ctx.fillStyle = '#ffcc00'; ctx.fillRect(BW, 0, 3, H);
+
+  const label = (t, y) => text(t, SIDE, y, 15, '#8a93b8', FONT);
+  const value = (t, y) => text(String(t), SIDE, y, 34, '#fff', BIG, 4);
+
+  label('NASTĘPNY', 26);
+  drawMini(nextQ[0], SIDE, 78, 24);
+  drawMini(nextQ[1], SIDE, 140, 16, .7);
+  drawMini(nextQ[2], SIDE, 186, 16, .45);
+
+  label('SCHOWEK', 236);
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 2;
+  ctx.strokeRect(SIDE - 55, 254, 110, 70);
+  drawMini(hold, SIDE, 289, 22, canHold ? 1 : .3);
+
+  label('POZIOM', 360); value(level, 392);
+  label('LINIE', 436);  value(lines, 468);
+  label('WYNIK', 512);  value(score, 544);
+}
+
+function overlay(a){ ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H); }
+
+function render(){
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+  if (state === 'idle') {
+    rain.forEach(p => drawMatrix(p.m, p.x, p.y, .45));
+    text('Tetris', W / 2, H / 2 - 90, 110, '#fff', BIG, 8);
+    text('by Hlyw', W / 2, H / 2 - 5, 56, MENU_COLOR, BIG, 6);
+    text(IS_TOUCH ? 'Dotknij planszy, aby zagrać' : 'Naciśnij klawisz "Enter", aby zagrać',
+         W / 2, H / 2 + 90, 22, '#fff', FONT, 4);
+    return;
+  }
+
+  drawGrid();
+  board.forEach((row, r) => row.forEach((v, c) => { if (v) cell(c * B, r * B, COLORS[v]); }));
+
+  if (clearing) {
+    const a = 1 - clearing.t / CLEAR_MS;
+    ctx.fillStyle = `rgba(255,255,255,${.85 * a})`;
+    clearing.rows.forEach(r => ctx.fillRect(0, r * B, BW, B));
+  }
+
+  if (piece) {
+    const gy = ghostY();
+    if (gy !== piece.y) {
+      ctx.strokeStyle = COLORS[piece.type]; ctx.lineWidth = 2; ctx.globalAlpha = .55;
+      piece.m.forEach((row, r) => row.forEach((v, c) => {
+        if (v && gy + r >= 0) ctx.strokeRect((piece.x + c) * B + 3, (gy + r) * B + 3, B - 6, B - 6);
+      }));
+      ctx.globalAlpha = 1;
+    }
+    drawMatrix(piece.m, piece.x * B, piece.y * B);
+  }
+
+  if (popup) {
+    const p = popup.t / 1000;
+    ctx.globalAlpha = Math.min(1, (1 - p) * 2.5);
+    text(popup.text, BW / 2, H / 2 - 40 - p * 40, 44, MENU_COLOR, BIG, 6);
+    ctx.globalAlpha = 1;
+  }
+
+  drawSide();
+
+  if (state === 'pause') {
+    overlay(.65);
+    text('PAUZA', W / 2, H / 2 - 10, 72, MENU_COLOR, BIG, 6);
+    text(IS_TOUCH ? 'Dotknij planszy, aby wznowić' : 'Naciśnij P, aby wznowić', W / 2, H / 2 + 50, 20, '#fff');
+  } else if (state === 'over') {
+    overlay(.75);
+    text('GAME OVER', W / 2, H / 2 - 100, 72, '#fff', BIG, 6);
+    text('Wynik: ' + score, W / 2, H / 2 - 30, 30, '#fff');
+    text(`Linie: ${lines}  •  Poziom: ${level}`, W / 2, H / 2 + 8, 20, '#bbb');
+    if (newRecord) text('Nowy rekord!', W / 2, H / 2 + 50, 32, '#7CFC00', BIG, 4);
+    const msg = {saving:'Zapisywanie wyniku…', ok:'Wynik zapisany ✓', err:'Nie udało się zapisać wyniku'}[saveState] || '';
+    text(msg, W / 2, H / 2 + 92, 18, saveState === 'err' ? '#ff6b6b' : '#bbb');
+    text(IS_TOUCH ? 'Dotknij planszy, aby zagrać ponownie' : 'Naciśnij klawisz "Enter", aby zagrać ponownie',
+         W / 2, H / 2 + 130, 19, MENU_COLOR);
+  }
+}
+
+// --- klawiatura --------------------------------------------------------
+const playing = () => state === 'run' || state === 'pause';
+const typing = e => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
+
+document.addEventListener('keydown', e => {
+  if (typing(e)) return;
+  const k = e.key, a = KEYS[k];
+  if (a) {
+    if (playing()) e.preventDefault();
+    if (!e.repeat) press(a);   // auto-powtarzanie robimy sami (DAS), systemowe jest za wolne
+  } else if (k === 'p' || k === 'P' || k === 'Escape') {
+    if (playing()) { e.preventDefault(); togglePause(); }
+  } else if (k === 'Enter' && canRestart()) { e.preventDefault(); start(); }
+});
+document.addEventListener('keyup', e => {
+  if (typing(e)) return;
+  const a = KEYS[e.key];
+  if (a) { if (playing()) e.preventDefault(); release(a); }
+});
+addEventListener('blur', releaseAll);
+
+// po przegranej krótka blokada, żeby ostatni ruch nie odpalił od razu nowej gry
+const canRestart = () => state === 'idle' || (state === 'over' && performance.now() - diedAt > 1000);
+
+// --- gesty -------------------------------------------------------------
+// Poziomo: klocek jedzie za palcem (pole planszy = pole klocka). W dół: przyspiesza,
+// szybkie machnięcie w dół: zrzut. Machnięcie w górę: schowek. Dotknięcie: obrót.
+let touch = null;
+const cellPx = () => cv.getBoundingClientRect().width * B / W;
+const isControl = el => el.closest('button, a, input, select, textarea');
+
+wrapEl.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1 || isControl(e.target)) { touch = null; return; }
+  const t = e.touches[0];
+  touch = {x0:t.clientX, y0:t.clientY, ax:t.clientX, ay:t.clientY, t:performance.now(), axis:null, onCanvas:e.target === cv};
+  if (playing() || e.target === cv) e.preventDefault();
+}, {passive:false});
+
+wrapEl.addEventListener('touchmove', e => {
+  if (!touch || state !== 'run') return;   // poza grą strona przewija się normalnie
+  e.preventDefault();
+  const t = e.touches[0], s = cellPx();
+  if (!touch.axis) {
+    const tx = t.clientX - touch.x0, ty = t.clientY - touch.y0;
+    if (Math.max(Math.abs(tx), Math.abs(ty)) < s * .6) return;
+    touch.axis = Math.abs(tx) > Math.abs(ty) ? 'h' : (ty > 0 ? 'down' : 'up');
+  }
+  if (touch.axis === 'h') {
+    for (let dx = t.clientX - touch.ax; Math.abs(dx) >= s; dx = t.clientX - touch.ax) {
+      const d = Math.sign(dx);
+      if (shift(d)) buzz(5);
+      touch.ax += d * s;
+    }
+  } else if (touch.axis === 'down') {
+    for (; t.clientY - touch.ay >= s; touch.ay += s) softStep();
+  }
+}, {passive:false});
+
+wrapEl.addEventListener('touchend', e => {
+  if (!touch) return;
+  const t = e.changedTouches[0], dt = performance.now() - touch.t, dy = t.clientY - touch.y0, s = cellPx();
+  if (!touch.axis) {
+    if (touch.onCanvas || playing()) e.preventDefault();   // bez "ghost click" i zoomu po podwójnym tapnięciu
+    if (state === 'run') rotate(1);
+    else if (state === 'pause') togglePause();
+    // krótka blokada po przegranej, żeby ostatni gest nie odpalił od razu nowej gry
+    else if (touch.onCanvas && canRestart()) start();
+  } else if (state === 'run') {
+    if (touch.axis === 'down' && dt < 250 && dy > s * 2) hardDrop();
+    else if (touch.axis === 'up' && dt < 350 && -dy > s * 1.5) doHold();
+  }
+  touch = null;
+}, {passive:false});
+wrapEl.addEventListener('touchcancel', () => { touch = null; });
+
+// myszką kliknięcie planszy też startuje grę
+cv.addEventListener('click', () => { if (canRestart()) start(); });
+
+// tryb sterowania na dotyku: gesty (domyślnie) albo przyciski, zapamiętany w przeglądarce
+function setMode(m){
+  wrapEl.classList.toggle('pad-mode', m === 'pad');
+  document.querySelectorAll('.tt-mode button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  try { localStorage.setItem('tetrisControls', m); } catch (e) {}
+  requestAnimationFrame(fit);
+}
+if (IS_TOUCH) {
+  wrapEl.classList.add('touch');
+  let m = 'swipe';
+  try { m = localStorage.getItem('tetrisControls') || 'swipe'; } catch (e) {}
+  setMode(m);
+  document.querySelectorAll('.tt-mode button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+}
+
+document.querySelectorAll('.tt-pad button').forEach(b => {
+  const a = b.dataset.act;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); b.classList.add('on'); buzz(8); press(a); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => { b.classList.remove('on'); release(a); });
 });
 
-document.getElementById("right").addEventListener("click", () => {
-    if (canMove(1, 0)) {
-        currentPosition.x++;
-    }
-});
+// po kliknięciu przycisku fokus wraca na planszę, żeby spacja nie "klikała" go ponownie
+startBtn.addEventListener('click', start);
+pauseBtn.addEventListener('click', () => { togglePause(); cv.focus({preventScroll:true}); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'run') togglePause(); });
+addEventListener('resize', fit);
+addEventListener('orientationchange', () => setTimeout(fit, 250));
 
-document.getElementById("down").addEventListener("click", () => {
-    if (canMove(0, 1)) {
-        currentPosition.y++;
-    }
-});
-
-document.getElementById("rotate").addEventListener("click", rotatePiece);
-
-//przyciski na klawiaturze
-document.addEventListener("keydown", function(event) {
-    if (event.key === "ArrowLeft") {
-    event.preventDefault();
-        document.getElementById("left").click(); // Symuluj kliknięcie lewego przycisku
-    } else if (event.key === "ArrowRight") {
-    event.preventDefault();
-        document.getElementById("right").click(); // Symuluj kliknięcie prawego przycisku
-    } else if (event.key === "ArrowDown") {
-    event.preventDefault();
-        document.getElementById("down").click(); // Symuluj kliknięcie przycisku w dół
-    } else if (event.key === " ") {
-    event.preventDefault();
-        document.getElementById("rotate").click(); // Symuluj kliknięcie przycisku Spacja
-    }
-});
-
-    // Obsługa kliknięcia przycisku
-    document.getElementById('start-button').addEventListener('click', startGame);
-
-        function endGame(score) {
-        fetch('/tetris/save_score', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ score: score })
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Przekierowanie do odpowiedniej strony po zapisaniu wyniku
-            window.location.href = data.redirect_url;
-        })
-        .catch(error => console.error('Błąd:', error));
-    }
+reset(); fit(); updateButtons();
+requestAnimationFrame(loop);
+})();
 </script>
-
 {% endblock %}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#bcb8ad"/>
+  <rect x="70" y="10" width="260" height="280" rx="14" fill="#5b5d72"/>
+  <rect x="95" y="30" width="210" height="250" fill="#9bbc0f"/>
+  <defs>
+    <g id="c"><rect x="1.5" y="1.5" width="13" height="13" fill="none" stroke="#0f380f" stroke-width="2.5"/><rect x="5" y="5" width="6" height="6" fill="#0f380f"/></g>
+    <g id="car"><use href="#c" x="16"/><use href="#c" y="16"/><use href="#c" x="16" y="16"/><use href="#c" x="32" y="16"/><use href="#c" x="16" y="32"/><use href="#c" y="48"/><use href="#c" x="32" y="48"/></g>
+  </defs>
+  <g transform="translate(112 32)">
+    <!-- bandy -->
+    <use href="#c" y="0"/><use href="#c" y="16"/><use href="#c" y="48"/><use href="#c" y="64"/><use href="#c" y="80"/><use href="#c" y="112"/><use href="#c" y="128"/><use href="#c" y="144"/><use href="#c" y="176"/><use href="#c" y="192"/><use href="#c" y="208"/><use href="#c" y="240" opacity="0"/>
+    <use href="#c" x="160" y="0"/><use href="#c" x="160" y="16"/><use href="#c" x="160" y="48"/><use href="#c" x="160" y="64"/><use href="#c" x="160" y="80"/><use href="#c" x="160" y="112"/><use href="#c" x="160" y="128"/><use href="#c" x="160" y="144"/><use href="#c" x="160" y="176"/><use href="#c" x="160" y="192"/><use href="#c" x="160" y="208"/>
+    <!-- rywale -->
+    <use href="#car" x="16" y="16"/>
+    <use href="#car" x="112" y="80"/>
+    <!-- gracz -->
+    <use href="#car" x="64" y="176"/>
+  </g>
+</svg>

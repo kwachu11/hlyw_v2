@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  @font-face{font-family:'Pricedown';src:url("{{ url_for('static', filename='css/fonts/pricedown.otf') }}") format('opentype');font-display:swap}
+  .kk-wrap{max-width:520px;margin:0 auto;padding:10px 8px 28px;text-align:center}
+  .kk-title{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;letter-spacing:1px;margin:4px 0 10px;text-shadow:2px 2px 4px rgba(0,0,0,.35)}
+  .kk-levels{display:inline-flex;margin:0 auto 14px}
+  .kk-levels button{border:2px solid #000;background:#fff;color:#000;font-weight:800;font-size:.9rem;padding:6px 14px;touch-action:manipulation}
+  .kk-levels button+button{border-left:0}
+  .kk-levels button:first-child{border-radius:10px 0 0 10px}.kk-levels button:last-child{border-radius:0 10px 10px 0}
+  .kk-levels button.active{background:#ffcc00}
+  .kk-levels button:disabled{opacity:.55}
+  .kk-board{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:min(100%,420px,58vh);aspect-ratio:1;
+    margin:0 auto;padding:8px;background:#ffcc00;border-radius:6px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+  .kk-cell{border:0;border-radius:4px;background:#111;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .15s}
+  .kk-cell:hover:not(:disabled){background:#2a2a2a}
+  .kk-cell:disabled{cursor:default}
+  .kk-cell.win{background:#3a3200}
+  .kk-cell svg{width:72%;height:72%;overflow:visible}
+  .kk-cell .mk{fill:none;stroke-width:13;stroke-linecap:round;stroke-dasharray:300;stroke-dashoffset:300;animation:kk-draw .28s ease-out forwards}
+  .kk-cell .mk.x{stroke:#ffcc00}.kk-cell .mk.x2{animation-delay:.12s}
+  .kk-cell .mk.o{stroke:#8f6bff}
+  @keyframes kk-draw{to{stroke-dashoffset:0}}
+  .kk-msg{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    background:rgba(0,0,0,.72);border-radius:6px;color:#fff;cursor:pointer}
+  .kk-msg.show{display:flex}
+  .kk-msg h3{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;margin:0;letter-spacing:1px}
+  .kk-msg p{margin:0;font-size:1rem}
+  .kk-msg small{color:#bbb}
+  .kk-bar{display:flex;gap:10px;justify-content:center;align-items:center;margin:16px 0 0;flex-wrap:wrap}
+  .kk-score{font-family:'Pricedown',Impact,sans-serif;font-size:1.8rem;color:#b59a00;-webkit-text-stroke:1px #000}
+  .kk-best{font-weight:800}
+  .kk-turn{min-height:1.6em;margin-top:12px;font-weight:700}
+  .kk-stats{font-size:.9rem;color:#6c7a89}
+  .kk-help{font-size:.82rem;color:#6c7a89;margin-top:14px;line-height:1.7}
+</style>
+
+<div class="kk-wrap">
+  <h1 class="kk-title">Kółko i krzyżyk</h1>
+
+  <div class="kk-levels" role="group" aria-label="Poziom trudności">
+    <button type="button" data-level="easy">Łatwy ×1</button>
+    <button type="button" data-level="medium">Średni ×2</button>
+    <button type="button" data-level="hard">Trudny ×5</button>
+  </div>
+
+  <div class="kk-board" id="kk-board" aria-label="Plansza">
+    <div class="kk-msg" id="kk-msg"><h3 id="kk-msg-title"></h3><p id="kk-msg-text"></p><small id="kk-msg-save"></small><small>Kliknij, aby grać dalej</small></div>
+  </div>
+
+  <div class="kk-turn" id="kk-turn"></div>
+
+  <div class="kk-bar">
+    <span class="kk-score" id="kk-score">Seria: 0</span>
+    <span class="kk-best" id="kk-best">Twój rekord: {{ best|default(0)|int }}</span>
+  </div>
+  <div class="kk-stats" id="kk-stats"></div>
+  <div class="kk-bar">
+    <button id="kk-end" class="btn btn-secondary btn-sm" disabled>Zakończ serię i zapisz</button>
+    <a href="{{ url_for('ranking_kolko_krzyzyk') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
+  </div>
+
+  <div class="kk-help">
+    Grasz <b style="color:#b59a00">X</b> przeciwko komputerowi (<b style="color:#8f6bff">O</b>). Partie zaczynacie na zmianę.<br>
+    Każda wygrana dodaje do serii punkty zależne od poziomu (1 / 2 / 5), remis nic nie zmienia.<br>
+    Porażka kończy serię i zapisuje wynik w rankingu. Poziom zmienisz tylko na początku serii.
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const SAVE_URL = "{{ url_for('save_score_kolko_krzyzyk') }}";
+let best = {{ best|default(0)|int }};
+
+const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const LEVELS = {
+  easy:   {pts:1, mistake:.75, name:'Łatwy'},
+  medium: {pts:2, mistake:.35, name:'Średni'},
+  hard:   {pts:5, mistake:.08, name:'Trudny'},
+};
+const SVG_X = '<svg viewBox="0 0 100 100"><path class="mk x" d="M18 18L82 82"/><path class="mk x x2" d="M82 18L18 82"/></svg>';
+const SVG_O = '<svg viewBox="0 0 100 100"><circle class="mk o" cx="50" cy="50" r="34"/></svg>';
+
+const boardEl = document.getElementById('kk-board'), msgEl = document.getElementById('kk-msg');
+const turnEl = document.getElementById('kk-turn'), scoreEl = document.getElementById('kk-score');
+const bestEl = document.getElementById('kk-best'), statsEl = document.getElementById('kk-stats');
+const endBtn = document.getElementById('kk-end');
+const levelBtns = [...document.querySelectorAll('.kk-levels button')];
+
+const cells = [];
+for (let i = 0; i < 9; i++) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'kk-cell'; b.setAttribute('aria-label', 'Pole ' + (i + 1));
+  b.addEventListener('click', () => playerMove(i));
+  boardEl.insertBefore(b, msgEl); cells.push(b);
+}
+
+let level = 'medium';
+try { if (LEVELS[localStorage.getItem('kkLevel')]) level = localStorage.getItem('kkLevel'); } catch (e) {}
+
+let board, busy, over, playerStarts = true;
+let series = 0, wins = 0, draws = 0;
+
+// --- logika ------------------------------------------------------------
+function winner(b){
+  for (const l of LINES) if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) return {who:b[l[0]], line:l};
+  return b.every(Boolean) ? {who:'draw'} : null;
+}
+
+// minimax z przycinaniem alfa-beta; szybsza wygrana / późniejsza porażka są lepsze
+function minimax(b, me, depth, alpha, beta){
+  const w = winner(b);
+  if (w) return w.who === 'O' ? 10 - depth : w.who === 'X' ? depth - 10 : 0;
+  let bestScore = me === 'O' ? -Infinity : Infinity;
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = me;
+    const sc = minimax(b, me === 'O' ? 'X' : 'O', depth + 1, alpha, beta);
+    b[i] = null;
+    if (me === 'O') { bestScore = Math.max(bestScore, sc); alpha = Math.max(alpha, sc); }
+    else { bestScore = Math.min(bestScore, sc); beta = Math.min(beta, sc); }
+    if (beta <= alpha) break;
+  }
+  return bestScore;
+}
+
+function free(b){ const f = []; b.forEach((v, i) => { if (!v) f.push(i); }); return f; }
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+function aiMove(){
+  const f = free(board), lv = LEVELS[level];
+  // komputer zawsze dobija wygraną - "pomyłka" to tylko przeoczenie zagrożenia albo słabszy ruch
+  for (const i of f) { board[i] = 'O'; const w = winner(board); board[i] = null; if (w && w.who === 'O') return i; }
+  if (Math.random() < lv.mistake) return pick(f);
+  let bestScore = -Infinity, moves = [];
+  for (const i of f) {
+    board[i] = 'O';
+    const sc = minimax(board, 'X', 1, -Infinity, Infinity);
+    board[i] = null;
+    if (sc > bestScore) { bestScore = sc; moves = [i]; } else if (sc === bestScore) moves.push(i);
+  }
+  return pick(moves);
+}
+
+function place(i, who){
+  board[i] = who;
+  cells[i].innerHTML = who === 'X' ? SVG_X : SVG_O;
+  cells[i].disabled = true;
+}
+
+function playerMove(i){
+  if (busy || over || board[i]) return;
+  place(i, 'X');
+  if (check()) return;
+  computerTurn();
+}
+
+function computerTurn(){
+  busy = true; updateTurn();
+  setTimeout(() => {
+    place(aiMove(), 'O'); busy = false;
+    if (!check()) updateTurn();
+  }, 380 + Math.random() * 250);
+}
+
+function check(){
+  const w = winner(board);
+  if (!w) return false;
+  over = true;
+  cells.forEach(c => c.disabled = true);
+  if (w.line) w.line.forEach(i => cells[i].classList.add('win'));
+  let title, text;
+  if (w.who === 'X') {
+    const p = LEVELS[level].pts;
+    series += p; wins++;
+    title = 'Wygrana!'; text = '+' + p + ' pkt — seria trwa: ' + series;
+    buzz(20);
+  } else if (w.who === 'O') {
+    title = 'Porażka'; text = series ? 'Koniec serii. Wynik: ' + series : 'Komputer wygrał tę partię.';
+    buzz([60, 40, 100]);
+    if (series > 0) finishSeries();
+    else resetSeries();
+  } else {
+    draws++;
+    title = 'Remis'; text = 'Seria trwa: ' + series;
+  }
+  setTimeout(() => showMsg(title, text), w.line ? 450 : 150);
+  updateTurn(); updateScore();
+  return true;
+}
+
+// --- seria i zapis -----------------------------------------------------
+function finishSeries(){
+  const s = series;
+  const isRecord = s > best;
+  if (isRecord) best = s;
+  setSaveMsg((isRecord ? 'Nowy rekord! ' : '') + 'Zapisywanie wyniku…');
+  save(s, false, isRecord);
+  resetSeries();
+}
+
+function resetSeries(){ series = 0; wins = 0; draws = 0; updateScore(); }
+
+function save(s, beacon, isRecord){
+  const body = JSON.stringify({score:s});
+  if (beacon && navigator.sendBeacon) { navigator.sendBeacon(SAVE_URL, new Blob([body], {type:'application/json'})); return; }
+  fetch(SAVE_URL, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body})
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => { if (d && d.best != null) best = Math.max(best, d.best); setSaveMsg((isRecord ? 'Nowy rekord! ' : '') + 'Wynik zapisany ✓'); updateScore(); })
+    .catch(() => setSaveMsg('Nie udało się zapisać wyniku'));
+}
+
+function setSaveMsg(t){ document.getElementById('kk-msg-save').textContent = t; }
+
+function showMsg(title, text){
+  document.getElementById('kk-msg-title').textContent = title;
+  document.getElementById('kk-msg-text').textContent = text;
+  msgEl.classList.add('show');
+}
+
+// --- interfejs ---------------------------------------------------------
+function newGame(){
+  board = Array(9).fill(null); over = false; busy = false;
+  msgEl.classList.remove('show'); setSaveMsg('');
+  cells.forEach(c => { c.innerHTML = ''; c.disabled = false; c.classList.remove('win'); });
+  const computerFirst = !playerStarts;
+  playerStarts = !playerStarts;
+  updateLevels();
+  if (computerFirst) computerTurn(); else updateTurn();
+}
+
+function updateTurn(){
+  if (over) turnEl.textContent = '';
+  else turnEl.textContent = busy ? 'Komputer myśli…' : 'Twój ruch (X)';
+}
+
+function updateScore(){
+  scoreEl.textContent = 'Seria: ' + series;
+  bestEl.textContent = 'Twój rekord: ' + best;
+  statsEl.textContent = wins || draws ? `Poziom: ${LEVELS[level].name} • wygrane: ${wins} • remisy: ${draws}` : `Poziom: ${LEVELS[level].name}`;
+  endBtn.disabled = series === 0;
+  updateLevels();
+}
+
+function updateLevels(){
+  levelBtns.forEach(b => { b.classList.toggle('active', b.dataset.level === level); b.disabled = series > 0; });
+}
+
+levelBtns.forEach(b => b.addEventListener('click', () => {
+  if (series > 0) return;
+  level = b.dataset.level;
+  try { localStorage.setItem('kkLevel', level); } catch (e) {}
+  updateScore();
+  // zmiana poziomu na pustej planszy - zaczynamy od nowa
+  if (!board.some(Boolean) || over) { playerStarts = true; newGame(); }
+}));
+
+msgEl.addEventListener('click', newGame);
+
+endBtn.addEventListener('click', () => {
+  if (series === 0 || busy) return;
+  const s = series;
+  finishSeries();
+  over = true; cells.forEach(c => c.disabled = true); updateTurn();
+  showMsg('Seria zakończona', 'Wynik: ' + s);
+});
+
+// wyjście ze strony w trakcie serii - zapisujemy to, co już zdobyte
+addEventListener('pagehide', () => { if (series > 0) { save(series, true); resetSeries(); } });
+
+function buzz(p){ if (navigator.vibrate && matchMedia('(pointer:coarse)').matches) try { navigator.vibrate(p); } catch (e) {} }
+
+updateScore(); newGame();
+})();
+</script>
+{% endblock %}

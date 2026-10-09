@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#0d2a45"/>
+  <g stroke="#1d4d78" stroke-width="2">
+    <path d="M0 30H400M0 60H400M0 90H400M0 120H400M0 150H400M0 180H400M0 210H400M0 240H400M0 270H400"/>
+    <path d="M40 0V300M80 0V300M120 0V300M160 0V300M200 0V300M240 0V300M280 0V300M320 0V300M360 0V300"/>
+  </g>
+  <!-- okręt -->
+  <path d="M70 170H330L305 205H95Z" fill="#8a98a8"/>
+  <rect x="140" y="140" width="90" height="30" fill="#5d6b7a"/>
+  <rect x="170" y="112" width="34" height="28" fill="#8a98a8"/>
+  <rect x="183" y="80" width="8" height="32" fill="#5d6b7a"/>
+  <rect x="245" y="152" width="50" height="10" fill="#5d6b7a"/>
+  <rect x="290" y="148" width="30" height="5" fill="#5d6b7a"/>
+  <g fill="#7fa7c9"><circle cx="100" cy="185" r="4"/><circle cx="125" cy="185" r="4"/><circle cx="150" cy="185" r="4"/></g>
+  <!-- fale -->
+  <path d="M40 215q15-10 30 0t30 0 30 0 30 0 30 0 30 0 30 0 30 0 30 0 30 0 30 0" fill="none" stroke="#7fa7c9" stroke-width="4"/>
+  <!-- trafienia i pudła -->
+  <rect x="280" y="30" width="40" height="30" fill="#d9381e"/>
+  <path d="M290 37L310 53M310 37L290 53" stroke="#fff" stroke-width="5"/>
+  <rect x="320" y="30" width="40" height="30" fill="#d9381e"/>
+  <path d="M330 37L350 53M350 37L330 53" stroke="#fff" stroke-width="5"/>
+  <g fill="#7fa7c9"><circle cx="60" cy="45" r="5"/><circle cx="140" cy="75" r="5"/><circle cx="220" cy="255" r="5"/><circle cx="340" cy="255" r="5"/></g>
+  <!-- celownik -->
+  <g stroke="#ffcc00" stroke-width="5" fill="none">
+    <circle cx="340" cy="105" r="26"/><path d="M340 70V92M340 118V140M305 105H327M353 105H375"/>
+  </g>
+</svg>

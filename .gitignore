@@ -1,4 +1,22 @@
 .env
-.json
-.png
-.jpg
+venv/
+__pycache__/
+*.pyc
+
+# Bazy danych i pliki runtime
+*.db
+instance/
+app/system.journal
+app/token.json
+error.log
+
+# Pliki wrzucane przez użytkowników na serwerze
+app/static/images/newsy/
+app/static/images/profile_pics/
+
+# Lokalne configi serwera / śmieci
+default
+hlyw
+pierwszastrona.conf
+screenshot.png
+.idea/

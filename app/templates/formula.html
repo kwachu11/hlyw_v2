@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  @font-face{font-family:'Pricedown';src:url("{{ url_for('static', filename='css/fonts/pricedown.otf') }}") format('opentype');font-display:swap}
+  .fm-wrap{max-width:980px;margin:0 auto;padding:10px 8px 28px;text-align:center}
+  .fm-title{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;letter-spacing:1px;margin:4px 0 10px;text-shadow:2px 2px 4px rgba(0,0,0,.35)}
+
+  /* obudowa konsoli */
+  .gb{position:relative;width:min(100%,380px);margin:0 auto;padding:22px 22px 30px;background:linear-gradient(160deg,#d6d3cb,#bcb8ad);
+    border-radius:16px 16px 64px 16px;box-shadow:0 14px 34px rgba(0,0,0,.35),inset 0 -4px 0 rgba(0,0,0,.12),inset 0 3px 0 rgba(255,255,255,.5);
+    user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  .gb-bezel{background:#5b5d72;border-radius:10px 10px 36px 10px;padding:14px 18px 10px}
+  .gb-bezel-top{display:flex;align-items:center;gap:8px;color:#c9c9d6;font:700 .55rem/1 sans-serif;letter-spacing:.12em;margin-bottom:8px}
+  .gb-bezel-top i{flex:1;height:2px;background:#8b2c5a;box-shadow:0 4px 0 #2c3a8b}
+  .gb-led{width:8px;height:8px;border-radius:50%;background:#3a1010;margin-right:4px}
+  .gb-led.on{background:#ff3030;box-shadow:0 0 6px #ff3030}
+  .gb-power{position:absolute;left:28px;top:120px}
+  .gb-screen{position:relative;display:flex;gap:8px;background:#9bbc0f;padding:6px;border-radius:2px;box-shadow:inset 0 0 0 2px #8bac0f;color:#0f380f}
+  .gb-lcd{position:relative;width:62%;flex:none;border-right:2px solid #0f380f}
+  .gb-lcd canvas{display:block;width:100%;height:auto;image-rendering:pixelated}
+  .gb-panel{flex:1;display:flex;flex-direction:column;gap:10px;text-align:left;font:800 .72rem/1.15 'Courier New',monospace;padding-top:4px}
+  .gb-panel b{display:block;font-size:1.05rem}
+  .gb-panel .gb-flag{margin-top:auto;font-size:.65rem;opacity:.85}
+  .gb-msg{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(155,188,15,.88);font:900 1rem/1.3 'Courier New',monospace;color:#0f380f;text-align:center;padding:6px}
+  .gb-msg.show{display:flex}
+  .gb-msg big{font-size:1.35rem;letter-spacing:.05em}
+  .gb-msg small{font-size:.7rem;font-weight:800;margin-top:6px}
+  .gb-brand{font:italic 900 1.15rem/1 'Arial Black',sans-serif;color:#2b2f86;text-align:left;margin:10px 0 0 2px;letter-spacing:-.02em}
+  .gb-brand span{font-size:.75rem;font-style:normal;letter-spacing:.1em;margin-left:4px}
+
+  /* przyciski */
+  .gb-ctrl{display:flex;justify-content:space-between;align-items:center;margin-top:22px;padding:0 4px}
+  .gb{--d:36px}
+  .gb-dpad{position:relative;width:calc(var(--d) * 3);height:calc(var(--d) * 3);flex:none}
+  .gb-dpad button{position:absolute;width:var(--d);height:var(--d);border:0;background:#222;color:#555;font-size:.8rem;padding:0;box-shadow:0 3px 0 #000}
+  .gb-dpad button:active,.gb-dpad button.down{transform:translateY(2px);box-shadow:0 1px 0 #000}
+  .gb-dpad .up{left:var(--d);top:0;border-radius:4px 4px 0 0}
+  .gb-dpad .dn{left:var(--d);top:calc(var(--d) * 2);border-radius:0 0 4px 4px}
+  .gb-dpad .lt{left:0;top:var(--d);border-radius:4px 0 0 4px}
+  .gb-dpad .rt{left:calc(var(--d) * 2);top:var(--d);border-radius:0 4px 4px 0}
+  .gb-dpad .mid{position:absolute;left:var(--d);top:var(--d);width:var(--d);height:var(--d);background:#222}
+  .gb-ab{display:flex;gap:14px;transform:rotate(-25deg);margin-top:-14px}
+  .gb-ab div{display:flex;flex-direction:column;align-items:center;gap:6px;color:#2b2f86;font:900 .75rem/1 sans-serif}
+  .gb-ab button{width:50px;height:50px;border-radius:50%;border:0;background:#9b1d4e;color:#d7a0b6;font:900 1rem/1 sans-serif;box-shadow:0 4px 0 #5a0f2c}
+  .gb-ab button:active,.gb-ab button.down{transform:translateY(3px);box-shadow:0 1px 0 #5a0f2c}
+  .gb-ab div:last-child{margin-top:-22px}
+  .gb-ss{display:flex;justify-content:center;gap:24px;margin-top:22px}
+  .gb-ss div{display:flex;flex-direction:column;align-items:center;gap:6px;color:#2b2f86;font:900 .6rem/1 sans-serif;letter-spacing:.1em;transform:rotate(-25deg)}
+  .gb-ss button{width:48px;height:12px;border-radius:8px;border:0;background:#7d7a83;box-shadow:0 2px 0 #4d4b52}
+  .gb-ss button:active{transform:translateY(2px);box-shadow:none}
+  .gb-speaker{position:absolute;right:30px;bottom:30px;display:flex;gap:7px;transform:rotate(-25deg)}
+  .gb-speaker i{width:5px;height:42px;border-radius:3px;background:#9c988e;box-shadow:inset 1px 1px 2px rgba(0,0,0,.4)}
+  .gb button{-webkit-tap-highlight-color:transparent;cursor:pointer}
+  /* palec na ekranie / przyciskach nie przewija ani nie zoomuje strony */
+  .gb button,.gb-screen{touch-action:none;-webkit-touch-callout:none}
+
+  /* telefon pionowo: pełna szerokość, wyniki nad ekranem, większe przyciski */
+  @media (max-width:576px){
+    .fm-wrap{width:100vw;margin-left:calc(50% - 50vw);padding:2px 6px 24px}
+    .fm-title{font-size:1.9rem;margin:0 0 6px}
+    .gb{--d:50px;width:100%;padding:10px 10px 14px;border-radius:12px 12px 44px 12px}
+    .gb-power,.gb-speaker,.gb-bezel-top,.gb-brand{display:none}
+    .gb-bezel{padding:8px;border-radius:8px 8px 24px 8px}
+    .gb-screen{flex-direction:column;align-items:center;gap:4px;padding:4px}
+    .gb-panel{order:-1;align-self:stretch;flex-direction:row;justify-content:space-between;gap:4px;padding:0 2px 4px;
+      border-bottom:2px solid #0f380f;font-size:.58rem}
+    .gb-panel b{font-size:.95rem}
+    .gb-panel .gb-flag{margin:auto 0 0}
+    .gb-lcd{width:100%;border-right:0}
+    .gb-ctrl{margin-top:12px;padding:0}
+    .gb-ab{margin-top:-6px;margin-right:6px}
+    .gb-ab button{width:62px;height:62px;font-size:1.2rem}
+    .gb-ab div:last-child{margin-top:-28px}
+    .gb-ss{margin-top:6px}
+    .gb-ss button{width:60px;height:18px}
+  }
+  /* telefon poziomo: krzyżak | ekran | A/B */
+  @media (pointer:coarse) and (orientation:landscape) and (max-height:520px){
+    .fm-title,.fm-help{display:none}
+    .fm-wrap{padding:4px 0 12px}
+    .gb{--d:54px;width:100%;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;column-gap:12px;
+      padding:8px 16px;border-radius:14px}
+    .gb-power,.gb-speaker,.gb-bezel-top,.gb-brand{display:none}
+    .gb-ctrl{display:contents}
+    .gb-bezel{grid-column:2;grid-row:1 / span 2;padding:6px;border-radius:8px}
+    .gb-dpad{grid-column:1;grid-row:1 / span 2;justify-self:center}
+    .gb-ab{grid-column:3;grid-row:1;justify-self:center;margin-top:10px}
+    .gb-ab button{width:62px;height:62px}
+    .gb-ss{grid-column:3;grid-row:2;margin-top:0}
+  }
+
+  .fm-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0 0;flex-wrap:wrap}
+  .fm-best{font-weight:800}
+  .fm-help{font-size:.82rem;color:#6c7a89;margin-top:16px;line-height:1.7}
+  .fm-help kbd{background:#1d1d1d;color:#9bbc0f;border-radius:4px;padding:1px 6px;font-size:.75rem}
+</style>
+
+<div class="fm-wrap">
+  <h1 class="fm-title">Formuła</h1>
+
+  <div class="gb" id="fm-gb">
+    <div class="gb-power"><span class="gb-led on"></span></div>
+    <div class="gb-bezel">
+      <div class="gb-bezel-top"><i></i>BRICK GAME · RACING<i></i></div>
+      <div class="gb-screen" id="fm-screen">
+        <div class="gb-lcd" id="fm-lcd">
+          <canvas id="fm-canvas"></canvas>
+          <div class="gb-msg show" id="fm-msg"></div>
+        </div>
+        <div class="gb-panel">
+          <div>SCORE<b id="fm-score">0</b></div>
+          <div>HI-SCORE<b id="fm-hi">{{ best|default(0)|int }}</b></div>
+          <div>LEVEL<b id="fm-level">1</b></div>
+          <div>SPEED<b id="fm-speed">1</b></div>
+          <div class="gb-flag" id="fm-sound">♪ ON</div>
+        </div>
+      </div>
+    </div>
+    <div class="gb-brand">Hlyw Boy<span>COLOR-LESS</span></div>
+
+    <div class="gb-ctrl">
+      <div class="gb-dpad">
+        <button class="up" data-k="turbo" aria-label="Turbo">▲</button>
+        <button class="lt" data-k="left" aria-label="W lewo">◀</button>
+        <span class="mid"></span>
+        <button class="rt" data-k="right" aria-label="W prawo">▶</button>
+        <button class="dn" data-k="none" aria-label="W dół">▼</button>
+      </div>
+      <div class="gb-ab">
+        <div><button data-k="turbo" aria-label="Turbo">B</button>TURBO</div>
+        <div><button data-k="start" aria-label="Start">A</button>START</div>
+      </div>
+    </div>
+    <div class="gb-ss">
+      <div><button data-k="sound" aria-label="Dźwięk"></button>SELECT</div>
+      <div><button data-k="start" aria-label="Start / pauza"></button>START</div>
+    </div>
+    <div class="gb-speaker"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+
+  <div class="fm-bar">
+    <span class="fm-best" id="fm-best">Twój rekord: {{ best|default(0)|int }}</span>
+    <a href="{{ url_for('ranking_formula') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
+  </div>
+
+  <div class="fm-help">
+    Omijaj samochody rywali — każdy wyprzedzony to +1 punkt (od 5. poziomu +2).<br>
+    <kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> zmiana pasa, przytrzymaj <kbd>↑</kbd> / <kbd>Spacja</kbd> — turbo,
+    <kbd>Enter</kbd> start, <kbd>P</kbd> pauza, <kbd>M</kbd> dźwięk.<br>
+    Na telefonie: krzyżak albo stuknięcie w lewą/prawą połowę ekranu, przycisk B trzymany to turbo.<br>
+    Co 10 wyprzedzonych aut wyższy poziom i szybsza jazda.
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const SAVE_URL = "{{ url_for('save_score_formula') }}";
+let best = {{ best|default(0)|int }};
+
+const W = 11, H = 20, CS = 16;                    // pole: 2 bandy + 3 pasy po 3 kratki
+const CAR = [[0,1,0],[1,1,1],[0,1,0],[1,0,1]];    // klasyczne autko z brick game
+const LANES = 3, laneX = l => 1 + l * 3;
+const PY = H - 4;                                  // gracz na samym dole
+const $ = id => document.getElementById(id);
+const cv = $('fm-canvas'), ctx = cv.getContext('2d'), msgEl = $('fm-msg');
+
+const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+cv.width = W * CS * DPR; cv.height = H * CS * DPR;
+ctx.scale(DPR, DPR);
+
+const C_ON = '#0f380f', C_OFF = 'rgba(15,56,15,.10)';
+
+// --- stan --------------------------------------------------------------
+let state = 'title';      // title | play | pause | crash | over
+let lane, enemies, score, level, roadOff, sinceSpawn, nextGap, acc, last, crashT, overAt = 0, turbo = false;
+
+function reset(){
+  lane = 1; enemies = []; score = 0; level = 1; roadOff = 0; sinceSpawn = 0; nextGap = 6; acc = 0; crashT = 0;
+}
+
+const interval = () => Math.max(55, 240 - (level - 1) * 20) / (turbo ? 3 : 1);
+const gapRows = () => Math.max(8, 13 - Math.floor(level / 2));   // >= 8 -> zawsze da się przejechać
+const twinChance = () => Math.min(.45, (level - 1) * .07);
+
+// --- dźwięk ------------------------------------------------------------
+let soundOn = true, actx = null;
+try { soundOn = localStorage.getItem('formulaSound') !== '0'; } catch (e) {}
+function beep(freq, dur, type){
+  if (!soundOn) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(.05, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001, actx.currentTime + dur);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+function toggleSound(){
+  soundOn = !soundOn;
+  try { localStorage.setItem('formulaSound', soundOn ? '1' : '0'); } catch (e) {}
+  $('fm-sound').textContent = soundOn ? '♪ ON' : '♪ OFF';
+  beep(880, .05);
+}
+$('fm-sound').textContent = soundOn ? '♪ ON' : '♪ OFF';
+
+// --- logika ------------------------------------------------------------
+function carCells(x, y){
+  const out = [];
+  CAR.forEach((row, dy) => row.forEach((v, dx) => { if (v) out.push([x + dx, y + dy]); }));
+  return out;
+}
+
+function collides(){
+  const px = laneX(lane);
+  return enemies.some(e => e.lane === lane && e.y + 3 >= PY && e.y <= PY + 3 &&
+    carCells(laneX(e.lane), e.y).some(([x, y]) => CAR[y - PY] && CAR[y - PY][x - px]));
+}
+
+function spawn(){
+  const a = Math.floor(Math.random() * LANES);
+  enemies.push({lane: a, y: -4});
+  if (Math.random() < twinChance()) enemies.push({lane: (a + 1 + Math.floor(Math.random() * 2)) % LANES, y: -4});
+  nextGap = gapRows() + Math.floor(Math.random() * 4);
+  sinceSpawn = 0;
+}
+
+function tick(){
+  roadOff++;
+  enemies.forEach(e => e.y++);
+  const before = enemies.length;
+  enemies = enemies.filter(e => e.y < H);
+  const passed = before - enemies.length;
+  if (passed) {
+    score += passed * (level >= 5 ? 2 : 1);
+    const lv = 1 + Math.floor(score / 10);
+    if (lv > level) { level = lv; beep(660, .08); setTimeout(() => beep(990, .12), 90); }
+    else beep(520, .04);
+  }
+  if (++sinceSpawn >= nextGap) spawn();
+  if (collides()) crash();
+  updatePanel();
+}
+
+function move(d){
+  if (state !== 'play') return;
+  const nl = Math.max(0, Math.min(LANES - 1, lane + d));
+  if (nl === lane) return;
+  lane = nl; beep(300, .03);
+  if (collides()) crash();
+  draw();
+}
+
+function crash(){
+  state = 'crash'; crashT = 0; turbo = false;
+  beep(140, .5, 'sawtooth');
+  buzz([80, 40, 160]);
+}
+
+function gameOver(){
+  state = 'over'; overAt = performance.now();
+  showMsg(`<big>GAME OVER</big>WYNIK ${score}<small id="fm-save">${score > 0 ? 'Zapisywanie…' : ''}</small><small>START — jeszcze raz</small>`);
+  if (score > 0) save(score);
+}
+
+function save(s){
+  fetch(SAVE_URL, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({score: s})})
+    .then(r => r.json())
+    .then(d => {
+      const el = $('fm-save');
+      if (d && d.ok) {
+        const rec = d.best > best;
+        best = Math.max(best, d.best);
+        if (el) el.textContent = rec ? 'NOWY REKORD!' : 'Wynik zapisany';
+      } else if (el) el.textContent = 'Nie udało się zapisać';
+      updatePanel();
+    })
+    .catch(() => { const el = $('fm-save'); if (el) el.textContent = 'Nie udało się zapisać'; });
+}
+
+function start(){
+  if (state === 'play') { state = 'pause'; showMsg('<big>PAUZA</big><small>START — dalej</small>'); return; }
+  if (state === 'pause') { state = 'play'; hideMsg(); last = performance.now(); return; }
+  if (state === 'crash' || (state === 'over' && performance.now() - overAt < 700)) return;
+  reset(); state = 'play'; hideMsg(); last = performance.now();
+  if (fitMQ.matches) $('fm-gb').scrollIntoView({block: 'center', behavior: 'smooth'});
+  beep(523, .08); setTimeout(() => beep(784, .1), 100);
+  updatePanel(); draw();
+}
+
+// --- rysowanie ---------------------------------------------------------
+function cell(x, y, on){
+  const px = x * CS, py = y * CS;
+  ctx.strokeStyle = on ? C_ON : C_OFF; ctx.fillStyle = on ? C_ON : C_OFF;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px + 2, py + 2, CS - 4, CS - 4);
+  ctx.fillRect(px + 5, py + 5, CS - 10, CS - 10);
+}
+
+function draw(){
+  const g = Array.from({length: H}, () => Array(W).fill(false));
+  const put = ([x, y]) => { if (y >= 0 && y < H && x >= 0 && x < W) g[y][x] = true; };
+  // bandy przesuwają się w dół: 3 zapalone, 1 zgaszona
+  for (let y = 0; y < H; y++) if (((y - roadOff) % 4 + 4) % 4 !== 3) { g[y][0] = true; g[y][W - 1] = true; }
+  enemies.forEach(e => carCells(laneX(e.lane), e.y).forEach(put));
+
+  if (state === 'crash') {
+    // migający wybuch w miejscu gracza
+    const px = laneX(lane);
+    if (Math.floor(crashT / 120) % 2 === 0)
+      for (let y = PY - 1; y < H; y++) for (let x = px - 1; x <= px + 3; x++) if ((x + y + Math.floor(crashT / 120)) % 2 === 0) put([x, y]);
+  } else if (state !== 'title') {
+    carCells(laneX(lane), PY).forEach(put);
+  }
+
+  ctx.fillStyle = '#9bbc0f';
+  ctx.fillRect(0, 0, W * CS, H * CS);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) cell(x, y, g[y][x]);
+}
+
+function updatePanel(){
+  $('fm-score').textContent = score;
+  $('fm-hi').textContent = Math.max(best, score);
+  $('fm-level').textContent = level;
+  $('fm-speed').textContent = turbo ? 'TURBO' : Math.min(10, level);
+  $('fm-best').textContent = 'Twój rekord: ' + best;
+}
+
+function showMsg(html){ msgEl.innerHTML = html; msgEl.classList.add('show'); }
+function hideMsg(){ msgEl.classList.remove('show'); }
+
+function loop(now){
+  const dt = Math.min(100, now - (last || now));
+  last = now;
+  if (state === 'play') {
+    acc += dt;
+    while (acc >= interval() && state === 'play') { acc -= interval(); tick(); }
+  } else if (state === 'crash') {
+    crashT += dt;
+    if (crashT > 1300) gameOver();
+  } else if (state === 'title') {
+    // demo na ekranie tytułowym: przewijana droga
+    acc += dt;
+    if (acc > 200) { acc = 0; roadOff++; }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function buzz(p){ if (navigator.vibrate && matchMedia('(pointer:coarse)').matches) try { navigator.vibrate(p); } catch (e) {} }
+
+// --- sterowanie --------------------------------------------------------
+function setTurbo(on){
+  if (turbo === on) return;
+  turbo = on && state === 'play';
+  updatePanel();
+}
+
+document.addEventListener('keydown', e => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  const k = e.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') { move(-1); e.preventDefault(); }
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') { move(1); e.preventDefault(); }
+  else if (k === 'ArrowUp' || k === 'w' || k === 'W' || k === ' ') {
+    if (k === ' ' && state !== 'play') start(); else setTurbo(true);
+    e.preventDefault();
+  }
+  else if (k === 'ArrowDown') e.preventDefault();
+  else if (k === 'Enter') { if (!e.repeat) start(); e.preventDefault(); }
+  else if (k === 'p' || k === 'P' || k === 'Escape') { if (state === 'play' || state === 'pause') start(); }
+  else if (k === 'm' || k === 'M') toggleSound();
+});
+document.addEventListener('keyup', e => {
+  if (['ArrowUp', 'w', 'W', ' '].includes(e.key)) setTurbo(false);
+});
+
+document.querySelectorAll('.gb [data-k]').forEach(b => {
+  const k = b.dataset.k;
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    b.classList.add('down');
+    if (k === 'left') move(-1);
+    else if (k === 'right') move(1);
+    else if (k === 'turbo') setTurbo(true);
+    else if (k === 'start') start();
+    else if (k === 'sound') toggleSound();
+  });
+  const up = () => { b.classList.remove('down'); if (k === 'turbo') setTurbo(false); };
+  b.addEventListener('pointerup', up);
+  b.addEventListener('pointerleave', up);
+  b.addEventListener('pointercancel', up);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+});
+
+// stuknięcie w ekran: lewa / prawa połowa zmienia pas, poza grą startuje
+$('fm-screen').addEventListener('pointerdown', e => {
+  if (state !== 'play') { start(); return; }
+  const r = cv.getBoundingClientRect();
+  move(e.clientX < r.left + r.width / 2 ? -1 : 1);
+});
+
+// na telefonie dopasuj ekran gry tak, żeby cała konsola mieściła się w oknie bez przewijania
+const fitMQ = matchMedia('(max-width:576px), (pointer:coarse) and (orientation:landscape) and (max-height:520px)');
+function fit(){
+  const lcd = $('fm-lcd'), gb = $('fm-gb');
+  lcd.style.width = '';
+  if (!fitMQ.matches) return;
+  const land = matchMedia('(orientation:landscape)').matches;
+  const h = window.visualViewport ? visualViewport.height : innerHeight;
+  const rest = (land ? document.querySelector('.gb-bezel').offsetHeight + 16 : gb.offsetHeight) - cv.offsetHeight;
+  let w = (h - rest - 10) * W / H;
+  if (!land) w = Math.min(w, lcd.parentElement.clientWidth - 8);
+  lcd.style.width = Math.max(140, Math.floor(w)) + 'px';
+}
+addEventListener('resize', fit);
+addEventListener('orientationchange', () => setTimeout(fit, 200));
+fit();
+
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') start(); });
+
+reset();
+showMsg('<big>FORMUŁA</big>START<small>Enter / A / stuknij ekran</small>');
+updatePanel();
+requestAnimationFrame(loop);
+})();
+</script>
+{% endblock %}

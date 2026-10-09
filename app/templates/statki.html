@@ -1,0 +1,448 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  @font-face{font-family:'Pricedown';src:url("{{ url_for('static', filename='css/fonts/pricedown.otf') }}") format('opentype');font-display:swap}
+  .st-wrap{max-width:980px;margin:0 auto;padding:10px 8px 28px;text-align:center}
+  .st-title{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;letter-spacing:1px;margin:4px 0 10px;text-shadow:2px 2px 4px rgba(0,0,0,.35)}
+  .st-status{min-height:1.7em;font-weight:800;font-size:1.1rem;margin-bottom:12px}
+  .st-status.hit{color:#d9381e}.st-status.miss{color:#2b6cb0}.st-status.sunk{color:#b59a00}
+  .st-boards{display:flex;gap:28px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+  .st-side{flex:0 1 420px;min-width:0}
+  .st-side h4{font-weight:800;margin:0 0 6px;font-size:1.05rem}
+  .st-side .st-left{font-size:.85rem;color:#6c7a89;margin-top:6px;min-height:1.3em}
+  .st-grid{display:grid;grid-template-columns:repeat(11,1fr);gap:2px;width:min(100%,420px);margin:0 auto;padding:6px;
+    background:#ffcc00;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.35);user-select:none;-webkit-user-select:none}
+  .st-lbl{display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.72rem;color:#000;aspect-ratio:1}
+  .st-cell{position:relative;aspect-ratio:1;border:0;padding:0;border-radius:2px;background:#0d2a45;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  .st-grid.target .st-cell{cursor:crosshair}
+  .st-grid.target .st-cell:hover:not(.shot){background:#1d4d78}
+  .st-grid.target .st-cell.shot{cursor:default}
+  .st-grid.setup .st-cell{cursor:pointer}
+  .st-cell.ship{background:#8a98a8;box-shadow:inset 0 0 0 2px #5d6b7a}
+  .st-cell.pv-ok{background:#3fae5a}.st-cell.pv-bad{background:#c94040}
+  .st-cell.miss::after{content:'';position:absolute;left:50%;top:50%;width:26%;height:26%;transform:translate(-50%,-50%);border-radius:50%;background:#7fa7c9}
+  .st-cell.hit{background:#d9381e}
+  .st-cell.hit::after{content:'✕';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:.85em}
+  .st-cell.sunk{background:#3b0d06;box-shadow:inset 0 0 0 2px #d9381e}
+  .st-cell.sunk::after{color:#ff8a70}
+  .st-cell.reveal{background:#8a98a8;opacity:.6}
+  .st-cell.last{outline:3px solid #fff;outline-offset:-3px;z-index:1}
+  .st-grid.off{opacity:.55;transition:opacity .2s}
+  .st-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin:14px 0 0;flex-wrap:wrap}
+  .st-bar button,.st-bar a{touch-action:manipulation}
+  .st-fleet{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:10px 0 0}
+  .st-fleet span{display:inline-flex;gap:2px;padding:4px;border-radius:5px;border:2px solid transparent}
+  .st-fleet span i{display:block;width:12px;height:12px;background:#8a98a8;border-radius:2px}
+  .st-fleet span.done{opacity:.25}
+  .st-fleet span.cur{border-color:#ffcc00;background:#fff7d1}
+  .st-fleet span.sunk i{background:#d9381e}
+  .st-levels{display:inline-flex}
+  .st-levels button{border:2px solid #000;background:#fff;color:#000;font-weight:800;font-size:.85rem;padding:5px 14px}
+  .st-levels button+button{border-left:0}
+  .st-levels button:first-child{border-radius:10px 0 0 10px}.st-levels button:last-child{border-radius:0 10px 10px 0}
+  .st-levels button.active{background:#ffcc00}
+  .st-score{font-family:'Pricedown',Impact,sans-serif;font-size:1.8rem;color:#b59a00;-webkit-text-stroke:1px #000}
+  .st-best{font-weight:800}
+  .st-help{font-size:.82rem;color:#6c7a89;margin-top:16px;line-height:1.7}
+  .st-help kbd{background:#1d1d1d;color:#ffcc00;border-radius:4px;padding:1px 6px;font-size:.75rem}
+  .st-over{display:none;margin:16px auto 0;max-width:420px;padding:14px;border-radius:8px;background:#111;color:#fff}
+  .st-over.show{display:block}
+  .st-over h3{font-family:'Pricedown',Impact,sans-serif;font-size:2.4rem;margin:0 0 4px}
+  .st-over small{color:#bbb}
+  /* w trakcie bitwy na wąskim ekranie: plansza wroga na górze */
+  @media (max-width:767px){
+    .st-boards{gap:16px}
+    .st-wrap.playing .st-enemy{order:-1}
+  }
+</style>
+
+<div class="st-wrap" id="st-wrap">
+  <h1 class="st-title">Statki</h1>
+  <div class="st-status" id="st-status"></div>
+
+  <div class="st-boards">
+    <div class="st-side st-mine">
+      <h4>Twoja flota</h4>
+      <div class="st-grid" id="st-player"></div>
+      <div class="st-left" id="st-player-left"></div>
+    </div>
+    <div class="st-side st-enemy" id="st-enemy-side">
+      <h4>Flota komputera</h4>
+      <div class="st-grid off" id="st-enemy"></div>
+      <div class="st-left" id="st-enemy-left"></div>
+    </div>
+  </div>
+
+  <div id="st-setup">
+    <div class="st-fleet" id="st-fleet"></div>
+    <div class="st-bar">
+      <button id="st-rotate" class="btn btn-secondary btn-sm">Obróć ⟳</button>
+      <button id="st-random" class="btn btn-secondary btn-sm">Losuj</button>
+      <button id="st-clear" class="btn btn-secondary btn-sm">Wyczyść</button>
+    </div>
+    <div class="st-bar">
+      <div class="st-levels" role="group" aria-label="Poziom trudności">
+        <button type="button" data-level="easy">Łatwy</button>
+        <button type="button" data-level="hard">Trudny +50</button>
+      </div>
+      <button id="st-start" class="btn btn-primary" disabled>Do boju!</button>
+    </div>
+  </div>
+
+  <div class="st-over" id="st-over">
+    <h3 id="st-over-title"></h3>
+    <div id="st-over-text"></div>
+    <small id="st-over-save"></small>
+    <div class="st-bar"><button id="st-again" class="btn btn-primary">Zagraj ponownie</button></div>
+  </div>
+
+  <div class="st-bar">
+    <span class="st-score" id="st-shots">Strzały: 0</span>
+    <span class="st-best" id="st-best">Twój rekord: {{ best|default(0)|int }}</span>
+    <a href="{{ url_for('ranking_statki') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
+  </div>
+
+  <div class="st-help">
+    Rozstaw flotę: 1×czteromasztowiec, 2×trójmasztowce, 3×dwumasztowce, 4×jednomasztowce.
+    Statki nie mogą się stykać — nawet rogami.<br>
+    Kliknij pole, aby postawić statek, kliknij postawiony statek, aby go zdjąć. <kbd>R</kbd> obraca.<br>
+    Trafienie = strzelasz jeszcze raz. Wokół zatopionego statku pola zaznaczają się same.<br>
+    Punkty: wygrana = 120 − liczba strzałów (+50 na poziomie trudnym), porażka = liczba trafień.
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const SAVE_URL = "{{ url_for('save_score_statki') }}";
+let best = {{ best|default(0)|int }};
+
+const N = 10, FLEET = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1], COLS = 'ABCDEFGHIJ';
+const $ = id => document.getElementById(id);
+const wrapEl = $('st-wrap'), statusEl = $('st-status');
+const pGridEl = $('st-player'), eGridEl = $('st-enemy');
+
+const idx = (x, y) => y * N + x;
+const xy = i => [i % N, Math.floor(i / N)];
+const inside = (x, y) => x >= 0 && y >= 0 && x < N && y < N;
+const name = i => { const [x, y] = xy(i); return COLS[x] + (y + 1); };
+function neighbours(i, diag){
+  const [x, y] = xy(i), out = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if ((!dx && !dy) || (!diag && dx && dy)) continue;
+    if (inside(x + dx, y + dy)) out.push(idx(x + dx, y + dy));
+  }
+  return out;
+}
+
+// --- plansza: grid[i] = numer statku albo -1 ---------------------------
+function makeSide(){ return {grid: Array(N * N).fill(-1), ships: [], shots: new Set()}; }
+
+function shipCells(x, y, len, horiz){
+  const c = [];
+  for (let k = 0; k < len; k++) {
+    const cx = horiz ? x + k : x, cy = horiz ? y : y + k;
+    if (!inside(cx, cy)) return null;
+    c.push(idx(cx, cy));
+  }
+  return c;
+}
+
+function canPlace(side, cells){
+  return cells && cells.every(i => side.grid[i] < 0 && neighbours(i, true).every(n => side.grid[n] < 0));
+}
+
+function addShip(side, cells, fleetIdx){
+  const id = side.ships.length;
+  side.ships.push({cells, hits: 0, fleetIdx});
+  cells.forEach(i => side.grid[i] = id);
+}
+
+function randomFleet(){
+  for (;;) {
+    const side = makeSide();
+    let ok = true;
+    for (let f = 0; f < FLEET.length && ok; f++) {
+      ok = false;
+      for (let t = 0; t < 300; t++) {
+        const h = Math.random() < .5, c = shipCells(Math.floor(Math.random() * N), Math.floor(Math.random() * N), FLEET[f], h);
+        if (canPlace(side, c)) { addShip(side, c, f); ok = true; break; }
+      }
+    }
+    if (ok) return side;
+  }
+}
+
+// strzał w planszę: 'miss' | 'hit' | 'sunk' (+ statek); wokół zatopionego pola odpadają
+function fire(side, i){
+  side.shots.add(i);
+  const s = side.grid[i];
+  if (s < 0) return {res: 'miss'};
+  const ship = side.ships[s];
+  ship.hits++;
+  if (ship.hits < ship.cells.length) return {res: 'hit'};
+  const around = new Set();
+  ship.cells.forEach(c => neighbours(c, true).forEach(n => { if (!side.shots.has(n)) around.add(n); }));
+  around.forEach(n => side.shots.add(n));
+  return {res: 'sunk', ship, around: [...around]};
+}
+
+const alive = side => side.ships.filter(s => s.hits < s.cells.length).length;
+const sunk = (side, i) => side.grid[i] >= 0 && side.ships[side.grid[i]].hits === side.ships[side.grid[i]].cells.length;
+
+// --- komputer ----------------------------------------------------------
+// trudny: mapa prawdopodobieństwa - liczy, na ile sposobów pozostałe statki mogą leżeć na każdym polu;
+// gdy są trafienia w niezatopiony statek, liczą się tylko ułożenia przez nie przechodzące
+// łatwy: losowy strzał, po trafieniu sprawdza sąsiednie pola
+function aiShot(){
+  const side = player, open = [];
+  for (let i = 0; i < N * N; i++) if (!side.shots.has(i)) open.push(i);
+  const hits = [...side.shots].filter(i => side.grid[i] >= 0 && !sunk(side, i));
+
+  if (level === 'easy') {
+    if (hits.length && Math.random() < .85) {
+      const cand = [...new Set(hits.flatMap(h => neighbours(h, false)))].filter(n => !side.shots.has(n));
+      if (cand.length) return pick(cand);
+    }
+    return pick(open);
+  }
+
+  const blocked = i => side.shots.has(i) && !(side.grid[i] >= 0 && !sunk(side, i));
+  const hitSet = new Set(hits), weight = new Array(N * N).fill(0);
+  const lens = side.ships.filter(s => s.hits < s.cells.length).map(s => s.cells.length);
+  for (const len of lens) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) for (const h of [true, false]) {
+    if (len === 1 && !h) continue;
+    const c = shipCells(x, y, len, h);
+    if (!c || c.some(blocked)) continue;
+    const covered = c.filter(i => hitSet.has(i)).length;
+    if (hits.length && !covered) continue;
+    const w = hits.length ? Math.pow(20, covered) : 1;
+    c.forEach(i => { if (!side.shots.has(i)) weight[i] += w; });
+  }
+  let max = 0, bestCells = [];
+  for (const i of open) {
+    if (weight[i] > max) { max = weight[i]; bestCells = [i]; }
+    else if (weight[i] === max && max > 0) bestCells.push(i);
+  }
+  return bestCells.length ? pick(bestCells) : pick(open);
+}
+
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+// --- stan gry ----------------------------------------------------------
+let state = 'setup';          // setup | play | over
+let player, enemy, horiz = true, hover = null, turn = 'player', shots = 0, playerHits = 0;
+let level = 'hard';
+try { if (['easy', 'hard'].includes(localStorage.getItem('statkiLevel'))) level = localStorage.getItem('statkiLevel'); } catch (e) {}
+
+const pCells = [], eCells = [];
+function buildGrid(el, store, onClick){
+  el.innerHTML = '';
+  el.appendChild(document.createElement('div'));
+  for (let x = 0; x < N; x++) { const l = document.createElement('div'); l.className = 'st-lbl'; l.textContent = COLS[x]; el.appendChild(l); }
+  for (let y = 0; y < N; y++) {
+    const l = document.createElement('div'); l.className = 'st-lbl'; l.textContent = y + 1; el.appendChild(l);
+    for (let x = 0; x < N; x++) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'st-cell'; b.dataset.i = idx(x, y);
+      b.setAttribute('aria-label', COLS[x] + (y + 1));
+      b.addEventListener('click', () => onClick(idx(x, y)));
+      el.appendChild(b); store.push(b);
+    }
+  }
+}
+buildGrid(pGridEl, pCells, setupClick);
+buildGrid(eGridEl, eCells, playerShot);
+
+// --- rozstawianie ------------------------------------------------------
+const nextFleetIdx = () => FLEET.findIndex((_, f) => !player.ships.some(s => s && s.fleetIdx === f));
+
+// pozycja statku przy kursorze - jeśli wystaje za planszę, dosuwamy go do krawędzi
+function previewCells(i){
+  const f = nextFleetIdx();
+  if (f < 0) return null;
+  const len = FLEET[f];
+  let [x, y] = xy(i);
+  if (horiz) x = Math.min(x, N - len); else y = Math.min(y, N - len);
+  return shipCells(x, y, len, horiz);
+}
+
+function setupClick(i){
+  if (state !== 'setup') return;
+  const s = player.grid[i];
+  if (s >= 0) { removeShip(s); hover = i; renderPlayer(); return; }
+  const c = previewCells(i);
+  if (canPlace(player, c)) { addShip(player, c, nextFleetIdx()); renderPlayer(); }
+}
+
+function removeShip(id){
+  const ships = player.ships.filter((_, k) => k !== id);
+  player = makeSide();
+  ships.forEach(s => addShip(player, s.cells, s.fleetIdx));
+}
+
+pGridEl.addEventListener('mouseover', e => { const i = e.target.dataset.i; if (i != null && state === 'setup') { hover = +i; renderPlayer(); } });
+pGridEl.addEventListener('mouseleave', () => { hover = null; if (state === 'setup') renderPlayer(); });
+
+function rotate(){ horiz = !horiz; renderPlayer(); }
+
+// --- bitwa -------------------------------------------------------------
+function startBattle(){
+  if (nextFleetIdx() >= 0) return;
+  enemy = randomFleet();
+  state = 'play'; turn = 'player'; shots = 0; playerHits = 0; hover = null;
+  wrapEl.classList.add('playing');
+  $('st-setup').style.display = 'none';
+  pGridEl.classList.remove('setup'); eGridEl.classList.add('target');
+  setStatus('Twój ruch — wybierz pole na planszy komputera');
+  renderAll();
+  if (matchMedia('(max-width:767px)').matches) $('st-enemy-side').scrollIntoView({block: 'start', behavior: 'smooth'});
+}
+
+let lastPlayer = null, lastEnemy = null;
+
+function playerShot(i){
+  if (state !== 'play' || turn !== 'player' || enemy.shots.has(i)) return;
+  shots++; lastEnemy = i;
+  const r = fire(enemy, i);
+  if (r.res === 'miss') {
+    setStatus(name(i) + ' — pudło', 'miss');
+    turn = 'ai'; renderAll();
+    setTimeout(aiTurn, 650);
+    return;
+  }
+  playerHits++; buzz(15);
+  if (r.res === 'sunk') setStatus(name(i) + ' — trafiony, zatopiony! ' + shipName(r.ship.cells.length) + ' poszedł na dno', 'sunk');
+  else setStatus(name(i) + ' — trafiony! Strzelasz dalej', 'hit');
+  renderAll();
+  if (!alive(enemy)) finish(true);
+}
+
+function aiTurn(){
+  if (state !== 'play') return;
+  const i = aiShot(), r = fire(player, i);
+  lastPlayer = i;
+  if (r.res === 'miss') {
+    turn = 'player';
+    setStatus('Komputer: ' + name(i) + ' — pudło. Twój ruch', 'miss');
+    renderAll(); return;
+  }
+  buzz([40, 30, 40]);
+  setStatus('Komputer: ' + name(i) + (r.res === 'sunk' ? ' — zatopił Twój ' + shipName(r.ship.cells.length).toLowerCase() + '!' : ' — trafił!'), 'hit');
+  renderAll();
+  if (!alive(player)) return finish(false);
+  setTimeout(aiTurn, 750);
+}
+
+function shipName(len){ return ['', 'Jednomasztowiec', 'Dwumasztowiec', 'Trójmasztowiec', 'Czteromasztowiec'][len]; }
+
+function finish(won){
+  state = 'over'; turn = null;
+  const points = won ? Math.max(0, 120 - shots) + (level === 'hard' ? 50 : 0) : playerHits;
+  const isRecord = points > best && points > 0;
+  if (isRecord) best = points;
+  wrapEl.classList.remove('playing');
+  eGridEl.classList.remove('target');
+  setStatus(won ? 'Zwycięstwo! Cała flota wroga na dnie' : 'Porażka — komputer zatopił Twoją flotę', won ? 'sunk' : 'hit');
+  $('st-over-title').textContent = won ? 'Wygrana!' : 'Przegrana';
+  $('st-over-text').textContent = (won ? `Strzałów: ${shots}. ` : `Trafień: ${playerHits}/20. `) + `Punkty: ${points}` + (isRecord ? ' — nowy rekord!' : '');
+  $('st-over-save').textContent = 'Zapisywanie wyniku…';
+  $('st-over').classList.add('show');
+  buzz(won ? [30, 40, 30, 40, 80] : [80, 60, 160]);
+  renderAll(true); save(points);
+}
+
+function save(s){
+  fetch(SAVE_URL, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({score: s})})
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => { if (d && d.best != null) best = Math.max(best, d.best); $('st-over-save').textContent = 'Wynik zapisany ✓'; updateScore(); })
+    .catch(() => { $('st-over-save').textContent = 'Nie udało się zapisać wyniku'; });
+}
+
+function newGame(){
+  state = 'setup'; turn = 'player'; shots = 0; playerHits = 0; lastPlayer = lastEnemy = null;
+  player = makeSide(); enemy = makeSide();
+  wrapEl.classList.remove('playing');
+  $('st-setup').style.display = ''; $('st-over').classList.remove('show');
+  pGridEl.classList.add('setup'); eGridEl.classList.remove('target');
+  setStatus('Rozstaw swoje statki');
+  renderAll();
+}
+
+// --- rysowanie ---------------------------------------------------------
+function setStatus(t, cls){ statusEl.textContent = t; statusEl.className = 'st-status' + (cls ? ' ' + cls : ''); }
+
+function paint(cellEl, side, i, showShips, reveal, last){
+  const s = side.grid[i], shot = side.shots.has(i), cl = ['st-cell'];
+  if (shot) cl.push('shot');
+  if (s >= 0) {
+    if (shot) cl.push('hit');
+    if (shot && sunk(side, i)) cl.push('sunk');
+    else if (!shot && showShips) cl.push('ship');
+    else if (!shot && reveal) cl.push('reveal');
+  } else if (shot) cl.push('miss');
+  if (i === last) cl.push('last');
+  cellEl.className = cl.join(' ');
+}
+
+function renderPlayer(){
+  let pv = null, ok = false;
+  if (state === 'setup' && hover != null && player.grid[hover] < 0) { pv = previewCells(hover); ok = canPlace(player, pv); }
+  const pvSet = new Set(pv || []);
+  pCells.forEach((c, i) => {
+    paint(c, player, i, true, false, lastPlayer);
+    if (pvSet.has(i)) c.classList.add(ok ? 'pv-ok' : 'pv-bad');
+  });
+  if (state === 'setup') renderFleet();
+  $('st-player-left').textContent = state === 'setup' ? '' : 'Pozostało statków: ' + alive(player) + '/10';
+}
+
+function renderFleet(){
+  const cur = nextFleetIdx();
+  $('st-fleet').innerHTML = FLEET.map((len, f) => {
+    const done = player.ships.some(s => s.fleetIdx === f);
+    return `<span class="${done ? 'done' : ''}${f === cur ? ' cur' : ''}">${'<i></i>'.repeat(len)}</span>`;
+  }).join('');
+  $('st-start').disabled = cur >= 0;
+  if (state === 'setup') setStatus(cur >= 0 ? `Rozstaw statki — teraz: ${shipName(FLEET[cur]).toLowerCase()} (${horiz ? 'poziomo' : 'pionowo'})` : 'Flota gotowa! Wybierz poziom i ruszaj do boju');
+}
+
+function renderEnemy(reveal){
+  eCells.forEach((c, i) => paint(c, enemy, i, false, reveal || state === 'over', lastEnemy));
+  eGridEl.classList.toggle('off', state === 'setup' || (state === 'play' && turn !== 'player'));
+  $('st-enemy-left').textContent = state === 'setup' ? '' : 'Pozostało statków: ' + alive(enemy) + '/10';
+}
+
+function updateScore(){
+  $('st-shots').textContent = 'Strzały: ' + shots;
+  $('st-best').textContent = 'Twój rekord: ' + best;
+}
+
+function renderAll(reveal){ renderPlayer(); renderEnemy(reveal); updateScore(); }
+
+function setLevel(l){
+  level = l;
+  document.querySelectorAll('.st-levels button').forEach(b => b.classList.toggle('active', b.dataset.level === l));
+  try { localStorage.setItem('statkiLevel', l); } catch (e) {}
+}
+
+function buzz(p){ if (navigator.vibrate && matchMedia('(pointer:coarse)').matches) try { navigator.vibrate(p); } catch (e) {} }
+
+// --- przyciski ---------------------------------------------------------
+$('st-rotate').addEventListener('click', rotate);
+$('st-random').addEventListener('click', () => { if (state === 'setup') { player = randomFleet(); renderPlayer(); } });
+$('st-clear').addEventListener('click', () => { if (state === 'setup') { player = makeSide(); renderPlayer(); } });
+$('st-start').addEventListener('click', startBattle);
+$('st-again').addEventListener('click', newGame);
+document.querySelectorAll('.st-levels button').forEach(b => b.addEventListener('click', () => setLevel(b.dataset.level)));
+document.addEventListener('keydown', e => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if ((e.key === 'r' || e.key === 'R') && state === 'setup') rotate();
+});
+
+setLevel(level);
+newGame();
+})();
+</script>
+{% endblock %}

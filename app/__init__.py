@@ -400,6 +400,24 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
+    class KolkoKrzyzyk(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
+    class Statki(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
+    class Formula(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
     class QuizParticipant(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
         id = db.Column(db.Integer, primary_key=True)
         username = db.Column(db.String(500), nullable=False)  # Dodano ograniczenie NOT NULL
@@ -991,48 +1009,57 @@ def create_app():
         user3 = User.query.filter_by(id=dino_leader.created_by).first() if dino_leader else None
         ice_tower_leader = IceTower.query.order_by(IceTower.points.desc()).first()
         user4 = User.query.filter_by(id=ice_tower_leader.created_by).first() if ice_tower_leader else None
+        kk_leader = KolkoKrzyzyk.query.order_by(KolkoKrzyzyk.points.desc()).first()
+        user5 = User.query.filter_by(id=kk_leader.created_by).first() if kk_leader else None
+        formula_leader = Formula.query.order_by(Formula.points.desc()).first()
+        user6 = User.query.filter_by(id=formula_leader.created_by).first() if formula_leader else None
         games=[]
-        games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake', 'ranking_snake'])
-        games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris', 'ranking_tetris'])
-        games.append(['Dino', 'static/images/dino.png', dino_leader, user3, 'dino', 'ranking_dino'])
+        games.append(['Snake', 'static/images/snake.svg', snake_leader, user, 'snake', 'ranking_snake'])
+        games.append(['Tetris', 'static/images/tetris.svg', tetris_leader, user2, 'tetris', 'ranking_tetris'])
+        games.append(['Dino', 'static/images/dino.svg', dino_leader, user3, 'dino', 'ranking_dino'])
         games.append(['Ice Tower', 'static/images/ice_tower.svg', ice_tower_leader, user4, 'ice_tower', 'ranking_ice_tower'])
+        games.append(['Kółko i krzyżyk', 'static/images/kolko_krzyzyk.svg', kk_leader, user5, 'kolko_krzyzyk', 'ranking_kolko_krzyzyk'])
+        games.append(['Formuła', 'static/images/formula.svg', formula_leader, user6, 'formula', 'ranking_formula'])
         print(games)
         return render_template('games.html', games=games)
 
     @app.route('/tetris', methods=['GET', 'POST'])
     @login_required
     def tetris():
-        return render_template('tetris.html')
+        best = db.session.query(func.max(Tetris.points)).filter(Tetris.created_by == str(current_user.id)).scalar() or 0
+        return render_template('tetris.html', best=best)
 
     @app.route('/tetris/save_score', methods=['POST'])
+    @login_required
     def save_score_tetris():
-        data = request.get_json()
-        score = data.get('score')
+        data = request.get_json(silent=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
 
-        # Dodaj wiadomość flash
-        flash(f'Wynik: {score}.', 'success')  # Użyj 'success' jako kategorii
-
-        new_game = Tetris(points=int(score), created_by=current_user.id)
+        new_game = Tetris(points=score, created_by=current_user.id)
         db.session.add(new_game)
         db.session.commit()
 
-        # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
-        return jsonify({'redirect_url': url_for('tetris')})
+        best = db.session.query(func.max(Tetris.points)).filter(Tetris.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
 
     @app.route('/dino/save_score', methods=['POST'])
+    @login_required
     def save_score_dino():
-        data = request.get_json()
-        score = data.get('score')
+        data = request.get_json(silent=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
 
-        # Dodaj wiadomość flash
-        flash(f'Wynik: {score}.', 'success')  # Użyj 'success' jako kategorii
-
-        new_game = Dino(points=int(score), created_by=current_user.id)
+        new_game = Dino(points=score, created_by=current_user.id)
         db.session.add(new_game)
         db.session.commit()
 
-        # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
-        return jsonify({'redirect_url': url_for('dino')})
+        best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
 
     @app.route('/ranking_snake', methods=['GET', 'POST'])
     @login_required
@@ -1098,7 +1125,8 @@ def create_app():
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required
     def dino():
-        return render_template('dino.html')
+        best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id)).scalar() or 0
+        return render_template('dino.html', best=best)
 
     @app.route('/quiz', methods=['GET', 'POST'])
     @login_required
@@ -1482,5 +1510,118 @@ def create_app():
 
         return render_template('ranking_ice_tower.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
-    return app
+    @app.route('/kolko_krzyzyk', methods=['GET', 'POST'])
+    @login_required
+    def kolko_krzyzyk():
+        best = db.session.query(func.max(KolkoKrzyzyk.points)).filter(KolkoKrzyzyk.created_by == str(current_user.id)).scalar() or 0
+        return render_template('kolko_krzyzyk.html', best=best)
 
+    @app.route('/kolko_krzyzyk/save_score', methods=['POST'])
+    @login_required
+    def save_score_kolko_krzyzyk():
+        data = request.get_json(silent=True, force=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
+
+        new_game = KolkoKrzyzyk(points=score, created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        best = db.session.query(func.max(KolkoKrzyzyk.points)).filter(KolkoKrzyzyk.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
+
+    @app.route('/ranking_kolko_krzyzyk', methods=['GET', 'POST'])
+    @login_required
+    def ranking_kolko_krzyzyk():
+        ranking_data = db.session.query(
+            User.id,
+            User.username,
+            User.photo,
+            func.count(KolkoKrzyzyk.id).label('attempts'),  # Ilość prób
+            func.sum(KolkoKrzyzyk.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(KolkoKrzyzyk.points).label('high_score')  # Najwyższy wynik (rekord)
+        ).outerjoin(KolkoKrzyzyk, KolkoKrzyzyk.created_by == User.id)             .group_by(User.id)             .having(func.max(KolkoKrzyzyk.points) != None)             .order_by(func.max(KolkoKrzyzyk.points).desc())             .all()
+
+        rozegranych_gier = KolkoKrzyzyk.query.count()
+
+        return render_template('ranking_kolko_krzyzyk.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+
+    @app.route('/statki', methods=['GET', 'POST'])
+    @login_required
+    def statki():
+        best = db.session.query(func.max(Statki.points)).filter(Statki.created_by == str(current_user.id)).scalar() or 0
+        return render_template('statki.html', best=best)
+
+    @app.route('/statki/save_score', methods=['POST'])
+    @login_required
+    def save_score_statki():
+        data = request.get_json(silent=True, force=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
+
+        new_game = Statki(points=score, created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        best = db.session.query(func.max(Statki.points)).filter(Statki.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
+
+    @app.route('/ranking_statki', methods=['GET', 'POST'])
+    @login_required
+    def ranking_statki():
+        ranking_data = db.session.query(
+            User.id,
+            User.username,
+            User.photo,
+            func.count(Statki.id).label('attempts'),  # Ilość prób
+            func.sum(Statki.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(Statki.points).label('high_score')  # Najwyższy wynik (rekord)
+        ).outerjoin(Statki, Statki.created_by == User.id)             .group_by(User.id)             .having(func.max(Statki.points) != None)             .order_by(func.max(Statki.points).desc())             .all()
+
+        rozegranych_gier = Statki.query.count()
+
+        return render_template('ranking_statki.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+
+    @app.route('/formula', methods=['GET', 'POST'])
+    @login_required
+    def formula():
+        best = db.session.query(func.max(Formula.points)).filter(Formula.created_by == str(current_user.id)).scalar() or 0
+        return render_template('formula.html', best=best)
+
+    @app.route('/formula/save_score', methods=['POST'])
+    @login_required
+    def save_score_formula():
+        data = request.get_json(silent=True, force=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
+
+        new_game = Formula(points=score, created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        best = db.session.query(func.max(Formula.points)).filter(Formula.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
+
+    @app.route('/ranking_formula', methods=['GET', 'POST'])
+    @login_required
+    def ranking_formula():
+        ranking_data = db.session.query(
+            User.id,
+            User.username,
+            User.photo,
+            func.count(Formula.id).label('attempts'),  # Ilość prób
+            func.sum(Formula.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(Formula.points).label('high_score')  # Najwyższy wynik (rekord)
+        ).outerjoin(Formula, Formula.created_by == User.id)             .group_by(User.id)             .having(func.max(Formula.points) != None)             .order_by(func.max(Formula.points).desc())             .all()
+
+        rozegranych_gier = Formula.query.count()
+
+        return render_template('ranking_formula.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+
+    return app

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" shape-rendering="crispEdges">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cfe9ff"/>
+      <stop offset="1" stop-color="#f7fbff"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky)"/>
+  <!-- chmury -->
+  <g fill="#fff"><rect x="40" y="95" width="60" height="12"/><rect x="52" y="85" width="34" height="10"/><rect x="290" y="110" width="70" height="12"/><rect x="305" y="100" width="36" height="10"/></g>
+  <!-- ziemia -->
+  <rect x="0" y="236" width="400" height="3" fill="#6c7a89"/>
+  <rect x="0" y="239" width="400" height="61" fill="#e8e2d4"/>
+  <g fill="#999"><rect x="30" y="248" width="10" height="3"/><rect x="95" y="256" width="6" height="3"/><rect x="170" y="250" width="12" height="3"/><rect x="250" y="262" width="8" height="3"/><rect x="330" y="252" width="10" height="3"/></g>
+  <!-- dinozaur w skoku -->
+  <g transform="translate(90 130)" fill="#535353">
+    <rect x="30" y="0" width="40" height="28"/>
+    <rect x="38" y="6" width="6" height="6" fill="#fff"/>
+    <rect x="50" y="28" width="20" height="6"/>
+    <rect x="20" y="28" width="30" height="38"/>
+    <rect x="8" y="34" width="12" height="28"/>
+    <rect x="0" y="30" width="8" height="18"/>
+    <rect x="50" y="40" width="12" height="5"/><rect x="58" y="45" width="4" height="6"/>
+    <rect x="16" y="66" width="10" height="16"/><rect x="26" y="78" width="6" height="4"/>
+    <rect x="36" y="66" width="10" height="10"/><rect x="46" y="72" width="6" height="4"/>
+  </g>
+  <!-- linie ruchu -->
+  <g fill="#6c7a89" opacity=".45"><rect x="40" y="175" width="35" height="3"/><rect x="55" y="190" width="25" height="3"/><rect x="45" y="205" width="30" height="3"/></g>
+  <!-- kaktusy -->
+  <g fill="#3a8a3a">
+    <rect x="236" y="186" width="14" height="52"/><rect x="224" y="200" width="6" height="20"/><rect x="224" y="214" width="14" height="6"/>
+    <rect x="254" y="196" width="6" height="18"/><rect x="248" y="208" width="10" height="6"/>
+    <rect x="318" y="206" width="10" height="32"/><rect x="309" y="214" width="5" height="12"/><rect x="309" y="222" width="10" height="4"/>
+    <rect x="331" y="210" width="5" height="12"/><rect x="326" y="218" width="9" height="4"/>
+  </g>
+  <text x="200" y="72" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="40" fill="#535353" opacity=".85">DINO</text>
+</svg>

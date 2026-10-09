@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 400 300" shape-rendering="crispEdges">
+  <defs>
+    <g id="b"><rect width="25" height="25" fill="currentColor"/><rect x="2" y="2" width="21" height="4" fill="#fff" opacity=".35"/><rect x="2" y="19" width="21" height="4" fill="#000" opacity=".25"/><rect width="25" height="25" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="2"/></g>
+  </defs>
+  <rect width="400" height="300" fill="#141a33"/>
+  <g stroke="#1e2647" stroke-width="2">
+    <path d="M0 25H400M0 50H400M0 75H400M0 100H400M0 125H400M0 150H400M0 175H400M0 200H400M0 225H400M0 250H400M0 275H400"/>
+    <path d="M25 0V300M50 0V300M75 0V300M100 0V300M125 0V300M150 0V300M175 0V300M200 0V300M225 0V300M250 0V300M275 0V300M300 0V300M325 0V300M350 0V300M375 0V300"/>
+  </g>
+  <!-- stos klocków -->
+  <g color="#3b6bff"><use xlink:href="#b" x="0" y="250"/><use xlink:href="#b" x="0" y="225"/><use xlink:href="#b" x="25" y="225"/><use xlink:href="#b" x="0" y="200"/></g>
+  <g color="#ff3b3b"><use xlink:href="#b" x="0" y="275"/><use xlink:href="#b" x="25" y="275"/><use xlink:href="#b" x="25" y="250"/><use xlink:href="#b" x="50" y="250"/></g>
+  <g color="#ffd500"><use xlink:href="#b" x="50" y="275"/><use xlink:href="#b" x="75" y="275"/><use xlink:href="#b" x="75" y="250"/><use xlink:href="#b" x="100" y="250"/></g>
+  <g color="#2fd0ff"><use xlink:href="#b" x="100" y="275"/><use xlink:href="#b" x="125" y="275"/><use xlink:href="#b" x="150" y="275"/><use xlink:href="#b" x="175" y="275"/></g>
+  <g color="#b44dff"><use xlink:href="#b" x="200" y="275"/><use xlink:href="#b" x="225" y="275"/><use xlink:href="#b" x="250" y="275"/><use xlink:href="#b" x="225" y="250"/></g>
+  <g color="#ff9a1f"><use xlink:href="#b" x="275" y="275"/><use xlink:href="#b" x="300" y="275"/><use xlink:href="#b" x="300" y="250"/><use xlink:href="#b" x="300" y="225"/></g>
+  <g color="#3be36b"><use xlink:href="#b" x="325" y="275"/><use xlink:href="#b" x="350" y="275"/><use xlink:href="#b" x="350" y="250"/><use xlink:href="#b" x="325" y="250"/></g>
+  <g color="#ffd500"><use xlink:href="#b" x="375" y="275"/><use xlink:href="#b" x="375" y="250"/><use xlink:href="#b" x="375" y="225"/><use xlink:href="#b" x="350" y="225"/></g>
+  <!-- ślad spadania -->
+  <g fill="#b44dff" opacity=".25"><rect x="160" y="110" width="5" height="30"/><rect x="185" y="100" width="5" height="40"/><rect x="210" y="110" width="5" height="30"/></g>
+  <!-- spadający klocek T -->
+  <g color="#b44dff"><use xlink:href="#b" x="150" y="150"/><use xlink:href="#b" x="175" y="150"/><use xlink:href="#b" x="200" y="150"/><use xlink:href="#b" x="175" y="175"/></g>
+  <!-- spadający klocek I -->
+  <g color="#2fd0ff"><use xlink:href="#b" x="275" y="100"/><use xlink:href="#b" x="275" y="125"/><use xlink:href="#b" x="275" y="150"/><use xlink:href="#b" x="275" y="175"/></g>
+  <text x="200" y="72" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="40" fill="#ffcc00" opacity=".9">TETRIS</text>
+</svg>

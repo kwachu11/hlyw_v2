@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" shape-rendering="crispEdges">
+  <rect width="400" height="300" fill="#1d1d1d"/>
+  <!-- siatka planszy -->
+  <g stroke="#262626" stroke-width="2">
+    <path d="M0 20H400M0 40H400M0 60H400M0 80H400M0 100H400M0 120H400M0 140H400M0 160H400M0 180H400M0 200H400M0 220H400M0 240H400M0 260H400M0 280H400"/>
+    <path d="M20 0V300M40 0V300M60 0V300M80 0V300M100 0V300M120 0V300M140 0V300M160 0V300M180 0V300M200 0V300M220 0V300M240 0V300M260 0V300M280 0V300M300 0V300M320 0V300M340 0V300M360 0V300M380 0V300"/>
+  </g>
+  <!-- wąż -->
+  <g fill="#5fcf00">
+    <rect x="61" y="221" width="18" height="18"/><rect x="81" y="221" width="18" height="18"/><rect x="101" y="221" width="18" height="18"/>
+    <rect x="121" y="221" width="18" height="18"/><rect x="141" y="221" width="18" height="18"/><rect x="141" y="201" width="18" height="18"/>
+    <rect x="141" y="181" width="18" height="18"/><rect x="141" y="161" width="18" height="18"/><rect x="161" y="161" width="18" height="18"/>
+    <rect x="181" y="161" width="18" height="18"/><rect x="201" y="161" width="18" height="18"/><rect x="221" y="161" width="18" height="18"/>
+    <rect x="221" y="141" width="18" height="18"/><rect x="221" y="121" width="18" height="18"/><rect x="241" y="121" width="18" height="18"/>
+  </g>
+  <g fill="#7CFC00">
+    <rect x="63" y="223" width="6" height="6"/><rect x="83" y="223" width="6" height="6"/><rect x="103" y="223" width="6" height="6"/>
+    <rect x="123" y="223" width="6" height="6"/><rect x="143" y="223" width="6" height="6"/><rect x="143" y="203" width="6" height="6"/>
+    <rect x="143" y="183" width="6" height="6"/><rect x="143" y="163" width="6" height="6"/><rect x="163" y="163" width="6" height="6"/>
+    <rect x="183" y="163" width="6" height="6"/><rect x="203" y="163" width="6" height="6"/><rect x="223" y="163" width="6" height="6"/>
+    <rect x="223" y="143" width="6" height="6"/><rect x="223" y="123" width="6" height="6"/><rect x="243" y="123" width="6" height="6"/>
+  </g>
+  <!-- głowa -->
+  <rect x="261" y="119" width="22" height="22" fill="#7CFC00"/>
+  <rect x="273" y="122" width="6" height="6" fill="#fff"/><rect x="276" y="124" width="3" height="3" fill="#000"/>
+  <rect x="273" y="132" width="6" height="6" fill="#fff"/><rect x="276" y="134" width="3" height="3" fill="#000"/>
+  <rect x="283" y="129" width="8" height="2" fill="#ff3b3b"/><rect x="291" y="126" width="2" height="3" fill="#ff3b3b"/><rect x="291" y="131" width="2" height="3" fill="#ff3b3b"/>
+  <!-- jabłko -->
+  <rect x="323" y="123" width="14" height="14" fill="#ff3b3b"/><rect x="321" y="125" width="18" height="10" fill="#ff3b3b"/>
+  <rect x="325" y="125" width="4" height="4" fill="#ff9a9a"/>
+  <rect x="329" y="117" width="2" height="6" fill="#6b4a2b"/><rect x="331" y="117" width="5" height="3" fill="#5fcf00"/>
+  <text x="200" y="72" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="40" fill="#ffcc00" opacity=".9">SNAKE</text>
+</svg>

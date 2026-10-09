@@ -18,6 +18,7 @@
   @media (hover:hover) and (pointer:fine){.it-touch{display:none}}
   .it-help{font-size:.82rem;color:#6c7a89;margin-top:12px;line-height:1.7}
   .it-help kbd{background:#1d2a3a;color:#e8f6ff;border-radius:4px;padding:1px 6px;font-size:.75rem}
+  .it-again{margin-top:36px}
 </style>
 
 <div class="it-wrap">
@@ -34,7 +35,6 @@
 
   <div class="it-bar">
     <span class="it-best" id="it-best">Twój rekord: {{ best|default(0)|int }}</span>
-    <button id="it-start" class="btn btn-primary btn-sm">Graj</button>
     <button id="it-pause" class="btn btn-secondary btn-sm" disabled>Pauza</button>
     <button id="it-mute" class="btn btn-outline-secondary btn-sm">🔊</button>
     <a href="{{ url_for('ranking_ice_tower') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
@@ -43,6 +43,11 @@
   <div class="it-help">
     <kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> rozpęd &nbsp;•&nbsp; <kbd>Spacja</kbd> / <kbd>↑</kbd> skok &nbsp;•&nbsp; <kbd>P</kbd> pauza &nbsp;•&nbsp; <kbd>M</kbd> dźwięk<br>
     Im szybciej biegniesz, tym wyżej skaczesz. Dwa lub więcej skoków o 2+ piętra pod rząd = <b>COMBO</b> (piętra² punktów).
+  </div>
+
+  <!-- celowo na samym dole, żeby nie kliknąć go przypadkiem w trakcie gry -->
+  <div class="it-bar it-again">
+    <button id="it-start" class="btn btn-primary">Graj</button>
   </div>
 </div>
 
@@ -619,6 +624,7 @@ function toggleMute(){
 }
 function updateButtons(){
   startBtn.textContent = state === 'menu' ? 'Graj' : 'Od nowa';
+  startBtn.disabled = state === 'play';
   pauseBtn.disabled = !(state === 'play' || state === 'pause');
   pauseBtn.textContent = state === 'pause' ? 'Wznów' : 'Pauza';
   muteBtn.textContent = muted ? '🔇' : '🔊';
