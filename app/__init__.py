@@ -961,32 +961,34 @@ def create_app():
     @app.route('/snake', methods=['GET', 'POST'])
     @login_required
     def snake():
-        return render_template('snake.html')
+        best = db.session.query(func.max(Snake.points)).filter(Snake.created_by == str(current_user.id)).scalar() or 0
+        return render_template('snake.html', best=best)
 
     @app.route('/snake/save_score', methods=['POST'])
+    @login_required
     def save_score():
-        data = request.get_json()
-        score = data.get('score')
+        data = request.get_json(silent=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
 
-        # Dodaj wiadomość flash
-        flash(f'Wynik: {score}.', 'success')  # Użyj 'success' jako kategorii
-
-        new_game = Snake(points=int(score), created_by=current_user.id)
+        new_game = Snake(points=score, created_by=current_user.id)
         db.session.add(new_game)
         db.session.commit()
 
-        # Przekieruj do strony, gdzie chcesz wyświetlić wiadomość
-        return jsonify({'redirect_url': url_for('snake')})
+        best = db.session.query(func.max(Snake.points)).filter(Snake.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
 
     @app.route('/games', methods=['GET'])
     @login_required
     def games():
         snake_leader = Snake.query.order_by(Snake.points.desc()).first()
-        user=User.query.filter_by(id=snake_leader.created_by).first()
+        user = User.query.filter_by(id=snake_leader.created_by).first() if snake_leader else None
         tetris_leader = Tetris.query.order_by(Tetris.points.desc()).first()
-        user2 = User.query.filter_by(id=tetris_leader.created_by).first()
+        user2 = User.query.filter_by(id=tetris_leader.created_by).first() if tetris_leader else None
         dino_leader = Dino.query.order_by(Dino.points.desc()).first()
-        user3 = User.query.filter_by(id=dino_leader.created_by).first()
+        user3 = User.query.filter_by(id=dino_leader.created_by).first() if dino_leader else None
         ice_tower_leader = IceTower.query.order_by(IceTower.points.desc()).first()
         user4 = User.query.filter_by(id=ice_tower_leader.created_by).first() if ice_tower_leader else None
         games=[]

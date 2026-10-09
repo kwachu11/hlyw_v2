@@ -1,182 +1,273 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  @font-face{font-family:'Pricedown';src:url("{{ url_for('static', filename='css/fonts/pricedown.otf') }}") format('opentype');font-display:swap}
+  .sn-wrap{max-width:460px;margin:0 auto;padding:10px 8px 28px;text-align:center}
+  .sn-title{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;letter-spacing:1px;margin:4px 0 10px;
+    text-shadow:2px 2px 4px rgba(0,0,0,.35)}
+  #snakeCanvas{display:block;margin:0 auto;width:min(100%,420px,62vh);aspect-ratio:1;border-radius:10px;background:#0b0b0b;
+    box-shadow:0 0 0 6px #ffcc00,0 14px 40px rgba(0,0,0,.45);touch-action:none;outline:none;user-select:none;-webkit-user-select:none}
+  .sn-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0 0;flex-wrap:wrap}
+  .sn-bar .sn-score{font-family:'Pricedown',Impact,sans-serif;font-size:1.8rem;color:#b59a00;margin-right:6px;-webkit-text-stroke:1px #000}
+  .sn-bar .sn-best{font-weight:800;margin-right:6px}
+  .sn-pad{display:grid;grid-template-columns:repeat(3,72px);grid-template-rows:repeat(2,60px);gap:8px;justify-content:center;margin:14px auto 0}
+  .sn-pad button{font-size:1.6rem;font-weight:900;border-radius:14px;border:2px solid #000;background:#ffcc00;color:#000;
+    box-shadow:0 4px 0 #000;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-tap-highlight-color:transparent}
+  .sn-pad button.on{transform:translateY(3px);box-shadow:0 1px 0 #000;background:#e6b800}
+  .sn-pad .up{grid-column:2;grid-row:1}.sn-pad .left{grid-column:1;grid-row:2}
+  .sn-pad .down{grid-column:2;grid-row:2}.sn-pad .right{grid-column:3;grid-row:2}
+  @media (hover:hover) and (pointer:fine){.sn-pad{display:none}}
+  .sn-help{font-size:.82rem;color:#6c7a89;margin-top:12px;line-height:1.7}
+  .sn-help kbd{background:#1d1d1d;color:#ffcc00;border-radius:4px;padding:1px 6px;font-size:.75rem}
+</style>
 
-<h1>Snake by Hlyw</h1>
-<center>
-    <canvas id="gameCanvasSnake" width="400" height="400"></canvas>
-    <p id="score">Wynik: 0</p>
-    <div class="col-6 mb-2">
-        <button id="start-button" class="btn btn-primary">Rozpocznij grę</button>
-    </div>
-        </center>
-    <div class="controls mt-3 d-flex flex-column">
-        <div class="row">
-            <div class="col text-center">
-                <button id="up" class="btn btn-secondary">↑</button>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col text-center">
-                <button id="left" class="btn btn-secondary">←</button>
-            </div>&nbsp;&nbsp;&nbsp;&nbsp;
-            <div class="col text-center">
-                <button id="right" class="btn btn-secondary">→</button>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col text-center">
-                <button id="down" class="btn btn-secondary">↓</button>
-            </div>
-        </div>
-    </div>
+<div class="sn-wrap">
+  <h1 class="sn-title">Snake by Hlyw</h1>
+
+  <canvas id="snakeCanvas" width="400" height="400" tabindex="0" aria-label="Gra Snake"></canvas>
+
+  <div class="sn-pad" aria-hidden="true">
+    <button class="up" data-dir="up">↑</button>
+    <button class="left" data-dir="left">←</button>
+    <button class="down" data-dir="down">↓</button>
+    <button class="right" data-dir="right">→</button>
+  </div>
+
+  <div class="sn-bar">
+    <span class="sn-score" id="sn-score">Wynik: 0</span>
+    <span class="sn-best" id="sn-best">Twój rekord: {{ best|default(0)|int }}</span>
+  </div>
+  <div class="sn-bar">
+    <button id="sn-start" class="btn btn-primary btn-sm">Rozpocznij grę</button>
+    <button id="sn-pause" class="btn btn-secondary btn-sm" disabled>Pauza</button>
+    <a href="{{ url_for('ranking_snake') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
+  </div>
+
+  <div class="sn-help">
+    <kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> / <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> sterowanie
+    &nbsp;•&nbsp; <kbd>Spacja</kbd> / <kbd>P</kbd> pauza &nbsp;•&nbsp; <kbd>Enter</kbd> start<br>
+    Na telefonie przesuwaj palcem po planszy albo używaj strzałek. Z każdym jabłkiem wąż przyspiesza.
+  </div>
 </div>
-</div>
 
-    <script>
-    const canvas = document.getElementById("gameCanvasSnake");
-    canvas.width = 400;
-    canvas.height = 400;
-    const ctx = canvas.getContext("2d");
-    const box = 20;
-    let snake = [{ x: 9 * box, y: 10 * box }];
-    let direction = "RIGHT";
-    let food = { x: Math.floor(Math.random() * 19) * box, y: Math.floor(Math.random() * 19) * box };
-    let score = 0;
-    let gameActive = false; // Flaga do zarządzania aktywnością gry
-    let showWelcomeMessage = true;
+<script>
+(() => {
+'use strict';
+const SAVE_URL = "{{ url_for('save_score') }}";
+let best = {{ best|default(0)|int }};
 
-        document.addEventListener("keydown", event => {
-        if (gameActive) {
-            handleDirectionChange(event.key);
-        }
-    });
+const cv = document.getElementById('snakeCanvas'), ctx = cv.getContext('2d');
+const scoreEl = document.getElementById('sn-score'), bestEl = document.getElementById('sn-best');
+const startBtn = document.getElementById('sn-start'), pauseBtn = document.getElementById('sn-pause');
 
-    function drawText(text, x, y) {
-    ctx.font = "50px Pricedown"; // Ustaw czcionkę
-    ctx.fillStyle = "white"; // Ustaw kolor tekstu
-    ctx.fillText(text, x, y); // Narysuj tekst
+// --- stałe -------------------------------------------------------------
+const N = 20, SIZE = 400, C = SIZE / N;               // plansza 20x20 pól
+const SPEED_START = 130, SPEED_MIN = 60, SPEED_STEP = 3; // ms na ruch
+const DIRS = {up:{x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0}};
+const KEYS = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+              w:'up', s:'down', a:'left', d:'right', W:'up', S:'down', A:'left', D:'right'};
+const FONT = "'Pricedown',Impact,sans-serif";
+
+function fit(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  cv.width = cv.height = Math.round(SIZE * dpr);
+  ctx.setTransform(cv.width / SIZE, 0, 0, cv.height / SIZE, 0, 0);
+  render();
 }
 
-    document.getElementById("up").addEventListener("click", () => {
-    event.preventDefault();
-        if (gameActive) handleDirectionChange("ArrowUp");
-    });
-    document.getElementById("down").addEventListener("click", () => {
-    event.preventDefault();
-        if (gameActive) handleDirectionChange("ArrowDown");
-    });
-    document.getElementById("left").addEventListener("click", () => {
-    event.preventDefault();
-        if (gameActive) handleDirectionChange("ArrowLeft");
-    });
-    document.getElementById("right").addEventListener("click", () => {
-    event.preventDefault();
-        if (gameActive) handleDirectionChange("ArrowRight");
-    });
+// --- stan --------------------------------------------------------------
+let state = 'idle';          // idle | run | pause | over
+let snake, dir, queue, food, score, speed, acc, last, saveState, newRecord;
 
-        function handleDirectionChange(key) {
-        event.preventDefault();
-        if (key === "ArrowUp" && direction !== "DOWN") direction = "UP";
-        else if (key === "ArrowDown" && direction !== "UP") direction = "DOWN";
-        else if (key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
-        else if (key === "ArrowRight" && direction !== "LEFT") direction = "RIGHT";
-    }
+function reset(){
+  snake = [{x:9,y:10},{x:8,y:10},{x:7,y:10}];
+  dir = DIRS.right; queue = [];
+  score = 0; speed = SPEED_START; acc = 0;
+  saveState = null; newRecord = false;
+  food = placeFood();
+  updateScore();
+}
 
-    function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+function placeFood(){
+  const taken = new Set(snake.map(s => s.x + ',' + s.y)), free = [];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!taken.has(x + ',' + y)) free.push({x, y});
+  return free.length ? free[Math.floor(Math.random() * free.length)] : null;
+}
 
-        for (let i = 0; i < snake.length; i++) {
-            ctx.fillStyle = i === 0 ? "white" : "lightwhite";
-            ctx.fillRect(snake[i].x, snake[i].y, box, box);
-        }
-        ctx.fillStyle = "red";
-        ctx.fillRect(food.x, food.y, box, box);
+// Kolejka kierunków: kilka szybkich naciśnięć w jednym ruchu nie pozwoli zawrócić w siebie.
+function turn(name){
+  if (state === 'idle' || state === 'over') return;
+  if (state === 'pause') togglePause();
+  const nd = DIRS[name], ref = queue.length ? queue[queue.length - 1] : dir;
+  if (queue.length >= 3 || (nd.x === ref.x && nd.y === ref.y) || (nd.x === -ref.x && nd.y === -ref.y)) return;
+  queue.push(nd);
+}
 
-        let snakeX = snake[0].x;
-        let snakeY = snake[0].y;
-        if (direction === "UP") snakeY -= box;
-        if (direction === "DOWN") snakeY += box;
-        if (direction === "LEFT") snakeX -= box;
-        if (direction === "RIGHT") snakeX += box;
+// --- logika ------------------------------------------------------------
+function step(){
+  if (queue.length) dir = queue.shift();
+  const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+  const eats = food && head.x === food.x && head.y === food.y;
+  // ogon zwalnia pole w tym samym ruchu, więc można w nie wejść (chyba że wąż właśnie rośnie)
+  const body = eats ? snake : snake.slice(0, -1);
+  if (head.x < 0 || head.x >= N || head.y < 0 || head.y >= N || body.some(s => s.x === head.x && s.y === head.y)) {
+    return die();
+  }
+  snake.unshift(head);
+  if (eats) {
+    score++; speed = Math.max(SPEED_MIN, speed - SPEED_STEP);
+    food = placeFood(); updateScore();
+    if (!food) return die();   // cała plansza zapełniona
+  } else {
+    snake.pop();
+  }
+}
 
-        if (snakeX === food.x && snakeY === food.y) {
-            score++;
-            food = { x: Math.floor(Math.random() * 19) * box, y: Math.floor(Math.random() * 19) * box };
-        } else {
-            snake.pop();
-        }
+function die(){
+  state = 'over';
+  newRecord = score > best && score > 0;
+  if (newRecord) best = score;
+  updateButtons(); save(score);
+}
 
-        let newHead = { x: snakeX, y: snakeY };
-        if (snakeX < 0 || snakeX >= canvas.width || snakeY < 0 || snakeY >= canvas.height || collision(newHead, snake)) {
-            clearInterval(game);
-            endGame(score);
-        }
+function save(s){
+  saveState = 'saving';
+  fetch(SAVE_URL, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({score:s})})
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => { saveState = 'ok'; if (d && d.best != null) best = Math.max(best, d.best); updateScore(); })
+    .catch(() => { saveState = 'err'; })
+    .finally(render);
+}
 
-        snake.unshift(newHead);
-        document.getElementById("score").innerText = "Wynik: " + score;
-    }
+function updateScore(){
+  scoreEl.textContent = 'Wynik: ' + score;
+  bestEl.textContent = 'Twój rekord: ' + best;
+}
 
+function updateButtons(){
+  startBtn.textContent = state === 'idle' ? 'Rozpocznij grę' : 'Zagraj ponownie';
+  pauseBtn.disabled = !(state === 'run' || state === 'pause');
+  pauseBtn.textContent = state === 'pause' ? 'Wznów' : 'Pauza';
+}
 
-    function collision(head, array) {
-        for (let i = 0; i < array.length; i++) {
-            if (head.x === array[i].x && head.y === array[i].y) return true;
-        }
-        return false;
-    }
+function start(){
+  reset(); state = 'run'; last = performance.now();
+  updateButtons(); cv.focus({preventScroll:true});
+}
 
-    let game; // Zmienna do przechowywania interwału gry
+function togglePause(){
+  if (state === 'run') state = 'pause';
+  else if (state === 'pause') { state = 'run'; last = performance.now(); }
+  updateButtons(); render();
+}
 
-    napis_hlyw(gameActive);
+// --- pętla -------------------------------------------------------------
+function loop(now){
+  if (state === 'run') {
+    acc += Math.min(now - last, 250); last = now;
+    while (acc >= speed && state === 'run') { acc -= speed; step(); }
+  }
+  render();
+  requestAnimationFrame(loop);
+}
 
-    // Funkcja do rozpoczęcia gry
-    function startGame() {
-        gameActive = true; // Aktywuj grę
-        score = 0; // Resetowanie wyniku
-        snake = [{ x: 9 * box, y: 10 * box }]; // Resetowanie pozycji węża
-        direction = "RIGHT"; // Resetowanie kierunku
-        food = { x: Math.floor(Math.random() * 19) * box, y: Math.floor(Math.random() * 19) * box }; // Resetowanie pozycji jedzenia
-        showWelcomeMessage = false;
-        game = setInterval(draw, 100); // Uruchom pętlę gry
-    }
+// --- rysowanie ---------------------------------------------------------
+function rr(x, y, w, h, r){
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
 
-    function napis_hlyw(aktywnosc) {
-    if(aktywnosc == false)
-    {
-        const font = new FontFace('Pricedown', 'url(static/css/fonts/pricedown.otf)');
-        document.fonts.add(font);
+function text(t, y, size, color, stroke){
+  ctx.font = `${size}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (stroke) { ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.strokeText(t, SIZE / 2, y); }
+  ctx.fillStyle = color; ctx.fillText(t, SIZE / 2, y);
+}
 
-        font.load().then(() => {
-            document.fonts.add(font);
-            drawText("Snake", canvas.width / 2 - 120, canvas.height / 2-20); // Wyśrodkowanie tekstu
-            drawText("by", canvas.width / 2-43, canvas.height / 2+22);
-            drawText("Hlyw", canvas.width / 2-43, canvas.height / 2+65);
-        }).catch(error => {
-            console.error('Błąd podczas ładowania czcionki:', error);
-        });
-    }
-    }
+function render(){
+  // plansza w delikatną szachownicę
+  ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.fillStyle = '#121212';
+  for (let y = 0; y < N; y++) for (let x = (y % 2); x < N; x += 2) ctx.fillRect(x * C, y * C, C, C);
 
+  if (state === 'idle') {
+    text('Snake', SIZE / 2 - 50, 72, '#ffcc00', true);
+    text('by Hlyw', SIZE / 2 + 10, 40, '#fff', true);
+    text('Naciśnij Enter lub „Rozpocznij grę”', SIZE / 2 + 80, 20, '#bbb');
+    return;
+  }
 
+  // jabłko
+  if (food) {
+    const fx = food.x * C + C / 2, fy = food.y * C + C / 2;
+    ctx.fillStyle = '#e53935'; ctx.beginPath(); ctx.arc(fx, fy + 1, C * .42, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(fx - 3, fy - 2, C * .12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#5d8c2b'; ctx.fillRect(fx - 1, fy - C * .5, 2, 5);
+  }
 
+  // wąż: głowa żółta, ciało ciemnieje w stronę ogona
+  for (let i = snake.length - 1; i >= 0; i--) {
+    const s = snake[i], t = snake.length > 1 ? i / (snake.length - 1) : 0;
+    ctx.fillStyle = i === 0 ? '#ffcc00' : `hsl(48, 100%, ${50 - t * 22}%)`;
+    rr(s.x * C + 1, s.y * C + 1, C - 2, C - 2, i === 0 ? 6 : 4); ctx.fill();
+  }
+  // oczy
+  const h = snake[0], cx = h.x * C + C / 2, cy = h.y * C + C / 2;
+  const px = -dir.y, py = dir.x;
+  ctx.fillStyle = '#000';
+  for (const k of [-1, 1]) {
+    ctx.beginPath(); ctx.arc(cx + dir.x * 4 + px * 4 * k, cy + dir.y * 4 + py * 4 * k, 2.2, 0, Math.PI * 2); ctx.fill();
+  }
 
-    // Obsługa kliknięcia przycisku
-    document.getElementById('start-button').addEventListener('click', startGame);
+  if (state === 'pause') {
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 0, SIZE, SIZE);
+    text('PAUZA', SIZE / 2, 64, '#ffcc00', true);
+  } else if (state === 'over') {
+    ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(0, 0, SIZE, SIZE);
+    text('Koniec gry', SIZE / 2 - 70, 60, '#ffcc00', true);
+    text('Wynik: ' + score, SIZE / 2 - 10, 42, '#fff', true);
+    if (newRecord) text('Nowy rekord!', SIZE / 2 + 38, 32, '#7CFC00', true);
+    const msg = {saving:'Zapisywanie wyniku…', ok:'Wynik zapisany ✓', err:'Nie udało się zapisać wyniku'}[saveState] || '';
+    text(msg, SIZE / 2 + 80, 18, saveState === 'err' ? '#ff6b6b' : '#bbb');
+    text('Enter / „Zagraj ponownie”', SIZE / 2 + 110, 18, '#bbb');
+  }
+}
 
-    function endGame(score) {
-        fetch('/snake/save_score', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ score: score })
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Przekierowanie do odpowiedniej strony po zapisaniu wyniku
-            window.location.href = data.redirect_url;
-        })
-        .catch(error => console.error('Błąd:', error));
-    }
+// --- sterowanie --------------------------------------------------------
+document.addEventListener('keydown', e => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  const k = e.key;
+  if (KEYS[k]) { e.preventDefault(); turn(KEYS[k]); }
+  else if (k === ' ' || k === 'p' || k === 'P') { if (state === 'run' || state === 'pause') { e.preventDefault(); togglePause(); } }
+  else if (k === 'Enter' && (state === 'idle' || state === 'over')) { e.preventDefault(); start(); }
+});
+
+let touch = null;
+cv.addEventListener('touchstart', e => { const t = e.touches[0]; touch = {x:t.clientX, y:t.clientY}; e.preventDefault(); }, {passive:false});
+cv.addEventListener('touchmove', e => {
+  if (!touch) return;
+  const t = e.touches[0], dx = t.clientX - touch.x, dy = t.clientY - touch.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) > 24) {
+    turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    touch = {x:t.clientX, y:t.clientY};   // pozwala na kilka skrętów jednym ruchem palca
+  }
+  e.preventDefault();
+}, {passive:false});
+cv.addEventListener('touchend', () => { touch = null; });
+
+document.querySelectorAll('.sn-pad button').forEach(b => {
+  b.addEventListener('pointerdown', e => { e.preventDefault(); b.classList.add('on'); turn(b.dataset.dir); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => b.classList.remove('on'));
+});
+
+startBtn.addEventListener('click', start);
+pauseBtn.addEventListener('click', togglePause);
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'run') togglePause(); });
+addEventListener('resize', fit);
+if (document.fonts) document.fonts.load(`40px ${FONT}`).then(render, () => {});
+
+reset(); fit(); updateButtons();
+requestAnimationFrame(loop);
+})();
 </script>
-
 {% endblock %}
