@@ -47,7 +47,9 @@ def create_app():
     app.secret_key = os.getenv('SECRET_KEY')  # Ustawienie secret key do sesji
     app.config['SECURITY_PASSWORD_SALT'] = os.getenv('SECURITY_PASSWORD_SALT')
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
+    # Baza zawsze w głównym katalogu projektu (hlyw_v2/baza.db) - działa i na Windowsie, i na serwerze
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(base_dir, 'baza.db')
     db.init_app(app)
 
     # Tworzymy instancję LoginManager
