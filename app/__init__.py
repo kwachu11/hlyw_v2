@@ -45,7 +45,7 @@ def create_app():
     db = SQLAlchemy()
 
     app.secret_key = os.getenv('SECRET_KEY')  # Ustawienie secret key do sesji
-    app.config['SECURITY_PASSWORD_SALT'] = "abcd1234abcdef"
+    app.config['SECURITY_PASSWORD_SALT'] = os.getenv('SECURITY_PASSWORD_SALT')
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
     db.init_app(app)
