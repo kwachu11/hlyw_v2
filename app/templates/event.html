@@ -16,7 +16,9 @@
     </div>
 
     <div class="mb-3">
-        Opis: <b>{{ event.description }}</b>
+        <p style="white-space: pre-line;">
+        Opis: <b>{{ event.description | replace('\n', '<br>') | safe }}</b>
+        </p>
     </div>
 
     <div class="mb-3">
@@ -57,14 +59,58 @@
             </div>
             <div class="mb-2" id="club-select" style="display:none;">
                 <label for="club"><b>Wybierz klub:</b></label>
-                <select name="club" class="form-select">
-                    <option value="FC Barcelona">FC Barcelona</option>
-                    <option value="Real Madrid">Real Madrid</option>
-                    <option value="Manchester United">Manchester United</option>
-                    <option value="Liverpool">Liverpool</option>
-                    <option value="PSG">PSG</option>
-                    <option value="Juventus">Juventus</option>
-                </select>
+<select name="club" class="form-select">
+    <option value="Real Madrid">Real Madrid</option>
+    <option value="Manchester City">Manchester City</option>
+    <option value="FC Barcelona">FC Barcelona</option>
+    <option value="Liverpool">Liverpool</option>
+    <option value="Bayern Munich">Bayern Munich</option>
+    <option value="Paris Saint-Germain">Paris Saint-Germain</option>
+    <option value="Arsenal">Arsenal</option>
+    <option value="Inter Milan">Inter Milan</option>
+    <option value="Chelsea">Chelsea</option>
+    <option value="Manchester United">Manchester United</option>
+    <option value="Atlético Madrid">Atlético Madrid</option>
+    <option value="Juventus">Juventus</option>
+    <option value="AC Milan">AC Milan</option>
+    <option value="Borussia Dortmund">Borussia Dortmund</option>
+    <option value="Napoli">Napoli</option>
+    <option value="Tottenham Hotspur">Tottenham Hotspur</option>
+    <option value="Bayer Leverkusen">Bayer Leverkusen</option>
+    <option value="Aston Villa">Aston Villa</option>
+    <option value="Newcastle United">Newcastle United</option>
+    <option value="RB Leipzig">RB Leipzig</option>
+    <option value="AS Roma">AS Roma</option>
+    <option value="Lazio">Lazio</option>
+    <option value="Atalanta">Atalanta</option>
+    <option value="Villarreal CF">Villarreal CF</option>
+    <option value="Athletic Club">Athletic Club</option>
+    <option value="Sevilla FC">Sevilla FC</option>
+    <option value="AS Monaco">AS Monaco</option>
+    <option value="Olympique de Marseille">Olympique de Marseille</option>
+    <option value="Benfica">Benfica</option>
+    <option value="FC Porto">FC Porto</option>
+    <option value="Sporting CP">Sporting CP</option>
+    <option value="Ajax">Ajax</option>
+    <option value="PSV Eindhoven">PSV Eindhoven</option>
+    <option value="Feyenoord">Feyenoord</option>
+    <option value="Galatasaray">Galatasaray</option>
+    <option value="Fenerbahçe">Fenerbahçe</option>
+    <option value="Celtic">Celtic</option>
+    <option value="Rangers">Rangers</option>
+    <option value="Al Hilal">Al Hilal</option>
+    <option value="Al Nassr">Al Nassr</option>
+    <option value="Al Ittihad">Al Ittihad</option>
+    <option value="Al Ahli">Al Ahli</option>
+    <option value="Inter Miami">Inter Miami</option>
+    <option value="Boca Juniors">Boca Juniors</option>
+    <option value="River Plate">River Plate</option>
+    <option value="Flamengo">Flamengo</option>
+    <option value="Palmeiras">Palmeiras</option>
+    <option value="Corinthians">Corinthians</option>
+    <option value="Club América">Club América</option>
+    <option value="Monterrey">Monterrey</option>
+</select>
             </div>
             <button type="submit" class="btn btn-success">Zapisz się</button>
         </form>
@@ -97,7 +143,7 @@
     <hr>
     <h2 class="mt-4">⚽ Turniej FIFA</h2>
 
-    {% if current_user.is_admin %}
+    {% if current_user.is_admin == "1" %}
         <div class="mb-3">
             {% if not tournament %}
                 <form action="{{ url_for('start_tournament', event_id=event.id) }}" method="POST">
@@ -159,7 +205,7 @@
                 <th>Gospodarz</th>
                 <th>Gość</th>
                 <th>Wynik</th>
-                {% if current_user.is_admin %}<th>Akcja</th>{% endif %}
+                {% if current_user.is_admin == "1" %}<th>Akcja</th>{% endif %}
             </tr>
         </thead>
         <tbody>
@@ -174,7 +220,7 @@
                         <span class="text-muted">Brak</span>
                     {% endif %}
                 </td>
-                {% if current_user.is_admin %}
+                {% if current_user.is_admin == "1" %}
                 <td>
                     <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex gap-2">
                         <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px" value="{{ match.home_score if match.home_score is not none }}">
@@ -197,7 +243,7 @@
                     <th>Gospodarz</th>
                     <th>Gość</th>
                     <th>Wynik</th>
-                    {% if current_user.is_admin %}<th>Akcja</th>{% endif %}
+                    {% if current_user.is_admin == "1" %}<th>Akcja</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -212,7 +258,7 @@
                             <span class="text-muted">Brak</span>
                         {% endif %}
                     </td>
-                    {% if current_user.is_admin %}
+                    {% if current_user.is_admin == "1" %}
                     <td>
                         <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex gap-2">
                             <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px"
@@ -237,7 +283,7 @@
                     <th>Gospodarz</th>
                     <th>Gość</th>
                     <th>Wynik</th>
-                    {% if current_user.is_admin %}<th>Akcja</th>{% endif %}
+                    {% if current_user.is_admin == "1" %}<th>Akcja</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -251,7 +297,7 @@
                             <span class="text-muted">Brak</span>
                         {% endif %}
                     </td>
-                    {% if current_user.is_admin %}
+                    {% if current_user.is_admin == "1" %}
                     <td>
                         <form action="{{ url_for('update_match', match_id=final.id) }}" method="POST" class="d-flex gap-2">
                             <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px"

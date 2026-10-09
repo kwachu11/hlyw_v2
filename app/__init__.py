@@ -45,7 +45,7 @@ def create_app():
     db = SQLAlchemy()
 
     app.secret_key = os.getenv('SECRET_KEY')  # Ustawienie secret key do sesji
-    app.config['SECURITY_PASSWORD_SALT']="abcd1234abcdef"
+    app.config['SECURITY_PASSWORD_SALT'] = "abcd1234abcdef"
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
     db.init_app(app)
@@ -60,12 +60,12 @@ def create_app():
     login_manager.init_app(app)
 
     #maile
-    app.config['MAIL_SERVER'] = 'smtp.d243.mikr.dev'
-    app.config['MAIL_PORT'] = 587
-    app.config['MAIL_USE_TLS'] = True
-    app.config['MAIL_USERNAME'] = 'support@hlyw.pl'  # Twój adres email
-    app.config['MAIL_PASSWORD'] = 'SupportEmail+_11'  # Hasło do konta
-    app.config['MAIL_DEFAULT_SENDER'] = 'support@hlyw.pl'
+    app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+    app.config['MAIL_PORT'] = os.getenv('MAIL_PORT')
+    app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS')
+    app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')  # Twój adres email
+    app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')  # Hasło do konta
+    app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
 
     mail = Mail(app)
     active_users = {}
@@ -1255,8 +1255,8 @@ def create_app():
     @app.route("/start_tournament/<int:event_id>", methods=["POST"])
     @login_required
     def start_tournament(event_id):
-        if not current_user.is_admin:
-            flash("Brak uprawnień", "danger")
+        if current_user.is_admin == "0":
+            flash("Brak uprawnień do rozpoczęcia turnieju", "danger")
             return redirect(request.referrer)
 
         event = Calendar.query.get_or_404(event_id)
@@ -1275,8 +1275,8 @@ def create_app():
 
         # gracze z eventu
         fifa_players = FifaParticipant.query.filter_by(event_id=event.id, role="player").all()
-        if len(fifa_players) < 4:
-            flash("Za mało graczy do rozpoczęcia turnieju.", "danger")
+        if len(fifa_players) < 8:
+            flash("Za mało graczy do rozpoczęcia turnieju. Musi być minimum 8.", "danger")
             return redirect(request.referrer)
 
         generate_groups_and_matches(tournament, fifa_players)
@@ -1288,7 +1288,7 @@ def create_app():
     @app.route("/update_match/<int:match_id>", methods=["POST"])
     @login_required
     def update_match(match_id):
-        if not current_user.is_admin:
+        if current_user.is_admin == "0":
             flash("Brak uprawnień", "danger")
             return redirect(request.referrer)
 
@@ -1300,7 +1300,8 @@ def create_app():
         flash("Wynik meczu zapisany ✅", "success")
         return redirect(request.referrer)
 
-    @app.route('/generate_playoffs/<int:tournament_id>', methods=['POST'])
+    @app.route('/'
+               '/<int:tournament_id>', methods=['POST'])
     @login_required
     def generate_playoffs(tournament_id):
         tournament = Tournament.query.get_or_404(tournament_id)
@@ -1370,7 +1371,7 @@ def create_app():
     @app.route("/finish_tournament/<int:event_id>", methods=["POST"])
     @login_required
     def finish_tournament(event_id):
-        if not current_user.is_admin:
+        if current_user.is_admin == "0":
             flash("Brak uprawnień", "danger")
             return redirect(request.referrer)
 
@@ -1388,7 +1389,7 @@ def create_app():
     @app.route("/generate_knockout/<int:event_id>", methods=["POST"])
     @login_required
     def generate_knockout(event_id):
-        if not current_user.is_admin:
+        if current_user.is_admin == "0":
             flash("Brak uprawnień", "danger")
             return redirect(request.referrer)
 
@@ -1400,7 +1401,7 @@ def create_app():
     @app.route("/generate_final/<int:event_id>", methods=["POST"])
     @login_required
     def generate_final_route(event_id):
-        if not current_user.is_admin:
+        if current_user.is_admin == "0":
             flash("Brak uprawnień", "danger")
             return redirect(request.referrer)
 
