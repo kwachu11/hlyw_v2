@@ -394,6 +394,12 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
+    class IceTower(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
     class QuizParticipant(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
         id = db.Column(db.Integer, primary_key=True)
         username = db.Column(db.String(500), nullable=False)  # Dodano ograniczenie NOT NULL
@@ -981,10 +987,13 @@ def create_app():
         user2 = User.query.filter_by(id=tetris_leader.created_by).first()
         dino_leader = Dino.query.order_by(Dino.points.desc()).first()
         user3 = User.query.filter_by(id=dino_leader.created_by).first()
+        ice_tower_leader = IceTower.query.order_by(IceTower.points.desc()).first()
+        user4 = User.query.filter_by(id=ice_tower_leader.created_by).first() if ice_tower_leader else None
         games=[]
         games.append(['Snake', 'static/images/snake.png', snake_leader, user, 'snake', 'ranking_snake'])
         games.append(['Tetris', 'static/images/tetris.png', tetris_leader, user2, 'tetris', 'ranking_tetris'])
         games.append(['Dino', 'static/images/dino.png', dino_leader, user3, 'dino', 'ranking_dino'])
+        games.append(['Ice Tower', 'static/images/ice_tower.svg', ice_tower_leader, user4, 'ice_tower', 'ranking_ice_tower'])
         print(games)
         return render_template('games.html', games=games)
 
@@ -1432,6 +1441,44 @@ def create_app():
         db.session.commit()
         flash("Zapisano do turnieju FIFA ✅", "success")
         return redirect(request.referrer)
+
+    @app.route('/ice_tower', methods=['GET', 'POST'])
+    @login_required
+    def ice_tower():
+        best = db.session.query(func.max(IceTower.points)).filter(IceTower.created_by == str(current_user.id)).scalar() or 0
+        return render_template('ice_tower.html', best=best)
+
+    @app.route('/ice_tower/save_score', methods=['POST'])
+    @login_required
+    def save_score_ice_tower():
+        data = request.get_json(silent=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
+
+        new_game = IceTower(points=score, created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        best = db.session.query(func.max(IceTower.points)).filter(IceTower.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
+
+    @app.route('/ranking_ice_tower', methods=['GET', 'POST'])
+    @login_required
+    def ranking_ice_tower():
+        ranking_data = db.session.query(
+            User.id,
+            User.username,
+            User.photo,
+            func.count(IceTower.id).label('attempts'),  # Ilość prób
+            func.sum(IceTower.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(IceTower.points).label('high_score')  # Najwyższy wynik (rekord)
+        ).outerjoin(IceTower, IceTower.created_by == User.id)             .group_by(User.id)             .having(func.max(IceTower.points) != None)             .order_by(func.max(IceTower.points).desc())             .all()
+
+        rozegranych_gier = IceTower.query.count()
+
+        return render_template('ranking_ice_tower.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     return app
 
