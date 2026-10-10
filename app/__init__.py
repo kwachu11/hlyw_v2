@@ -18,7 +18,8 @@ from flask_login import login_user, logout_user, login_required, current_user, L
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
 
-from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail
+from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail, \
+    ForgotPasswordForm, ResetPasswordForm
 
 from datetime import datetime, timedelta
 import calendar as callendar
@@ -26,6 +27,17 @@ from datetime import date
 
 MONTH_NAMES_PL = ['', 'Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec',
                   'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień']
+
+# pbkdf2 zamiast domyślnego scrypt - hash scrypt ma ~160 znaków i nie mieści się w kolumnie password (150)
+PASSWORD_HASH_METHOD = 'pbkdf2:sha256'
+
+
+def hash_password(password):
+    return generate_password_hash(password, method=PASSWORD_HASH_METHOD)
+
+
+def is_password_hash(value):
+    return value.startswith(('pbkdf2:', 'scrypt:'))
 
 from flask_mail import Mail, Message as Message_
 import base64
@@ -519,6 +531,14 @@ def create_app():
                 if 'already exists' not in str(e) or attempt == 2:
                     raise
 
+        # Jednorazowa migracja: hasła zapisane dawniej jako zwykły tekst zamieniamy na hashe.
+        # Pomijamy te, które już są hashami, więc przy kolejnych startach nic się nie dzieje.
+        plain_users = [u for u in User.query.all() if not is_password_hash(u.password)]
+        for u in plain_users:
+            u.password = hash_password(u.password)
+        if plain_users:
+            db.session.commit()
+
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -559,15 +579,44 @@ def create_app():
         form = LoginForm()
         if form.validate_on_submit():
             user = User.query.filter_by(username=form.username.data).first()
-            if not user.confirmed:
-                flash('Twoje konto nie zostało potwierdzone. Sprawdź swoją skrzynkę pocztową.', 'warning')
-                return redirect(url_for('login'))
-            if user and user.password == form.password.data:  # Hasło powinno być hashowane
+            if not user or not check_password_hash(user.password, form.password.data):
+                flash('Niepoprawna nazwa użytkownika lub hasło', 'danger')
+            else:
                 login_user(user)
                 return redirect(url_for('index'))
-            else:
-                flash('Niepoprawna nazwa użytkownika lub hasło', 'danger')
         return render_template('login.html', form=form)
+
+    @app.route('/forgot_password', methods=['GET', 'POST'])
+    def forgot_password():
+        form = ForgotPasswordForm()
+        if form.validate_on_submit():
+            user = User.query.filter_by(username=form.username.data.strip()).first()
+            if user and user.email.strip().lower() == form.email.data.strip().lower():
+                session['reset_user_id'] = user.id
+                session['reset_expires'] = (datetime.now() + timedelta(minutes=10)).timestamp()
+                return redirect(url_for('reset_password'))
+            flash('Nazwa użytkownika i email do siebie nie pasują.', 'danger')
+        return render_template('forgot_password.html', form=form)
+
+    @app.route('/reset_password', methods=['GET', 'POST'])
+    def reset_password():
+        user_id = session.get('reset_user_id')
+        if not user_id or datetime.now().timestamp() > session.get('reset_expires', 0):
+            session.pop('reset_user_id', None)
+            session.pop('reset_expires', None)
+            flash('Najpierw podaj nazwę użytkownika i email.', 'warning')
+            return redirect(url_for('forgot_password'))
+
+        form = ResetPasswordForm()
+        if form.validate_on_submit():
+            user = User.query.get(user_id)
+            user.password = hash_password(form.password.data)
+            db.session.commit()
+            session.pop('reset_user_id', None)
+            session.pop('reset_expires', None)
+            flash('Hasło zostało zmienione. Możesz się zalogować.', 'success')
+            return redirect(url_for('login'))
+        return render_template('reset_password.html', form=form)
 
     @app.route('/logout')
     def logout():
@@ -580,18 +629,19 @@ def create_app():
         if form.validate_on_submit():
             if User.query.filter_by(username=form.username.data).first():
                 flash('Użytkownik już istnieje', 'danger')
+                return redirect(url_for('register'))
 
             if form.password.data != form.confirm_password.data:
                 flash('Hasła nie są zgodne.', 'danger')
                 return redirect(url_for('register'))
 
             else:
-                new_user = User(username=form.username.data, email=form.email.data, password=form.password.data)  # Hasło powinno być hashowane
+                new_user = User(username=form.username.data, email=form.email.data,
+                                password=hash_password(form.password.data),
+                                confirmed=True, confirmed_on=datetime.utcnow())
                 db.session.add(new_user)
                 db.session.commit()
-                send_confirmation_email(new_user.email)
-                flash('Zarejestrowano pomyślnie! Sprawdź swoją skrzynkę pocztową w celu potwierdzenia konta.',
-                      'success')
+                flash('Zarejestrowano pomyślnie! Możesz się zalogować.', 'success')
                 return redirect(url_for('login'))
         return render_template('register.html', form=form)
 

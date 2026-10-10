@@ -56,3 +56,13 @@ class TestEmail(FlaskForm):
     content = TextAreaField('Treść', validators=[DataRequired()])
     submit = SubmitField('Wyślij testowego maila')
 
+
+class ForgotPasswordForm(FlaskForm):
+    username = StringField('Nazwa użytkownika', validators=[DataRequired()])
+    email = EmailField('Email', validators=[DataRequired()])
+    submit = SubmitField('Dalej')
+
+class ResetPasswordForm(FlaskForm):
+    password = PasswordField('Nowe hasło', validators=[DataRequired(), Length(min=6)])
+    confirm_password = PasswordField('Potwierdź nowe hasło', validators=[DataRequired(), EqualTo('password', message='Hasła nie są zgodne.')])
+    submit = SubmitField('Ustaw nowe hasło')
