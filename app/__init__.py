@@ -20,11 +20,12 @@ from itsdangerous import URLSafeTimedSerializer
 
 from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail
 
-import locale
-
 from datetime import datetime, timedelta
 import calendar as callendar
 from datetime import date
+
+MONTH_NAMES_PL = ['', 'Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec',
+                  'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień']
 
 from flask_mail import Mail, Message as Message_
 import base64
@@ -52,6 +53,10 @@ def _load_env():
             break
     if not os.getenv('SECRET_KEY'):
         raise RuntimeError('Brak SECRET_KEY - nie znaleziono pliku .env (szukano: ' + ', '.join(candidates) + ')')
+
+
+# Bieżąca edycja Snake, Tetris i Dino liczy się od 10.10.2026
+CURRENT_EDITION_START = datetime(2026, 10, 10)
 
 
 def create_app():
@@ -667,7 +672,6 @@ def create_app():
     @app.route('/calendar', methods=['GET'])
     @login_required
     def calendar():
-        locale.setlocale(locale.LC_TIME, 'pl_PL.UTF-8')
         # Ustawienie domyślnego miesiąca i roku
         now = datetime.now()
         month = request.args.get('month', now.month, type=int)
@@ -698,7 +702,7 @@ def create_app():
                                calendar=cal,
                                year=year,
                                month=month,
-                               month_name=callendar.month_name[month],
+                               month_name=MONTH_NAMES_PL[month],
                                previous_month=previous_month,
                                previous_year=previous_year,
                                next_month=next_month,
@@ -1006,7 +1010,7 @@ def create_app():
     @app.route('/snake', methods=['GET', 'POST'])
     @login_required
     def snake():
-        best = db.session.query(func.max(Snake.points)).filter(Snake.created_by == str(current_user.id)).scalar() or 0
+        best = db.session.query(func.max(Snake.points)).filter(Snake.created_by == str(current_user.id), Snake.created_at >= CURRENT_EDITION_START).scalar() or 0
         return render_template('snake.html', best=best)
 
     @app.route('/snake/save_score', methods=['POST'])
@@ -1022,17 +1026,17 @@ def create_app():
         db.session.add(new_game)
         db.session.commit()
 
-        best = db.session.query(func.max(Snake.points)).filter(Snake.created_by == str(current_user.id)).scalar() or 0
+        best = db.session.query(func.max(Snake.points)).filter(Snake.created_by == str(current_user.id), Snake.created_at >= CURRENT_EDITION_START).scalar() or 0
         return jsonify({'ok': True, 'best': best})
 
     @app.route('/games', methods=['GET'])
     @login_required
     def games():
-        snake_leader = Snake.query.order_by(Snake.points.desc()).first()
+        snake_leader = Snake.query.filter(Snake.created_at >= CURRENT_EDITION_START).order_by(Snake.points.desc()).first()
         user = User.query.filter_by(id=snake_leader.created_by).first() if snake_leader else None
-        tetris_leader = Tetris.query.order_by(Tetris.points.desc()).first()
+        tetris_leader = Tetris.query.filter(Tetris.created_at >= CURRENT_EDITION_START).order_by(Tetris.points.desc()).first()
         user2 = User.query.filter_by(id=tetris_leader.created_by).first() if tetris_leader else None
-        dino_leader = Dino.query.order_by(Dino.points.desc()).first()
+        dino_leader = Dino.query.filter(Dino.created_at >= CURRENT_EDITION_START).order_by(Dino.points.desc()).first()
         user3 = User.query.filter_by(id=dino_leader.created_by).first() if dino_leader else None
         ice_tower_leader = IceTower.query.order_by(IceTower.points.desc()).first()
         user4 = User.query.filter_by(id=ice_tower_leader.created_by).first() if ice_tower_leader else None
@@ -1040,10 +1044,15 @@ def create_app():
         user5 = User.query.filter_by(id=kk_leader.created_by).first() if kk_leader else None
         formula_leader = Formula.query.order_by(Formula.points.desc()).first()
         user6 = User.query.filter_by(id=formula_leader.created_by).first() if formula_leader else None
+        # Rekordziści poprzedniej edycji - wyniki zapisane do 8.10.2026 włącznie
+        def previous_record(model):
+            leader = model.query.filter(model.created_at < datetime(2026, 10, 9)).order_by(model.points.desc()).first()
+            leader_user = User.query.filter_by(id=leader.created_by).first() if leader else None
+            return (leader, leader_user) if leader_user else None
         games=[]
-        games.append(['Snake', 'static/images/snake.svg', snake_leader, user, 'snake', 'ranking_snake'])
-        games.append(['Tetris', 'static/images/tetris.svg', tetris_leader, user2, 'tetris', 'ranking_tetris'])
-        games.append(['Dino', 'static/images/dino.svg', dino_leader, user3, 'dino', 'ranking_dino'])
+        games.append(['Snake', 'static/images/snake.svg', snake_leader, user, 'snake', 'ranking_snake', previous_record(Snake)])
+        games.append(['Tetris', 'static/images/tetris.svg', tetris_leader, user2, 'tetris', 'ranking_tetris', previous_record(Tetris)])
+        games.append(['Dino', 'static/images/dino.svg', dino_leader, user3, 'dino', 'ranking_dino', previous_record(Dino)])
         games.append(['Ice Tower', 'static/images/ice_tower.svg', ice_tower_leader, user4, 'ice_tower', 'ranking_ice_tower'])
         games.append(['Kółko i krzyżyk', 'static/images/kolko_krzyzyk.svg', kk_leader, user5, 'kolko_krzyzyk', 'ranking_kolko_krzyzyk'])
         games.append(['Formuła', 'static/images/formula.svg', formula_leader, user6, 'formula', 'ranking_formula'])
@@ -1053,7 +1062,7 @@ def create_app():
     @app.route('/tetris', methods=['GET', 'POST'])
     @login_required
     def tetris():
-        best = db.session.query(func.max(Tetris.points)).filter(Tetris.created_by == str(current_user.id)).scalar() or 0
+        best = db.session.query(func.max(Tetris.points)).filter(Tetris.created_by == str(current_user.id), Tetris.created_at >= CURRENT_EDITION_START).scalar() or 0
         return render_template('tetris.html', best=best)
 
     @app.route('/tetris/save_score', methods=['POST'])
@@ -1069,7 +1078,7 @@ def create_app():
         db.session.add(new_game)
         db.session.commit()
 
-        best = db.session.query(func.max(Tetris.points)).filter(Tetris.created_by == str(current_user.id)).scalar() or 0
+        best = db.session.query(func.max(Tetris.points)).filter(Tetris.created_by == str(current_user.id), Tetris.created_at >= CURRENT_EDITION_START).scalar() or 0
         return jsonify({'ok': True, 'best': best})
 
     @app.route('/dino/save_score', methods=['POST'])
@@ -1085,7 +1094,7 @@ def create_app():
         db.session.add(new_game)
         db.session.commit()
 
-        best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id)).scalar() or 0
+        best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id), Dino.created_at >= CURRENT_EDITION_START).scalar() or 0
         return jsonify({'ok': True, 'best': best})
 
     @app.route('/ranking_snake', methods=['GET', 'POST'])
@@ -1099,12 +1108,13 @@ def create_app():
             func.sum(Snake.points).label('total_points'),  # Suma zdobytych punktów
             func.max(Snake.points).label('high_score')  # Najwyższy wynik (rekord)
         ).outerjoin(Snake, Snake.created_by == User.id) \
+            .filter(Snake.created_at >= CURRENT_EDITION_START) \
             .group_by(User.id) \
             .having(func.max(Snake.points) != None) \
             .order_by(func.max(Snake.points).desc()) \
             .all()
 
-        rozegranych_gier = Snake.query.count()
+        rozegranych_gier = Snake.query.filter(Snake.created_at >= CURRENT_EDITION_START).count()
 
         return render_template('ranking_snake.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
@@ -1119,12 +1129,13 @@ def create_app():
             func.sum(Tetris.points).label('total_points'),  # Suma zdobytych punktów
             func.max(Tetris.points).label('high_score')  # Najwyższy wynik (rekord)
         ).outerjoin(Tetris, Tetris.created_by == User.id) \
+            .filter(Tetris.created_at >= CURRENT_EDITION_START) \
             .group_by(User.id) \
             .having(func.max(Tetris.points) != None) \
             .order_by(func.max(Tetris.points).desc()) \
             .all()
 
-        rozegranych_gier = Tetris.query.count()
+        rozegranych_gier = Tetris.query.filter(Tetris.created_at >= CURRENT_EDITION_START).count()
 
         return render_template('ranking_tetris.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
@@ -1140,19 +1151,20 @@ def create_app():
             func.sum(Dino.points).label('total_points'),  # Suma zdobytych punktów
             func.max(Dino.points).label('high_score')  # Najwyższy wynik (rekord)
         ).outerjoin(Dino, Dino.created_by == User.id) \
+            .filter(Dino.created_at >= CURRENT_EDITION_START) \
             .group_by(User.id) \
             .having(func.max(Dino.points) != None) \
             .order_by(func.max(Dino.points).desc()) \
             .all()
 
-        rozegranych_gier = Dino.query.count()
+        rozegranych_gier = Dino.query.filter(Dino.created_at >= CURRENT_EDITION_START).count()
 
         return render_template('ranking_dino.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required
     def dino():
-        best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id)).scalar() or 0
+        best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id), Dino.created_at >= CURRENT_EDITION_START).scalar() or 0
         return render_template('dino.html', best=best)
 
     @app.route('/quiz', methods=['GET', 'POST'])
