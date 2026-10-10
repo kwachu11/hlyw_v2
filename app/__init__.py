@@ -69,6 +69,8 @@ def _load_env():
 
 # Bieżąca edycja Snake, Tetris i Dino liczy się od 10.10.2026
 CURRENT_EDITION_START = datetime(2026, 10, 10)
+# Poprzednia edycja (tabela w rankingach i "poprzedni rekord" na stronie z grami) to gry sprzed 09.10.2026
+PREVIOUS_EDITION_END = datetime(2026, 10, 9)
 
 
 def create_app():
@@ -531,14 +533,6 @@ def create_app():
                 if 'already exists' not in str(e) or attempt == 2:
                     raise
 
-        # Jednorazowa migracja: hasła zapisane dawniej jako zwykły tekst zamieniamy na hashe.
-        # Pomijamy te, które już są hashami, więc przy kolejnych startach nic się nie dzieje.
-        plain_users = [u for u in User.query.all() if not is_password_hash(u.password)]
-        for u in plain_users:
-            u.password = hash_password(u.password)
-        if plain_users:
-            db.session.commit()
-
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -579,7 +573,8 @@ def create_app():
         form = LoginForm()
         if form.validate_on_submit():
             user = User.query.filter_by(username=form.username.data).first()
-            if not user or not check_password_hash(user.password, form.password.data):
+            if not user or not is_password_hash(user.password) \
+                    or not check_password_hash(user.password, form.password.data):
                 flash('Niepoprawna nazwa użytkownika lub hasło', 'danger')
             else:
                 login_user(user)
@@ -1096,7 +1091,7 @@ def create_app():
         user6 = User.query.filter_by(id=formula_leader.created_by).first() if formula_leader else None
         # Rekordziści poprzedniej edycji - wyniki zapisane do 8.10.2026 włącznie
         def previous_record(model):
-            leader = model.query.filter(model.created_at < datetime(2026, 10, 9)).order_by(model.points.desc()).first()
+            leader = model.query.filter(model.created_at < PREVIOUS_EDITION_END).order_by(model.points.desc()).first()
             leader_user = User.query.filter_by(id=leader.created_by).first() if leader else None
             return (leader, leader_user) if leader_user else None
         games=[]
@@ -1147,69 +1142,39 @@ def create_app():
         best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id), Dino.created_at >= CURRENT_EDITION_START).scalar() or 0
         return jsonify({'ok': True, 'best': best})
 
-    @app.route('/ranking_snake', methods=['GET', 'POST'])
-    @login_required
-    def ranking_snake():
+    def game_ranking(model, condition):
+        """Ranking graczy (próby, suma punktów, rekord) i liczba gier dla gier spełniających condition."""
         ranking_data = db.session.query(
             User.id,
             User.username,
             User.photo,
-            func.count(Snake.id).label('attempts'),  # Ilość prób
-            func.sum(Snake.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(Snake.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(Snake, Snake.created_by == User.id) \
-            .filter(Snake.created_at >= CURRENT_EDITION_START) \
-            .group_by(User.id) \
-            .having(func.max(Snake.points) != None) \
-            .order_by(func.max(Snake.points).desc()) \
-            .all()
+            func.count(model.id).label('attempts'),  # Ilość prób
+            func.sum(model.points).label('total_points'),  # Suma zdobytych punktów
+            func.max(model.points).label('high_score')  # Najwyższy wynik (rekord)
+        ).outerjoin(model, model.created_by == User.id)             .filter(condition)             .group_by(User.id)             .having(func.max(model.points) != None)             .order_by(func.max(model.points).desc())             .all()
+        rozegranych_gier = model.query.filter(condition).count()
+        return ranking_data, rozegranych_gier
 
-        rozegranych_gier = Snake.query.filter(Snake.created_at >= CURRENT_EDITION_START).count()
+    def render_edition_ranking(template, model):
+        ranking_data, rozegranych_gier = game_ranking(model, model.created_at >= CURRENT_EDITION_START)
+        old_ranking_data, old_rozegranych_gier = game_ranking(model, model.created_at < PREVIOUS_EDITION_END)
+        return render_template(template, ranking_data=ranking_data, rozegranych_gier=rozegranych_gier,
+                               old_ranking_data=old_ranking_data, old_rozegranych_gier=old_rozegranych_gier)
 
-        return render_template('ranking_snake.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+    @app.route('/ranking_snake', methods=['GET', 'POST'])
+    @login_required
+    def ranking_snake():
+        return render_edition_ranking('ranking_snake.html', Snake)
 
     @app.route('/ranking_tetris', methods=['GET', 'POST'])
     @login_required
     def ranking_tetris():
-        ranking_data = db.session.query(
-            User.id,
-            User.username,
-            User.photo,
-            func.count(Tetris.id).label('attempts'),  # Ilość prób
-            func.sum(Tetris.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(Tetris.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(Tetris, Tetris.created_by == User.id) \
-            .filter(Tetris.created_at >= CURRENT_EDITION_START) \
-            .group_by(User.id) \
-            .having(func.max(Tetris.points) != None) \
-            .order_by(func.max(Tetris.points).desc()) \
-            .all()
-
-        rozegranych_gier = Tetris.query.filter(Tetris.created_at >= CURRENT_EDITION_START).count()
-
-        return render_template('ranking_tetris.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
-
+        return render_edition_ranking('ranking_tetris.html', Tetris)
 
     @app.route('/ranking_dino', methods=['GET', 'POST'])
     @login_required
     def ranking_dino():
-        ranking_data = db.session.query(
-            User.id,
-            User.username,
-            User.photo,
-            func.count(Dino.id).label('attempts'),  # Ilość prób
-            func.sum(Dino.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(Dino.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(Dino, Dino.created_by == User.id) \
-            .filter(Dino.created_at >= CURRENT_EDITION_START) \
-            .group_by(User.id) \
-            .having(func.max(Dino.points) != None) \
-            .order_by(func.max(Dino.points).desc()) \
-            .all()
-
-        rozegranych_gier = Dino.query.filter(Dino.created_at >= CURRENT_EDITION_START).count()
-
-        return render_template('ranking_dino.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+        return render_edition_ranking('ranking_dino.html', Dino)
 
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required
