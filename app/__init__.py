@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -39,17 +40,32 @@ import random
 
 
 
+def _load_env():
+    # Szukamy .env w app/ i w głównym katalogu projektu; .env.bak jako zapas
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(app_dir)
+    candidates = [os.path.join(d, name) for name in ('.env', '.env.bak') for d in (app_dir, base_dir)]
+    for path in candidates:
+        if os.path.isfile(path):
+            load_dotenv(path)
+            print(f'[hlyw] Zmienne środowiskowe wczytane z {path}')
+            break
+    if not os.getenv('SECRET_KEY'):
+        raise RuntimeError('Brak SECRET_KEY - nie znaleziono pliku .env (szukano: ' + ', '.join(candidates) + ')')
+
+
 def create_app():
-    load_dotenv()
+    _load_env()
     app = Flask(__name__)
     db = SQLAlchemy()
 
     app.secret_key = os.getenv('SECRET_KEY')  # Ustawienie secret key do sesji
     app.config['SECURITY_PASSWORD_SALT'] = os.getenv('SECURITY_PASSWORD_SALT')
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-    # Baza zawsze w głównym katalogu projektu (hlyw_v2/baza.db) - działa i na Windowsie, i na serwerze
+    # Ścieżka do bazy z DATABASE_URI w .env (osobny .env na serwerze i lokalnie);
+    # gdy jej brak - baza.db w głównym katalogu projektu
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(base_dir, 'baza.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI') or 'sqlite:///' + os.path.join(base_dir, 'baza.db')
     db.init_app(app)
 
     # Tworzymy instancję LoginManager
@@ -486,8 +502,17 @@ def create_app():
         away_player = db.relationship('User', foreign_keys=[away_player_id])
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
+    # Kilka workerów (gunicorn) startuje naraz i każdy woła create_all - gdy dwa jednocześnie
+    # zobaczą brak nowej tabeli, drugi dostaje "table already exists". Wtedy ponawiamy:
+    # create_all pomija tabele, które już istnieją.
     with app.app_context():
-        db.create_all()
+        for attempt in range(3):
+            try:
+                db.create_all()
+                break
+            except OperationalError as e:
+                if 'already exists' not in str(e) or attempt == 2:
+                    raise
 
 
     @login_manager.user_loader
