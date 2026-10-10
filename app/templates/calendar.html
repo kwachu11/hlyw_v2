@@ -5,23 +5,23 @@
     <a href="{{ url_for('add_entry') }}" class="btn btn-primary mx-2">Dodaj Wydarzenie</a>
 </div>
 
-<div class="d-flex justify-content-between mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <form method="GET" action="{{ url_for('calendar') }}">
     <input type="hidden" name="month" value="{{ previous_month }}">
     <input type="hidden" name="year" value="{{ previous_year }}">
-    <button type="submit" class="btn btn-secondary">Poprzedni miesiąc</button>
+    <button type="submit" class="btn btn-secondary w-auto">&larr;<span class="d-none d-sm-inline"> Poprzedni miesiąc</span></button>
 </form>
 
-    <h2>{{ month_name }} {{ year }}</h2>
+    <h2 class="mb-0 text-center">{{ month_name }} {{ year }}</h2>
 
     <form method="GET" action="{{ url_for('calendar') }}">
     <input type="hidden" name="month" value="{{ next_month }}">
     <input type="hidden" name="year" value="{{ next_year }}">
-    <button type="submit" class="btn btn-secondary">Następny miesiąc</button>
+    <button type="submit" class="btn btn-secondary w-auto"><span class="d-none d-sm-inline">Następny miesiąc </span>&rarr;</button>
 </form>
 </div>
 
-<table class="table">
+<table class="table hl-calendar">
     <thead>
         <tr>
             <th>Pon</th>
@@ -38,11 +38,11 @@
         <tr>
             {% for day in week %}
             {% if day in event_days %}
-            <td style="background-color: #47e647; color: white; font-weight: bold;">
+            <td class="hl-cal-event {{ 'hl-cal-today' if day == today_day }}">
                 <a href="event?day={{day}}&month={{month}}&year={{year}}">{{ day if day else '' }}</a>
                 {% endif %}
                 {% if day not in event_days %}
-                <td>{{ day if day else '' }}
+                <td class="{{ 'hl-cal-today' if day == today_day }}">{{ day if day else '' }}
                 {% endif %}
             </td>
             {% endfor %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
     <h2>{{ report.title }}</h2>
-    <p>{{ report.description }}</p>
+    <p style="white-space: pre-line;">{{ report.description }}</p>
 
     <!-- Wyświetlanie komentarzy -->
     <h3>Komentarze</h3>
@@ -9,7 +9,7 @@
         {% for comment in comments %}
             <li>
                 <strong>{{ comment.user.username }}:</strong> <!-- Użytkownik, który dodał komentarz -->
-                {{ comment.content }} ({{ comment.created_at }})
+                {{ comment.content }} <small class="text-muted">({{ comment.created_at.strftime('%d.%m.%Y %H:%M') }})</small>
             </li>
         {% endfor %}
     </ul>

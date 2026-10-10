@@ -8,7 +8,7 @@
         {% for report in reports %}
             <li>
                 <a href="{{ url_for('view_report', report_id=report.id) }}">{{ report.title }}</a>
-                (dodane przez: {{ report.user.username }} - {{ report.created_at }})
+                (dodane przez: {{ report.user.username }} - {{ report.created_at.strftime('%d.%m.%Y') }})
             </li>
         {% endfor %}
     </ul>

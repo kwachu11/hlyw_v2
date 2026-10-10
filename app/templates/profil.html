@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex align-items-center mb-4">
+        <img src="{{ url_for('static', filename='images/profile_pics/' + profile_user.photo) }}" class="rounded-circle mr-3" alt="{{ profile_user.username }}" width="80" height="80" style="object-fit: cover;">
+        <h2 class="mb-0">{{ profile_user.username }}</h2>
+    </div>
+
+    <h4>Gry</h4>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead class="thead-light">
+                <tr>
+                    <th>Gra</th>
+                    <th>Miejsce</th>
+                    <th>Rekord</th>
+                    <th>Ilość prób</th>
+                    <th>Poprzednia edycja</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for game in stats %}
+                {% set place = game.current.place if game.current else None %}
+                <tr
+                    {% if place == 1 %} style="background-color: gold;"
+                    {% elif place == 2 %} style="background-color: silver;"
+                    {% elif place == 3 %} style="background-color: #cd7f32;"
+                    {% endif %}
+                >
+                    <td><a href="{{ url_for(game.ranking) }}">{{ game.name }}</a></td>
+                    {% if game.current %}
+                    <td>{{ game.current.place }} / {{ game.current.players }}</td>
+                    <td>{{ game.current.high_score }}</td>
+                    <td>{{ game.current.attempts }}</td>
+                    {% else %}
+                    <td colspan="3" class="text-muted">Jeszcze nie grał(a)</td>
+                    {% endif %}
+                    <td>
+                        {% if not game.has_editions %}
+                        <span class="text-muted">–</span>
+                        {% elif game.previous %}
+                        {{ game.previous.place }}. miejsce, rekord {{ game.previous.high_score }}
+                        {% else %}
+                        <span class="text-muted">brak gier</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

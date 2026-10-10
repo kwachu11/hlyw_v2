@@ -2,15 +2,51 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h2>Ostatnie Ulepszenia</h2>
-    <ul class="list-group">
-        {% for upgrade in upgrades %}
-        <li class="list-group-item">
-            <h5>{{ upgrade.title }}</h5>
-            <p>{{ upgrade.description }}</p>
-            <small>{{ upgrade.date.strftime('%Y-%m-%d %H:%M:%S') }}</small>
-        </li>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">🚀 Ostatnie Ulepszenia</h2>
+        {% if current_user.is_authenticated and current_user.is_admin == "1" %}
+        <button class="btn btn-primary w-auto" type="button" data-toggle="collapse" data-target="#hlUpgradeForm">+ Dodaj</button>
+        {% endif %}
+    </div>
+
+    {% if current_user.is_authenticated and current_user.is_admin == "1" %}
+    <div class="collapse mb-4" id="hlUpgradeForm">
+        <div class="card card-body">
+            <form method="POST">
+                {{ form.hidden_tag() }}
+                <div class="form-group">
+                    {{ form.title.label }}
+                    {{ form.title(class="form-control", placeholder="np. Nowa zakładka Hall of Fame") }}
+                </div>
+                <div class="form-group">
+                    {{ form.description.label }}
+                    {{ form.description(class="form-control", rows=4, placeholder="Co się zmieniło? Enter robi nową linię.") }}
+                </div>
+                {{ form.submit(class="btn btn-success w-auto") }}
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {% for month, items in months %}
+    <h5 class="hl-timeline-month">{{ month }}</h5>
+    <div class="hl-timeline">
+        {% for upgrade in items %}
+        <div class="hl-timeline-item {{ 'is-new' if upgrade.date >= new_since }}">
+            <div class="hl-timeline-dot"></div>
+            <div class="hl-timeline-card">
+                <div class="d-flex justify-content-between align-items-start">
+                    <h5 class="mb-1">{{ upgrade.title }}</h5>
+                    {% if upgrade.date >= new_since %}<span class="badge badge-danger ml-2">NOWE</span>{% endif %}
+                </div>
+                <small class="text-muted">{{ upgrade.date.strftime('%d.%m.%Y') }}</small>
+                <p class="mb-0 mt-2 hl-news-text">{{ upgrade.description|br_to_newline }}</p>
+            </div>
+        </div>
         {% endfor %}
-    </ul>
+    </div>
+    {% else %}
+    <p class="text-muted">Brak ulepszeń.</p>
+    {% endfor %}
 </div>
 {% endblock %}

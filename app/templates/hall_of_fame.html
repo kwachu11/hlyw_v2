@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>🏆 Hall of Fame</h2>
+    <p class="text-muted">Mistrzowie wszystkich gier. Snake, Tetris i Dino liczą się w bieżącej edycji (od {{ edition_start.strftime('%d.%m.%Y') }}).</p>
+
+    <div class="row">
+        {% for c in champions %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="hl-champion">
+                <div class="hl-champion-head">
+                    <img src="{{ url_for('static', filename=c.game.icon) }}" alt="">
+                    <strong>{{ c.game.name }}</strong>
+                    <a href="{{ url_for(c.game.ranking) }}">ranking &rsaquo;</a>
+                </div>
+                {% for row in c.podium %}
+                <a href="{{ url_for('profil', user_id=row.id) }}" class="hl-podium-row text-body">
+                    <span class="hl-medal">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>
+                    <img src="{{ url_for('static', filename='images/profile_pics/' + row.photo) }}" class="hl-avatar" width="32" height="32" alt="">
+                    <span>{{ row.username }}</span>
+                    <span class="hl-score">{{ row.high_score }}</span>
+                </a>
+                {% else %}
+                <div class="hl-podium-row text-muted">Nikt jeszcze nie grał - pierwsze miejsce czeka!</div>
+                {% endfor %}
+                <div class="hl-podium-row text-muted small">{{ c.games_played|plural('gra', 'gry', 'gier') }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h3 class="hl-section-title">Ranking ogólny</h3>
+    <p class="text-muted small">Za miejsca 1-10 w każdej grze: 10, 9, 8 ... 1 pkt.</p>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead class="thead-light">
+                <tr>
+                    <th>Miejsce</th>
+                    <th>Użytkownik</th>
+                    <th>Punkty</th>
+                    <th>🥇 Złote medale</th>
+                    <th>Miejsca na podium</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in overall %}
+                <tr
+                    {% if loop.index == 1 %} style="background-color: gold;"
+                    {% elif loop.index == 2 %} style="background-color: silver;"
+                    {% elif loop.index == 3 %} style="background-color: #cd7f32;"
+                    {% endif %}
+                >
+                    <td>{{ loop.index }}</td>
+                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ url_for('static', filename='images/profile_pics/' + user.photo) }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
+                    <td><strong>{{ user.points }}</strong></td>
+                    <td>{{ user.gold }}</td>
+                    <td>{{ user.podiums }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center">Brak danych do wyświetlenia.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if previous_champions %}
+    <h3 class="hl-section-title">Mistrzowie poprzedniej edycji</h3>
+    <div class="row">
+        {% for c in previous_champions %}
+        <div class="col-md-4 mb-3">
+            <a href="{{ url_for('profil', user_id=c.leader.id) }}" class="hl-leader">
+                <img src="{{ url_for('static', filename=c.game.icon) }}" class="hl-game-icon" alt="">
+                <div class="flex-grow-1">
+                    <div class="hl-leader-score">{{ c.game.name }}</div>
+                    <div class="hl-leader-name">👑 {{ c.leader.username }}</div>
+                    <div class="hl-leader-score">rekord: {{ c.leader.high_score }}</div>
+                </div>
+                <img src="{{ url_for('static', filename='images/profile_pics/' + c.leader.photo) }}" class="hl-avatar" width="40" height="40" alt="">
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

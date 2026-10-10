@@ -212,3 +212,200 @@ canvas {
     height: auto;
     aspect-ratio: 16/9;
 }
+
+/* ===================== Strona główna, galeria, kamera, Hall of Fame ===================== */
+
+.hl-hero h1 { margin-bottom: 0; }
+.hl-hero .hl-greeting { color: #6c757d; }
+
+/* kafelki statystyk */
+.hl-stat {
+    background: #343a40;
+    color: #fff;
+    border-radius: 8px;
+    padding: 14px 16px;
+    height: 100%;
+    border-bottom: 4px solid #ffcc00;
+}
+.hl-stat .hl-stat-value { font-size: 1.9rem; font-weight: 800; line-height: 1.1; }
+.hl-stat .hl-stat-label { font-size: .85rem; color: #ced4da; }
+a.hl-stat:hover { color: #ffcc00; text-decoration: none; }
+
+.hl-section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 28px 0 12px;
+    padding-left: 10px;
+    border-left: 4px solid #e74c3c;
+}
+
+/* liderzy gier */
+.hl-leader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    background: #fff;
+    height: 100%;
+    color: inherit;
+    transition: transform .15s, box-shadow .15s;
+}
+.hl-leader:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.12); color: inherit; text-decoration: none; }
+.hl-leader .hl-game-icon { width: 42px; height: 42px; flex-shrink: 0; }
+.hl-leader .hl-leader-name { font-weight: 700; }
+.hl-leader .hl-leader-score { font-size: .85rem; color: #6c757d; }
+.hl-avatar { border-radius: 50%; object-fit: cover; }
+
+/* boczne karty na stronie głównej - bez dużych odstępów z globalnego .list-group-item */
+.hl-side .list-group-item { margin-bottom: 0; border-radius: 0; padding: 10px 14px; background: #fff; }
+.hl-chat-line { font-size: .9rem; }
+.hl-chat-line .text-muted { font-size: .75rem; }
+
+/* galeria */
+.hl-album-card { display: block; border-radius: 8px; overflow: hidden; background: #343a40; color: #fff; position: relative; }
+.hl-album-card:hover { color: #ffcc00; text-decoration: none; }
+.hl-album-card .hl-album-cover { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; transition: transform .3s; background: #495057; }
+.hl-album-card:hover .hl-album-cover { transform: scale(1.04); }
+.hl-album-card .hl-album-info { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 12px 10px; background: linear-gradient(transparent, rgba(0,0,0,.85)); }
+.hl-album-card .hl-album-name { font-weight: 700; font-size: 1.1rem; }
+.hl-album-card .hl-album-count { font-size: .8rem; color: #ced4da; }
+.hl-album-empty { width: 100%; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; font-size: 3rem; background: #495057; }
+
+.hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.hl-grid .hl-thumb { position: relative; display: block; aspect-ratio: 1; overflow: hidden; border-radius: 6px; background: #343a40; cursor: zoom-in; }
+.hl-grid .hl-thumb img, .hl-grid .hl-thumb video { width: 100%; height: 100%; object-fit: cover; transition: transform .3s; }
+.hl-grid .hl-thumb:hover img, .hl-grid .hl-thumb:hover video { transform: scale(1.06); }
+.hl-grid .hl-thumb .hl-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 2.2rem; text-shadow: 0 2px 8px rgba(0,0,0,.6); pointer-events: none; }
+
+/* przeglądarka zdjęć */
+.hl-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.93); z-index: 2000; display: none; align-items: center; justify-content: center; }
+.hl-lightbox.open { display: flex; }
+.hl-lightbox img, .hl-lightbox video { max-width: 92vw; max-height: 84vh; border-radius: 4px; }
+.hl-lightbox .hl-lb-btn { position: absolute; width: auto; background: rgba(255,255,255,.12); color: #fff; border: 0; border-radius: 50%; width: 48px; height: 48px; font-size: 1.6rem; line-height: 48px; padding: 0; }
+.hl-lightbox .hl-lb-btn:hover { background: rgba(255,255,255,.25); }
+.hl-lightbox .hl-lb-prev { left: 16px; top: 50%; transform: translateY(-50%); }
+.hl-lightbox .hl-lb-next { right: 16px; top: 50%; transform: translateY(-50%); }
+.hl-lightbox .hl-lb-close { right: 16px; top: 16px; }
+.hl-lightbox .hl-lb-counter { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #ced4da; font-size: .9rem; }
+
+/* kamera */
+.hl-stream { position: relative; border-radius: 8px; overflow: hidden; background: #000; }
+.hl-stream iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.hl-live { position: absolute; top: 10px; left: 10px; background: #e74c3c; color: #fff; font-weight: 700; font-size: .75rem; padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+.hl-live::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; animation: hl-blink 1.2s infinite; }
+@keyframes hl-blink { 50% { opacity: .2; } }
+.hl-clock { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: .8rem; padding: 3px 8px; border-radius: 4px; pointer-events: none; font-variant-numeric: tabular-nums; }
+
+.hl-viewers { display: flex; flex-wrap: wrap; gap: 6px; }
+.hl-viewers img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 2px solid #28a745; }
+
+.hl-chat { display: flex; flex-direction: column; height: 100%; }
+.hl-chat .chat-messages { flex: 1; min-height: 260px; max-height: 460px; }
+.hl-chat .chat-message { align-items: flex-start; background: #f1f3f5; }
+.hl-chat .chat-message .message-content { word-break: break-word; }
+.hl-chat .chat-time { margin-left: auto; padding-left: 8px; font-size: .75rem; color: #868e96; white-space: nowrap; }
+.hl-reactions { display: flex; gap: 6px; margin-bottom: 8px; }
+.hl-reactions button { width: auto; flex: 1; background: #fff; border: 1px solid #dee2e6; font-size: 1.2rem; padding: 2px 0; }
+.hl-reactions button:hover { background: #fff3bf; }
+
+/* Hall of Fame */
+.hl-champion { border: 1px solid #dee2e6; border-radius: 8px; background: #fff; overflow: hidden; height: 100%; }
+.hl-champion .hl-champion-head { display: flex; align-items: center; gap: 10px; background: #343a40; color: #fff; padding: 10px 14px; }
+.hl-champion .hl-champion-head img { width: 32px; height: 32px; }
+.hl-champion .hl-champion-head a { color: #ffcc00; margin-left: auto; font-size: .85rem; }
+.hl-podium-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #f1f3f5; }
+.hl-podium-row:last-child { border-bottom: 0; }
+.hl-medal { font-size: 1.4rem; width: 28px; text-align: center; }
+.hl-podium-row .hl-score { margin-left: auto; font-weight: 700; }
+
+/* ===================== Drobne poprawki i telefon ===================== */
+
+.hl-logo { height: 44px; width: auto; }
+.hl-gap { gap: .5rem; }
+.w-auto { width: auto !important; }
+.close { width: auto; }                 /* globalne button { width: 100% } psuło krzyżyk w komunikatach */
+.alert-dismissible .close { padding: .5rem 1rem; }
+
+/* kalendarz */
+.hl-calendar th, .hl-calendar td { text-align: center; padding: .6rem .25rem; }
+.hl-calendar .hl-cal-event { background-color: #47e647; font-weight: bold; }
+.hl-calendar .hl-cal-event a { color: #fff; display: block; }
+.hl-calendar .hl-cal-today { box-shadow: inset 0 0 0 3px #e74c3c; font-weight: bold; }
+
+@media (max-width: 767.98px) {
+    .hl-main { padding-left: 12px; padding-right: 12px; margin-top: 1rem !important; }
+    .hl-main .container { padding-left: 0; padding-right: 0; }   /* bez podwójnego marginesu z zagnieżdżonych .container */
+
+    h1 { font-size: 1.7rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.25rem; }
+
+    .carousel-item img { height: 240px; }
+    .marquee { padding: 6px 0; font-size: .9rem; }
+
+    /* menu: większe pola do klikania i awatar w rozwiniętym menu */
+    .navbar-nav .nav-link { padding: .6rem 0; }
+    .navbar .user-profile { padding: .4rem 0; }
+
+    .table { font-size: .9rem; }
+    .table td, .table th { padding: .5rem; }
+    .table img.rounded-circle { width: 30px; height: 30px; }
+
+    .hl-stat { padding: 10px 12px; }
+    .hl-stat .hl-stat-value { font-size: 1.5rem; }
+    .hl-section-title { margin-top: 20px; }
+
+    .hl-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
+    .hl-lightbox img, .hl-lightbox video { max-width: 100vw; max-height: 78vh; border-radius: 0; }
+    .hl-lightbox .hl-lb-prev, .hl-lightbox .hl-lb-next { top: auto; bottom: 8px; transform: none; }
+    .hl-lightbox .hl-lb-counter { bottom: 22px; }
+
+    .hl-chat .chat-messages { max-height: 50vh; min-height: 200px; }
+    .chat-container { padding: 12px; }
+    .hl-reactions button { font-size: 1.1rem; }
+
+    .hl-calendar th, .hl-calendar td { padding: .5rem .1rem; font-size: .9rem; }
+}
+
+/* ===================== Breaking News ===================== */
+.hl-breaking { background: #e74c3c; color: #fff; padding: 0 8px; border-radius: 4px; font-weight: 800; letter-spacing: .04em; }
+.hl-news-featured { display: flex; border-radius: 10px; overflow: hidden; background: #fff; border: 1px solid #dee2e6; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.hl-news-featured-img { position: relative; flex: 0 0 55%; display: block; background: #343a40; cursor: zoom-in; }
+.hl-news-featured-img img { width: 100%; height: 100%; min-height: 320px; max-height: 460px; object-fit: cover; display: block; }
+.hl-news-tag { position: absolute; top: 12px; left: 12px; background: #e74c3c; color: #fff; font-weight: 700; font-size: .75rem; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; }
+.hl-news-featured-body { padding: 20px 24px; display: flex; flex-direction: column; }
+.hl-news-featured-body h3 { font-weight: 800; }
+.hl-news-meta { font-size: .85rem; color: #6c757d; margin-bottom: 10px; }
+.hl-news-meta img { vertical-align: middle; margin-right: 2px; }
+.hl-news-text { white-space: pre-line; }
+.hl-news-card { overflow: hidden; transition: transform .15s, box-shadow .15s; }
+.hl-news-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.1); }
+.hl-news-card .card-img-top { height: 200px; object-fit: cover; cursor: zoom-in; }
+
+.hl-reaction-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 10px; }
+.hl-reaction { width: auto; background: #f1f3f5; border: 1px solid transparent; border-radius: 20px; padding: 2px 10px; font-size: 1rem; line-height: 1.6; }
+.hl-reaction:hover { background: #fff3bf; }
+.hl-reaction.mine { background: #fff3bf; border-color: #ffcc00; }
+.hl-reaction-count { font-size: .85rem; font-weight: 700; }
+
+/* ===================== Ostatnie ulepszenia: oś czasu ===================== */
+.hl-timeline-month { margin: 24px 0 10px; font-weight: 700; color: #495057; }
+.hl-timeline { position: relative; padding-left: 28px; }
+.hl-timeline::before { content: ''; position: absolute; left: 8px; top: 4px; bottom: 4px; width: 3px; background: #dee2e6; border-radius: 2px; }
+.hl-timeline-item { position: relative; margin-bottom: 14px; }
+.hl-timeline-dot { position: absolute; left: -26px; top: 16px; width: 15px; height: 15px; border-radius: 50%; background: #343a40; border: 3px solid #fff; box-shadow: 0 0 0 2px #343a40; }
+.hl-timeline-item.is-new .hl-timeline-dot { background: #e74c3c; box-shadow: 0 0 0 2px #e74c3c; }
+.hl-timeline-card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px 16px; }
+.hl-timeline-item.is-new .hl-timeline-card { border-left: 4px solid #e74c3c; }
+
+@media (max-width: 767.98px) {
+    .hl-news-featured { flex-direction: column; }
+    .hl-news-featured-img { flex-basis: auto; }
+    .hl-news-featured-img img { min-height: 0; height: 220px; }
+    .hl-news-featured-body { padding: 14px 16px; }
+    .hl-timeline { padding-left: 22px; }
+    .hl-timeline-dot { left: -20px; }
+    .hl-timeline::before { left: 5px; }
+}

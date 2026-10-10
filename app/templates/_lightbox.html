@@ -1,0 +1,50 @@
+<!-- Przeglądarka zdjęć: otwiera każdy element .hl-thumb z atrybutem data-src (i data-video dla filmów) -->
+<div class="hl-lightbox" id="hlLightbox" aria-hidden="true">
+    <button type="button" class="hl-lb-btn hl-lb-close" aria-label="Zamknij">&times;</button>
+    <button type="button" class="hl-lb-btn hl-lb-prev" aria-label="Poprzednie">&#8249;</button>
+    <div id="hlLightboxMedia"></div>
+    <button type="button" class="hl-lb-btn hl-lb-next" aria-label="Następne">&#8250;</button>
+    <div class="hl-lb-counter" id="hlLightboxCounter"></div>
+</div>
+
+<script>
+(function () {
+    const box = document.getElementById('hlLightbox');
+    const media = document.getElementById('hlLightboxMedia');
+    const counter = document.getElementById('hlLightboxCounter');
+    const thumbs = Array.from(document.querySelectorAll('.hl-thumb[data-src]'));
+    let index = 0, touchX = null;
+
+    function show(i) {
+        index = (i + thumbs.length) % thumbs.length;
+        const t = thumbs[index];
+        media.innerHTML = '';
+        const el = document.createElement(t.dataset.video ? 'video' : 'img');
+        el.src = t.dataset.src;
+        if (t.dataset.video) { el.controls = true; el.autoplay = true; }
+        media.appendChild(el);
+        counter.textContent = (index + 1) + ' / ' + thumbs.length;
+    }
+    function open(i) { show(i); box.classList.add('open'); document.body.style.overflow = 'hidden'; }
+    function close() { box.classList.remove('open'); media.innerHTML = ''; document.body.style.overflow = ''; }
+
+    thumbs.forEach((t, i) => t.addEventListener('click', e => { e.preventDefault(); open(i); }));
+    box.querySelector('.hl-lb-close').addEventListener('click', close);
+    box.querySelector('.hl-lb-prev').addEventListener('click', () => show(index - 1));
+    box.querySelector('.hl-lb-next').addEventListener('click', () => show(index + 1));
+    box.addEventListener('click', e => { if (e.target === box || e.target === media) close(); });
+    document.addEventListener('keydown', e => {
+        if (!box.classList.contains('open')) return;
+        if (e.key === 'Escape') close();
+        if (e.key === 'ArrowLeft') show(index - 1);
+        if (e.key === 'ArrowRight') show(index + 1);
+    });
+    box.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+    box.addEventListener('touchend', e => {
+        if (touchX === null) return;
+        const dx = e.changedTouches[0].clientX - touchX;
+        if (Math.abs(dx) > 50) show(index + (dx < 0 ? 1 : -1));
+        touchX = null;
+    });
+})();
+</script>

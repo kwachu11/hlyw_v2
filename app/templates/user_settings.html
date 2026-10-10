@@ -3,6 +3,7 @@
 {% block content %}
 <div class="container mt-4">
     <h2>Ustawienia użytkownika</h2>
+    <p><a href="{{ url_for('profil', user_id=current_user.id) }}">Zobacz swój profil</a></p>
     <form method="POST" enctype="multipart/form-data">
         {{ form.hidden_tag() }}
 
@@ -15,13 +16,35 @@
         <div class="mb-3">
             <label for="photo" class="form-label">Zmień zdjęcie profilowe</label>
             <div>
-                <img src="{{ url_for('static', filename='images/profile_pics/' + current_user.photo) }}" alt="Profile picture" width="100" height="100" class="rounded-circle mb-2">
+                <img src="{{ url_for('static', filename='images/profile_pics/' + current_user.photo) }}" alt="Profile picture" width="100" height="100" class="rounded-circle mb-2" style="object-fit: cover;">
             </div>
             {{ form.photo(class="form-control") }}
         </div>
 
         <div class="d-grid">
             {{ form.submit(class="btn btn-primary") }}
+        </div>
+    </form>
+
+    <h3 class="mt-5">Zmiana hasła</h3>
+    <form method="POST">
+        {{ password_form.hidden_tag() }}
+        <div class="mb-3">
+            {{ password_form.current_password.label(class="form-label") }}
+            {{ password_form.current_password(class="form-control") }}
+        </div>
+        <div class="mb-3">
+            {{ password_form.password.label(class="form-label") }}
+            {{ password_form.password(class="form-control") }}
+            {% for error in password_form.password.errors %}<small class="text-danger">{{ error }}</small>{% endfor %}
+        </div>
+        <div class="mb-3">
+            {{ password_form.confirm_password.label(class="form-label") }}
+            {{ password_form.confirm_password(class="form-control") }}
+            {% for error in password_form.confirm_password.errors %}<small class="text-danger">{{ error }}</small>{% endfor %}
+        </div>
+        <div class="d-grid">
+            {{ password_form.submit(class="btn btn-primary") }}
         </div>
     </form>
 </div>

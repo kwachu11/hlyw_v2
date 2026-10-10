@@ -7,7 +7,9 @@ from spotipy.oauth2 import SpotifyOAuth
 import json
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func
+from sqlalchemy import func, true
+import re
+import uuid
 from sqlalchemy.exc import OperationalError
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
@@ -19,7 +21,7 @@ from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
 
 from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail, \
-    ForgotPasswordForm, ResetPasswordForm
+    ForgotPasswordForm, ResetPasswordForm, ChangePasswordForm, UpgradeForm
 
 from datetime import datetime, timedelta
 import calendar as callendar
@@ -72,6 +74,32 @@ CURRENT_EDITION_START = datetime(2026, 10, 10)
 # Poprzednia edycja (tabela w rankingach i "poprzedni rekord" na stronie z grami) to gry sprzed 09.10.2026
 PREVIOUS_EDITION_END = datetime(2026, 10, 9)
 
+ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 'heic'}
+ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
+
+NEWS_REACTIONS = ['👍', '😂', '🔥', '😮', '💀']
+# Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
+UPGRADE_NEW_DAYS = 14
+
+
+def to_local(dt):
+    """Daty w bazie są w UTC (datetime.utcnow) - zamiana na czas serwera."""
+    return dt + (datetime.now() - datetime.utcnow())
+
+
+def when_label(dt):
+    """'dziś 18:30', 'wczoraj 18:30', '08.10 18:30' albo '08.10.2025 18:30'."""
+    local = to_local(dt)
+    today = datetime.now().date()
+    hour = local.strftime('%H:%M')
+    if local.date() == today:
+        return 'dziś ' + hour
+    if local.date() == today - timedelta(days=1):
+        return 'wczoraj ' + hour
+    if local.year == today.year:
+        return local.strftime('%d.%m ') + hour
+    return local.strftime('%d.%m.%Y ') + hour
+
 
 def create_app():
     _load_env()
@@ -107,7 +135,6 @@ def create_app():
     #test git
 
     mail = Mail(app)
-    active_users = {}
 
     def convert_to_unix_path(path):
         return path.replace('\\', '/')
@@ -116,6 +143,18 @@ def create_app():
         """Utwórz katalog, jeśli nie istnieje."""
         if not os.path.exists(path):
             os.makedirs(path)
+
+    def save_upload(file, folder, allowed_extensions):
+        """Zapisuje plik w app/static/images/<folder> pod losową nazwą i zwraca ścieżkę na dysku.
+        Nazwy od użytkownika nie używamy - mogłaby wskazać inny katalog albo nadpisać cudzy plik.
+        Zwraca None, gdy rozszerzenie jest niedozwolone."""
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in allowed_extensions:
+            return None
+        file_path = os.path.join('app', 'static', 'images', folder, uuid.uuid4().hex + '.' + ext)
+        create_directory_if_not_exists(os.path.dirname(file_path))
+        file.save(file_path)
+        return file_path
 
     def get_event_days(year, month):
         events = Calendar.query.filter(
@@ -145,23 +184,6 @@ def create_app():
         subject = "Proszę potwierdzić swoje konto"
         msg = Message_(subject=subject, recipients=[user_email], html=html)
         mail.send(msg)
-
-    def manage_files(folder_path, max_files):
-        """
-        Funkcja usuwa najstarsze pliki w folderze, zostawiając tylko max_files najnowszych.
-        """
-        # Pobierz listę plików w folderze, posortowaną według daty modyfikacji (od najstarszych do najnowszych)
-        files = sorted(
-            [os.path.join(folder_path, f) for f in os.listdir(folder_path) if
-             os.path.isfile(os.path.join(folder_path, f))],
-            key=os.path.getmtime
-        )
-
-        # Usuń pliki, jeśli jest ich więcej niż max_files
-        while len(files) > max_files:
-            oldest_file = files.pop(0)  # Pobierz najstarszy plik
-            os.remove(oldest_file)  # Usuń plik
-            print(f"Usunięto plik: {oldest_file}")  # Logowanie usunięcia pliku (opcjonalne)
 
     def generate_groups_and_matches(tournament, players):
         random.shuffle(players)
@@ -378,6 +400,20 @@ def create_app():
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Powiązanie z User
         user = db.relationship('User', backref=db.backref('messages', lazy=True))  # Powiązanie odwrotne do User
 
+    class NewsReaction(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        news_id = db.Column(db.Integer, db.ForeignKey('news.id'), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        emoji = db.Column(db.String(16), nullable=False)
+        __table_args__ = (db.UniqueConstraint('news_id', 'user_id', 'emoji'),)
+
+    class Presence(db.Model):
+        """Kiedy użytkownik ostatnio był na stronie kamery. W bazie, a nie w pamięci,
+        bo każdy worker gunicorna ma własną pamięć i widziałby innych oglądających."""
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+        last_seen = db.Column(db.DateTime, nullable=False)
+        user = db.relationship('User')
+
     class Upgrade(db.Model):
         id = db.Column(db.Integer, primary_key=True)
         title = db.Column(db.String(150), nullable=False)
@@ -534,6 +570,41 @@ def create_app():
                     raise
 
 
+    @app.template_filter('media_url')
+    def media_url(path):
+        """Ścieżka z bazy (np. static\\images\\3\\x.jpg z Windowsa) jako adres od katalogu głównego,
+        żeby działała też na podstronach typu /albums/3."""
+        return '/' + (path or '').replace('\\', '/').lstrip('/')
+
+    @app.template_filter('plural')
+    def plural(n, one, few, many):
+        """Polska odmiana: 1 zdjęcie, 2 zdjęcia, 5 zdjęć."""
+        if n == 1:
+            word = one
+        elif n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+            word = few
+        else:
+            word = many
+        return f'{n} {word}'
+
+    @app.template_filter('br_to_newline')
+    def br_to_newline(text):
+        """Zamienia <br> z opisów na nowe linie. Reszta HTML jest potem escapowana przez Jinja,
+        więc np. <script> w opisie wyświetli się jako tekst, a nie uruchomi."""
+        return re.sub(r'<br\s*/?>', '\n', text or '', flags=re.IGNORECASE)
+
+    app.add_template_filter(when_label, 'when')
+
+    @app.context_processor
+    def inject_upgrade_badge():
+        """Plakietka NOWE przy 'Ostatnie Ulepszenia' w menu, gdy jest świeży wpis."""
+        latest = db.session.query(func.max(Upgrade.date)).scalar()
+        return {'has_new_upgrade': bool(latest and latest >= datetime.utcnow() - timedelta(days=UPGRADE_NEW_DAYS))}
+
+    @app.template_filter('is_video')
+    def is_video(path):
+        return (path or '').rsplit('.', 1)[-1].lower() in {'mp4', 'mov', 'webm'}
+
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
@@ -566,7 +637,29 @@ def create_app():
         images.append("static\images\hlyw_23.jpg")
 
 
-        return render_template('index.html', images=images)
+        today = datetime.combine(date.today(), datetime.min.time())
+        upcoming_events = Calendar.query.filter(Calendar.date >= today).order_by(Calendar.date).limit(3).all()
+        if not current_user.is_authenticated:
+            return render_template('index.html', images=images, upcoming_events=upcoming_events, today=today)
+
+        # Wyniki gier zapisują się w UTC, więc "dziś" też liczymy od północy UTC
+        today_utc = datetime.combine(datetime.utcnow().date(), datetime.min.time())
+        games = game_catalog()
+        leaders = []
+        for game in games:
+            ranking_data, _ = game_ranking(game['model'], game['current'])
+            leaders.append({'game': game, 'leader': ranking_data[0] if ranking_data else None})
+        stats = {
+            'users': User.query.count(),
+            'games_today': sum(g['model'].query.filter(g['model'].created_at >= today_utc).count() for g in games),
+            'photos': Images.query.count(),
+            'albums': Albums.query.count(),
+        }
+        return render_template('index.html', images=images, upcoming_events=upcoming_events, today=today,
+                               stats=stats, leaders=leaders,
+                               latest_news=News.query.order_by(News.created_at.desc()).limit(3).all(),
+                               latest_messages=Message.query.order_by(Message.timestamp.desc()).limit(4).all(),
+                               viewers=camera_viewers())
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -643,9 +736,16 @@ def create_app():
     @app.route('/albums', methods=['GET'])
     @login_required
     def albums():
-        all_album = Albums.query.all()
-        images_no_album=Images.query.filter_by(album_id=0).all()
+        all_album = Albums.query.order_by(Albums.created_at.desc()).all()
+        images_no_album=Images.query.filter_by(album_id=0).order_by(Images.created_at.desc()).all()
         return render_template('albums.html', album=all_album, images=images_no_album)
+
+    @app.route('/albums/<int:album_id>')
+    @login_required
+    def album(album_id):
+        album = Albums.query.get_or_404(album_id)
+        images = Images.query.filter_by(album_id=album.id).order_by(Images.created_at).all()
+        return render_template('album.html', album=album, images=images)
 
     @app.route('/add_album', methods=['GET', 'POST'])
     @login_required
@@ -663,19 +763,12 @@ def create_app():
     def add_image():
         form = ImageForm()
         if form.validate_on_submit():
-            file = form.file.data
-            album_id = request.args.get('album_id')
+            album_id = str(request.args.get('album_id', 0, type=int))
 
-            if album_id == None:
-                album_id='0'
-
-            file_path = os.path.join('app', 'static', 'images', album_id, file.filename)
-            print(file_path)
-
-            # Utwórz katalog, jeśli nie istnieje
-            create_directory_if_not_exists(os.path.dirname(file_path))
-
-            file.save(file_path)
+            file_path = save_upload(form.file.data, album_id, ALLOWED_MEDIA_EXTENSIONS)
+            if not file_path:
+                flash('Niedozwolony typ pliku. Dozwolone: ' + ', '.join(sorted(ALLOWED_MEDIA_EXTENSIONS)), 'danger')
+                return render_template('add_images.html', form=form)
             file_path=file_path[4:] #do bazy bez app
 
             image = Images(file_path=file_path, album_id=album_id)
@@ -688,7 +781,32 @@ def create_app():
     @login_required
     def news():
         all_news = News.query.order_by(News.created_at.desc()).all()
-        return render_template('breaking_news.html', news=all_news)
+        authors = {str(u.id): u for u in User.query.filter(User.id.in_([int(n.created_by) for n in all_news if (n.created_by or '').isdigit()])).all()}
+        reactions = {n.id: news_reactions(n.id) for n in all_news}
+        return render_template('breaking_news.html', news=all_news, authors=authors, reactions=reactions,
+                               emojis=NEWS_REACTIONS)
+
+    def news_reactions(news_id):
+        """{emoji: {'count': n, 'mine': bool}} dla wszystkich dozwolonych emoji."""
+        rows = db.session.query(NewsReaction.emoji, NewsReaction.user_id).filter_by(news_id=news_id).all()
+        return {e: {'count': sum(1 for emoji, _ in rows if emoji == e),
+                    'mine': any(emoji == e and uid == current_user.id for emoji, uid in rows)}
+                for e in NEWS_REACTIONS}
+
+    @app.route('/news/<int:news_id>/react', methods=['POST'])
+    @login_required
+    def react_news(news_id):
+        News.query.get_or_404(news_id)
+        emoji = (request.get_json(silent=True) or {}).get('emoji')
+        if emoji not in NEWS_REACTIONS:
+            return jsonify({'status': 'error'}), 400
+        existing = NewsReaction.query.filter_by(news_id=news_id, user_id=current_user.id, emoji=emoji).first()
+        if existing:
+            db.session.delete(existing)
+        else:
+            db.session.add(NewsReaction(news_id=news_id, user_id=current_user.id, emoji=emoji))
+        db.session.commit()
+        return jsonify({'status': 'success', 'reactions': news_reactions(news_id)})
 
     @app.route('/add_new', methods=['GET', 'POST'])
     @login_required
@@ -697,15 +815,10 @@ def create_app():
         if form.validate_on_submit():
             title = form.title.data
             description = form.description.data
-            file = form.file.data
-
-            file_path = os.path.join('app', 'static', 'images', 'newsy', file.filename)
-            print(file_path)
-
-            # Utwórz katalog, jeśli nie istnieje
-            create_directory_if_not_exists(os.path.dirname(file_path))
-
-            file.save(file_path)
+            file_path = save_upload(form.file.data, 'newsy', ALLOWED_IMAGE_EXTENSIONS)
+            if not file_path:
+                flash('Niedozwolony typ pliku. Dozwolone: ' + ', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS)), 'danger')
+                return render_template('add_new.html', form=form)
             file_path = file_path[4:]  # do bazy bez app
 
             news = News(title=title, description=description, file_path=file_path, created_by=current_user.id)
@@ -741,7 +854,6 @@ def create_app():
         # Generowanie kalendarza
         cal = callendar.monthcalendar(year, month)
         event_days = get_event_days(year, month)
-        print(event_days)
 
         return render_template('calendar.html',
                                calendar=cal,
@@ -752,7 +864,8 @@ def create_app():
                                previous_year=previous_year,
                                next_month=next_month,
                                next_year=next_year,
-                               event_days=event_days)
+                               event_days=event_days,
+                               today_day=now.day if (month, year) == (now.month, now.year) else None)
 
     @app.route('/add_entry', methods=['GET', 'POST'])
     @login_required
@@ -762,7 +875,6 @@ def create_app():
             title = form.title.data
             description = form.description.data
             date = form.date.data
-            print(date)
             user_id = current_user.id
             new_entry = Calendar(title=title, description=description, date=date, created_by=user_id)
             db.session.add(new_entry)
@@ -863,32 +975,41 @@ def create_app():
     @login_required
     def user_settings():
         form = UserSettingsForm()
+        password_form = ChangePasswordForm(prefix='pw')
 
-        if form.validate_on_submit():
-            # Zaktualizuj nazwę użytkownika i email
-            current_user.username = form.username.data
+        if password_form.submit.data and password_form.validate_on_submit():
+            if not check_password_hash(current_user.password, password_form.current_password.data):
+                flash('Obecne hasło jest niepoprawne.', 'danger')
+            else:
+                current_user.password = hash_password(password_form.password.data)
+                db.session.commit()
+                flash('Hasło zostało zmienione.', 'success')
+                return redirect(url_for('user_settings'))
+
+        elif form.submit.data and form.validate_on_submit():
+            new_username = form.username.data.strip()
+            if new_username != current_user.username and User.query.filter_by(username=new_username).first():
+                flash('Ta nazwa użytkownika jest już zajęta.', 'danger')
+                return redirect(url_for('user_settings'))
+            current_user.username = new_username
 
             # Zaktualizuj zdjęcie, jeśli użytkownik je dodał
             if form.photo.data:
-                file = form.photo.data
-                file_path = os.path.join('app', 'static', 'images','profile_pics', file.filename)
-                #print(file_path)
-
-                # Utwórz katalog, jeśli nie istnieje
-                create_directory_if_not_exists(os.path.dirname(file_path))
-
-                file.save(file_path)
-                file_path = file_path[31:]  # do bazy bez sciezki
-                current_user.photo = file_path
+                file_path = save_upload(form.photo.data, 'profile_pics', ALLOWED_IMAGE_EXTENSIONS)
+                if not file_path:
+                    flash('Niedozwolony typ pliku. Dozwolone: ' + ', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS)), 'danger')
+                    return redirect(url_for('user_settings'))
+                current_user.photo = os.path.basename(file_path)
 
             # Zapisz zmiany w bazie danych
             db.session.commit()
+            flash('Zapisano zmiany.', 'success')
             return redirect(url_for('user_settings'))  # Przekieruj po zapisaniu zmian
 
         # Ustaw pola formularza na obecne dane użytkownika
         form.username.data = current_user.username
 
-        return render_template('user_settings.html', form=form)
+        return render_template('user_settings.html', form=form, password_form=password_form)
 
     @app.route('/send_message', methods=['POST'])
     @login_required
@@ -910,7 +1031,7 @@ def create_app():
     @login_required
     def get_messages():
         # Pobierz wszystkie wiadomości z bazy danych
-        messages = Message.query.order_by(Message.timestamp.desc()).limit(10).all()
+        messages = Message.query.order_by(Message.timestamp.desc()).limit(30).all()
         messages_data = []
 
         for msg in messages:
@@ -918,17 +1039,35 @@ def create_app():
             messages_data.append({
                 "content": msg.content,
                 "timestamp": msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                "time": when_label(msg.timestamp),
                 "username": user.username,  # Dodajemy nazwę użytkownika
                 "photo": user.photo  # Dodajemy zdjęcie użytkownika
             })
 
         return jsonify({"messages": messages_data})
 
-    @app.route('/ostatnie-ulepszenia')
+    @app.route('/ostatnie-ulepszenia', methods=['GET', 'POST'])
     def ostatnie_ulepszenia():
-        # Pobierz ostatnie ulepszenia z bazy danych
+        form = UpgradeForm()
+        if form.validate_on_submit():
+            if not current_user.is_authenticated or current_user.is_admin == "0":
+                flash('Brak uprawnień do dodawania ulepszeń', 'danger')
+            else:
+                db.session.add(Upgrade(title=form.title.data.strip(), description=form.description.data.strip()))
+                db.session.commit()
+                flash('Dodano ulepszenie.', 'success')
+            return redirect(url_for('ostatnie_ulepszenia'))
+
+        # Pobierz ostatnie ulepszenia z bazy danych i pogrupuj po miesiącach
         upgrades = Upgrade.query.order_by(Upgrade.date.desc()).all()
-        return render_template('ostatnie_ulepszenia.html', upgrades=upgrades)
+        months = []
+        for upgrade in upgrades:
+            label = f'{MONTH_NAMES_PL[upgrade.date.month]} {upgrade.date.year}'
+            if not months or months[-1][0] != label:
+                months.append((label, []))
+            months[-1][1].append(upgrade)
+        new_since = datetime.utcnow() - timedelta(days=UPGRADE_NEW_DAYS)
+        return render_template('ostatnie_ulepszenia.html', months=months, form=form, new_since=new_since)
 
     @app.route('/confirm/<token>')
     def confirm_email(token):
@@ -1101,7 +1240,6 @@ def create_app():
         games.append(['Ice Tower', 'static/images/ice_tower.svg', ice_tower_leader, user4, 'ice_tower', 'ranking_ice_tower'])
         games.append(['Kółko i krzyżyk', 'static/images/kolko_krzyzyk.svg', kk_leader, user5, 'kolko_krzyzyk', 'ranking_kolko_krzyzyk'])
         games.append(['Formuła', 'static/images/formula.svg', formula_leader, user6, 'formula', 'ranking_formula'])
-        print(games)
         return render_template('games.html', games=games)
 
     @app.route('/tetris', methods=['GET', 'POST'])
@@ -1176,6 +1314,71 @@ def create_app():
     def ranking_dino():
         return render_edition_ranking('ranking_dino.html', Dino)
 
+    def game_catalog():
+        """Gry z rankingiem: nazwa, model, ranking, ikona i warunek bieżącej / poprzedniej edycji."""
+        def edition(model):
+            return model.created_at >= CURRENT_EDITION_START, model.created_at < PREVIOUS_EDITION_END
+        games = []
+        for name, model, slug, has_editions in [
+            ('Snake', Snake, 'snake', True),
+            ('Tetris', Tetris, 'tetris', True),
+            ('Dino', Dino, 'dino', True),
+            ('Ice Tower', IceTower, 'ice_tower', False),
+            ('Kółko i krzyżyk', KolkoKrzyzyk, 'kolko_krzyzyk', False),
+            ('Formuła', Formula, 'formula', False),
+        ]:
+            current, previous = edition(model) if has_editions else (true(), None)
+            games.append({'name': name, 'model': model, 'slug': slug, 'ranking': 'ranking_' + slug,
+                          'icon': 'images/' + slug + '.svg', 'current': current, 'previous': previous})
+        return games
+
+    def player_place(model, condition, user_id):
+        """Miejsce, rekord i liczba prób gracza w rankingu - None, gdy nie grał."""
+        ranking_data, _ = game_ranking(model, condition)
+        for place, row in enumerate(ranking_data, 1):
+            if row.id == user_id:
+                return {'place': place, 'high_score': row.high_score, 'attempts': row.attempts, 'players': len(ranking_data)}
+        return None
+
+    @app.route('/profil/<int:user_id>')
+    @login_required
+    def profil(user_id):
+        user = User.query.get_or_404(user_id)
+        stats = []
+        for game in game_catalog():
+            stats.append({'name': game['name'], 'ranking': game['ranking'], 'has_editions': game['previous'] is not None,
+                          'current': player_place(game['model'], game['current'], user.id),
+                          'previous': player_place(game['model'], game['previous'], user.id) if game['previous'] is not None else None})
+        return render_template('profil.html', profile_user=user, stats=stats)
+
+    def overall_ranking(rankings):
+        """Ranking ogólny: za miejsca 1-10 w każdej grze 10, 9, ... 1 pkt."""
+        table = {}
+        for ranking_data in rankings:
+            for place, row in enumerate(ranking_data[:10], 1):
+                entry = table.setdefault(row.id, {'id': row.id, 'username': row.username, 'photo': row.photo,
+                                                  'points': 0, 'gold': 0, 'podiums': 0})
+                entry['points'] += 11 - place
+                entry['gold'] += place == 1
+                entry['podiums'] += place <= 3
+        return sorted(table.values(), key=lambda e: (-e['points'], -e['gold']))
+
+    @app.route('/hall_of_fame')
+    @login_required
+    def hall_of_fame():
+        champions, previous_champions, rankings = [], [], []
+        for game in game_catalog():
+            ranking_data, games_played = game_ranking(game['model'], game['current'])
+            rankings.append(ranking_data)
+            champions.append({'game': game, 'podium': ranking_data[:3], 'games_played': games_played})
+            if game['previous'] is not None:
+                old_data, _ = game_ranking(game['model'], game['previous'])
+                if old_data:
+                    previous_champions.append({'game': game, 'leader': old_data[0]})
+        return render_template('hall_of_fame.html', champions=champions,
+                               previous_champions=previous_champions, overall=overall_ranking(rankings),
+                               edition_start=CURRENT_EDITION_START)
+
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required
     def dino():
@@ -1189,20 +1392,18 @@ def create_app():
         pobrane = ""
         pytanie = QuizQuestion.query.filter_by(is_active="1").first()
         if pytanie == None:
-            pytanie="Czekaj na pytanie..."
-
-
-
+            return render_template('quiz.html', pytanie="Czekaj na pytanie...", options=options, odpowiedz="")
 
         odpowiedz = QuizAnswer.query.filter_by(question_id=pytanie.id, participant_id=current_user.id).first()
 
-
-
-        return render_template('quiz.html', pytanie=pytanie, options=options, odpowiedz=odpowiedz.answer)
+        return render_template('quiz.html', pytanie=pytanie, options=options, odpowiedz=odpowiedz.answer if odpowiedz else "")
 
     @app.route('/dodaj_pytania', methods=['GET', 'POST'])
     @login_required
     def dodaj_pytania():
+        if current_user.is_admin == "0":
+            flash("Brak uprawnień do dodawania pytań", "danger")
+            return redirect(url_for('quiz'))
 
         db.session.query(QuizQuestion).delete()
         db.session.commit()
@@ -1250,7 +1451,11 @@ def create_app():
         return jsonify({'question_id': None, 'question_text': "Czekaj na pytanie..."})
 
     @app.route('/set_active_question/<int:question_id>', methods=['POST'])
+    @login_required
     def set_active_question(question_id):
+        if current_user.is_admin == "0":
+            return jsonify({'status': 'error', 'message': 'Brak uprawnień do sterowania quizem'}), 403
+
         # Wyłącz wszystkie pytania
         QuizQuestion.query.update({'is_active': False})
         db.session.commit()
@@ -1262,28 +1467,6 @@ def create_app():
             db.session.commit()
             return jsonify({'status': 'success', 'message': f'Pytanie {question_id} ustawione jako aktywne'})
         return jsonify({'status': 'error', 'message': 'Nie znaleziono pytania'})
-
-    @app.route('/api/upload', methods=['POST'])
-    def upload_file():
-        if 'file' not in request.files:
-            return "Brak pliku", 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return "Brak nazwy pliku", 400
-
-        # Folder docelowy
-        UPLOAD_FOLDER = os.path.join('app', 'static', 'videos')
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)  # Upewnij się, że folder istnieje
-
-        # Zapisanie pliku
-        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-        file.save(filepath)
-
-        # Ograniczenie liczby plików do 5
-        manage_files(UPLOAD_FOLDER, max_files=5)
-
-        return "Plik zapisany", 200
 
     @app.route("/api/videos", methods=["GET"])
     def get_videos():
@@ -1310,30 +1493,30 @@ def create_app():
     @login_required
     def user_active():
         """Rejestruje użytkownika jako aktywnego na stronie streamu"""
-        user_id = current_user.id
-        active_users[user_id] = {
-            "username": current_user.username,
-            "photo": current_user.photo,
-            "last_seen": datetime.utcnow()
-        }
+        presence = Presence.query.get(current_user.id) or Presence(user_id=current_user.id)
+        presence.last_seen = datetime.utcnow()
+        db.session.add(presence)
+        db.session.commit()
         return jsonify({"status": "ok"})
+
+    def camera_viewers():
+        """Użytkownicy, którzy byli na stronie kamery w ciągu ostatnich 30 sekund."""
+        since = datetime.utcnow() - timedelta(seconds=30)
+        return [p.user for p in Presence.query.filter(Presence.last_seen >= since).all()]
 
     @app.route('/get_active_users')
     @login_required
     def get_active_users():
         """Zwraca listę aktywnych użytkowników"""
-        now = datetime.utcnow()
-        time.sleep(1)
-        # Usuwamy użytkowników, którzy nie odświeżali statusu przez 10 sekund
-        active_users_filtered = {
-            uid: data for uid, data in active_users.items()
-            if now - data["last_seen"] < timedelta(seconds=30)
-        }
-        return jsonify({"users": list(active_users_filtered.values())})
+        return jsonify({"users": [{"username": u.username, "photo": u.photo} for u in camera_viewers()]})
 
     @app.route('/send_test_mail', methods=['GET', 'POST'])
     @login_required
     def send_test_mail():
+        if current_user.is_admin == "0":
+            flash("Brak uprawnień do wysyłania maili", "danger")
+            return redirect(url_for('index'))
+
         form = TestEmail()
 
         if form.validate_on_submit():
@@ -1551,17 +1734,7 @@ def create_app():
     @app.route('/ranking_ice_tower', methods=['GET', 'POST'])
     @login_required
     def ranking_ice_tower():
-        ranking_data = db.session.query(
-            User.id,
-            User.username,
-            User.photo,
-            func.count(IceTower.id).label('attempts'),  # Ilość prób
-            func.sum(IceTower.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(IceTower.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(IceTower, IceTower.created_by == User.id)             .group_by(User.id)             .having(func.max(IceTower.points) != None)             .order_by(func.max(IceTower.points).desc())             .all()
-
-        rozegranych_gier = IceTower.query.count()
-
+        ranking_data, rozegranych_gier = game_ranking(IceTower, true())
         return render_template('ranking_ice_tower.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/kolko_krzyzyk', methods=['GET', 'POST'])
@@ -1589,17 +1762,7 @@ def create_app():
     @app.route('/ranking_kolko_krzyzyk', methods=['GET', 'POST'])
     @login_required
     def ranking_kolko_krzyzyk():
-        ranking_data = db.session.query(
-            User.id,
-            User.username,
-            User.photo,
-            func.count(KolkoKrzyzyk.id).label('attempts'),  # Ilość prób
-            func.sum(KolkoKrzyzyk.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(KolkoKrzyzyk.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(KolkoKrzyzyk, KolkoKrzyzyk.created_by == User.id)             .group_by(User.id)             .having(func.max(KolkoKrzyzyk.points) != None)             .order_by(func.max(KolkoKrzyzyk.points).desc())             .all()
-
-        rozegranych_gier = KolkoKrzyzyk.query.count()
-
+        ranking_data, rozegranych_gier = game_ranking(KolkoKrzyzyk, true())
         return render_template('ranking_kolko_krzyzyk.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/statki', methods=['GET', 'POST'])
@@ -1627,17 +1790,7 @@ def create_app():
     @app.route('/ranking_statki', methods=['GET', 'POST'])
     @login_required
     def ranking_statki():
-        ranking_data = db.session.query(
-            User.id,
-            User.username,
-            User.photo,
-            func.count(Statki.id).label('attempts'),  # Ilość prób
-            func.sum(Statki.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(Statki.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(Statki, Statki.created_by == User.id)             .group_by(User.id)             .having(func.max(Statki.points) != None)             .order_by(func.max(Statki.points).desc())             .all()
-
-        rozegranych_gier = Statki.query.count()
-
+        ranking_data, rozegranych_gier = game_ranking(Statki, true())
         return render_template('ranking_statki.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/formula', methods=['GET', 'POST'])
@@ -1665,17 +1818,7 @@ def create_app():
     @app.route('/ranking_formula', methods=['GET', 'POST'])
     @login_required
     def ranking_formula():
-        ranking_data = db.session.query(
-            User.id,
-            User.username,
-            User.photo,
-            func.count(Formula.id).label('attempts'),  # Ilość prób
-            func.sum(Formula.points).label('total_points'),  # Suma zdobytych punktów
-            func.max(Formula.points).label('high_score')  # Najwyższy wynik (rekord)
-        ).outerjoin(Formula, Formula.created_by == User.id)             .group_by(User.id)             .having(func.max(Formula.points) != None)             .order_by(func.max(Formula.points).desc())             .all()
-
-        rozegranych_gier = Formula.query.count()
-
+        ranking_data, rozegranych_gier = game_ranking(Formula, true())
         return render_template('ranking_formula.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     return app

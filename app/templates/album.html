@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-2"><a href="{{ url_for('albums') }}">&larr; Wszystkie albumy</a></div>
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2 class="mb-0">{{ album.name }}</h2>
+        {% if album.description %}<p class="text-muted mb-0">{{ album.description }}</p>{% endif %}
+        <small class="text-muted">{{ images|length|plural('zdjęcie', 'zdjęcia', 'zdjęć') }}</small>
+    </div>
+    <a href="{{ url_for('add_image', album_id=album.id) }}" class="btn btn-primary">Dodaj zdjęcie</a>
+</div>
+
+<div class="hl-grid mb-4">
+    {% for image in images %}
+        {% include "_thumb.html" %}
+    {% else %}
+        <p class="text-muted">W tym albumie nie ma jeszcze zdjęć.</p>
+    {% endfor %}
+</div>
+
+{% include "_lightbox.html" %}
+{% endblock %}

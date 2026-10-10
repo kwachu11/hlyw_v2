@@ -1,6 +1,6 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <a class="navbar-brand" href="/">
-        <img src="{{ url_for('static', filename='images/logo.png') }}" width="50%" height="50%" class="d-inline-block align-top" alt="Logo">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" class="d-inline-block align-top hl-logo" alt="hlyw.pl">
     </a>
     <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
@@ -20,10 +20,13 @@
                 <a class="nav-link" href="/camera">Kamera</a>
             </li>
             <li class="nav-item">
-    <a class="nav-link" href="/ostatnie-ulepszenia">Ostatnie Ulepszenia</a>
+    <a class="nav-link" href="/ostatnie-ulepszenia">Ostatnie Ulepszenia{% if has_new_upgrade %} <span class="badge badge-danger">NOWE</span>{% endif %}</a>
 </li>
             <li class="nav-item">
                 <a class="nav-link" href="/calendar">Kalendarz</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{{ url_for('hall_of_fame') }}">🏆 Hall of Fame</a>
             </li>
             <!-- Nowa sekcja Dodatki -->
             <li class="nav-item dropdown">
@@ -44,7 +47,7 @@
                 <!-- Przenieś zdjęcie użytkownika pod rozwiniętym menu -->
                 <li class="nav-item user-profile">
                     <a href="{{ url_for('user_settings') }}">
-                        <img src="static/images/profile_pics/{{ current_user.photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;">
+                        <img src="{{ url_for('static', filename='images/profile_pics/' + current_user.photo) }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;">
                     </a>
                 </li>
             {% else %}

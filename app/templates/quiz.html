@@ -32,6 +32,7 @@
 
 <br><br>
 
+    {% if current_user.is_admin == "1" %}
     <div>
         <button onclick="setActiveQuestion(0)">Wyłącz Quiz</button>
         <button onclick="setActiveQuestion(1)">Aktywuj pytanie 1</button>
@@ -42,5 +43,6 @@
 
         <a href="/dodaj_pytania"><button>Dodaj Pytania</button></a>
     </div>
+    {% endif %}
 
 {% endblock %}

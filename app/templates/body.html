@@ -1,26 +1,165 @@
 <div class="content" >
         <div class="marquee">
         <div class="marquee-content">
-            PILNE!!! Witamy na stronie hlyw.pl v2! | Strona w wersji testowej!        </div>
+            PILNE!!! Witamy na stronie hlyw.pl v2! | Strona w wersji testowej!
+        </div>
     </div>
 
-    <h1>Witaj na stronie hlyw.pl</h1>
-    <div id="carouselExample" class="carousel slide" data-ride="carousel">
-    <div class="carousel-inner">
-        {% for image in images %}
-        <div class="carousel-item {% if loop.first %}active{% endif %}">
-            <img src="{{ image }}" class="d-block w-100" alt="Image">
+    <div class="hl-hero mt-3 mb-3">
+        <h1>Witaj na stronie hlyw.pl</h1>
+        {% if current_user.is_authenticated %}
+        <div class="hl-greeting">Cześć, {{ current_user.username }}! Zobacz, co słychać na Hlywie.</div>
+        {% endif %}
+    </div>
+
+    {% if stats %}
+    <div class="row">
+        <div class="col-6 col-md-3 mb-3">
+            <a href="{{ url_for('users') }}" class="hl-stat d-block">
+                <div class="hl-stat-value">{{ stats.users }}</div>
+                <div class="hl-stat-label">użytkowników</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 mb-3">
+            <a href="{{ url_for('games') }}" class="hl-stat d-block">
+                <div class="hl-stat-value">{{ stats.games_today }}</div>
+                <div class="hl-stat-label">gier rozegranych dziś</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 mb-3">
+            <a href="{{ url_for('albums') }}" class="hl-stat d-block">
+                <div class="hl-stat-value">{{ stats.photos }}</div>
+                <div class="hl-stat-label">zdjęć w {{ stats.albums }} albumach</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3 mb-3">
+            <a href="{{ url_for('camera') }}" class="hl-stat d-block">
+                <div class="hl-stat-value">{{ viewers|length }}</div>
+                <div class="hl-stat-label">osób na kamerze</div>
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="row">
+        <div class="{{ 'col-lg-8' if stats else 'col-12' }}">
+            <div id="carouselExample" class="carousel slide" data-ride="carousel">
+                <div class="carousel-inner">
+                    {% for image in images %}
+                    <div class="carousel-item {% if loop.first %}active{% endif %}">
+                        <img src="{{ image|media_url }}" class="d-block w-100" alt="Image">
+                    </div>
+                    {% endfor %}
+                </div>
+                <a class="carousel-control-prev" href="#carouselExample" role="button" data-slide="prev">
+                    <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                    <span class="sr-only">Poprzednie</span>
+                </a>
+                <a class="carousel-control-next" href="#carouselExample" role="button" data-slide="next">
+                    <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                    <span class="sr-only">Następne</span>
+                </a>
+            </div>
+
+            {% if leaders %}
+            <div class="hl-section-title">Liderzy gier <small class="text-muted font-weight-normal">· <a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></small></div>
+            <div class="row">
+                {% for item in leaders %}
+                <div class="col-sm-6 col-xl-4 mb-3">
+                    <a href="{{ url_for(item.game.ranking) }}" class="hl-leader">
+                        <img src="{{ url_for('static', filename=item.game.icon) }}" class="hl-game-icon" alt="{{ item.game.name }}">
+                        <div class="flex-grow-1">
+                            <div class="hl-leader-score">{{ item.game.name }}</div>
+                            {% if item.leader %}
+                            <div class="hl-leader-name">{{ item.leader.username }}</div>
+                            <div class="hl-leader-score">rekord: {{ item.leader.high_score }}</div>
+                            {% else %}
+                            <div class="hl-leader-name text-muted">Wolne miejsce!</div>
+                            <div class="hl-leader-score">zagraj pierwszy</div>
+                            {% endif %}
+                        </div>
+                        {% if item.leader %}
+                        <img src="{{ url_for('static', filename='images/profile_pics/' + item.leader.photo) }}" class="hl-avatar" width="40" height="40" alt="">
+                        {% endif %}
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="{{ 'col-lg-4' if stats else 'col-12' }} hl-side">
+            {% if upcoming_events %}
+            <div class="card mb-3 {{ '' if stats else 'mt-3' }}">
+                <div class="card-header"><strong>📅 Najbliższe wydarzenia</strong></div>
+                <ul class="list-group list-group-flush">
+                    {% for e in upcoming_events %}
+                    {% set days = (e.date - today).days %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="{{ url_for('event', day=e.date.day, month=e.date.month, year=e.date.year) }}">{{ e.title }}</a>
+                        <span class="badge {{ 'badge-danger' if days == 0 else 'badge-secondary' }} badge-pill">
+                            {% if days == 0 %}dziś{% elif days == 1 %}jutro{% else %}za {{ days }} dni · {{ e.date.strftime('%d.%m') }}{% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            {% if stats %}
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between">
+                    <strong>🎥 Teraz na kamerze</strong>
+                    <a href="{{ url_for('camera') }}">Oglądaj</a>
+                </div>
+                <div class="card-body py-2">
+                    {% if viewers %}
+                    <div class="hl-viewers">
+                        {% for u in viewers %}
+                        <img src="{{ url_for('static', filename='images/profile_pics/' + u.photo) }}" title="{{ u.username }}" alt="{{ u.username }}">
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <span class="text-muted">Nikt teraz nie ogląda.</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between">
+                    <strong>💬 Ostatnio na czacie</strong>
+                    <a href="{{ url_for('camera') }}">Czat</a>
+                </div>
+                <ul class="list-group list-group-flush">
+                    {% for m in latest_messages %}
+                    <li class="list-group-item hl-chat-line">
+                        <strong>{{ m.user.username }}:</strong> {{ m.content|truncate(80) }}
+                        <div class="text-muted">{{ m.timestamp|when }}</div>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted">Cisza na czacie.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if latest_news %}
+    <div class="hl-section-title">Breaking News <small class="text-muted font-weight-normal">· <a href="{{ url_for('news') }}">wszystkie</a></small></div>
+    <div class="row">
+        {% for n in latest_news %}
+        <div class="col-md-4 mb-4">
+            <div class="card h-100">
+                <img src="{{ n.file_path|media_url }}" class="card-img-top" alt="{{ n.title }}" style="height: 180px; object-fit: cover;">
+                <div class="card-body">
+                    <h5 class="card-title">{{ n.title }}</h5>
+                    <p class="card-text">{{ n.description|truncate(120) }}</p>
+                </div>
+            </div>
         </div>
         {% endfor %}
     </div>
-    <a class="carousel-control-prev" href="#carouselExample" role="button" data-slide="prev">
-        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-        <span class="sr-only">Poprzednie</span>
-    </a>
-    <a class="carousel-control-next" href="#carouselExample" role="button" data-slide="next">
-        <span class="carousel-control-next-icon" aria-hidden="true"></span>
-        <span class="sr-only">Następne</span>
-    </a>
-</div>
+    {% endif %}
 
 </div>

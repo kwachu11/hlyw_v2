@@ -1,26 +1,93 @@
 {% extends "base.html" %}
 
+{% macro author_line(n) %}
+    {% set author = authors.get(n.created_by) %}
+    <div class="hl-news-meta">
+        {% if author %}
+        <a href="{{ url_for('profil', user_id=author.id) }}">
+            <img src="{{ url_for('static', filename='images/profile_pics/' + author.photo) }}" class="hl-avatar" width="24" height="24" alt="">
+            {{ author.username }}
+        </a> ·
+        {% endif %}
+        {{ n.created_at|when }}
+    </div>
+{% endmacro %}
+
+{% macro reaction_bar(n) %}
+    <div class="hl-reaction-bar" data-news-id="{{ n.id }}">
+        {% for emoji in emojis %}
+        {% set r = reactions[n.id][emoji] %}
+        <button type="button" class="hl-reaction {{ 'mine' if r.mine }}" data-emoji="{{ emoji }}">
+            {{ emoji }} <span class="hl-reaction-count">{{ r.count if r.count }}</span>
+        </button>
+        {% endfor %}
+    </div>
+{% endmacro %}
+
 {% block content %}
-<div class="d-flex justify-content-end mb-3">
-    <a href="{{ url_for('add_new') }}" class="btn btn-primary mx-2">Dodaj News</a>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0"><span class="hl-breaking">BREAKING</span> News</h2>
+    <a href="{{ url_for('add_new') }}" class="btn btn-primary">Dodaj News</a>
 </div>
-<div class="container mt-4">
-    <h2>News</h2>
+
+{% if news %}
+    {% set top = news[0] %}
+    <div class="hl-news-featured mb-4">
+        <a href="{{ top.file_path|media_url }}" class="hl-thumb hl-news-featured-img" data-src="{{ top.file_path|media_url }}">
+            <img src="{{ top.file_path|media_url }}" alt="{{ top.title }}">
+            <span class="hl-news-tag">Najnowsze</span>
+        </a>
+        <div class="hl-news-featured-body">
+            <h3>{{ top.title }}</h3>
+            {{ author_line(top) }}
+            <p class="hl-news-text">{{ top.description|br_to_newline }}</p>
+            {{ reaction_bar(top) }}
+        </div>
+    </div>
+
+    {% if news|length > 1 %}
     <div class="row">
-        {% for news in news %}
-        <div class="col-md-4 mb-4">
-            <div class="card">
-                <img src="{{ news.file_path }}" class="card-img-top" alt="News Image" style="width: 100%; height: 200px; object-fit: cover;">
-                <div class="card-body">
-                    <h5 class="card-title">{{ news.title }}</h5>
-                    <p class="card-text">{{ news.description }}</p>
-                    <p class="card-text"><small class="text-muted">Dodano: {{ news.created_at }}</small></p>
+        {% for n in news[1:] %}
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card h-100 hl-news-card">
+                <a href="{{ n.file_path|media_url }}" class="hl-thumb" data-src="{{ n.file_path|media_url }}">
+                    <img src="{{ n.file_path|media_url }}" class="card-img-top" alt="{{ n.title }}" loading="lazy">
+                </a>
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title mb-1">{{ n.title }}</h5>
+                    {{ author_line(n) }}
+                    <p class="card-text hl-news-text">{{ n.description|br_to_newline }}</p>
+                    <div class="mt-auto">{{ reaction_bar(n) }}</div>
                 </div>
             </div>
         </div>
-        {% else %}
-        <p>Brak newsów do wyświetlenia.</p>
         {% endfor %}
     </div>
-</div>
+    {% endif %}
+{% else %}
+    <p class="text-muted">Brak newsów do wyświetlenia. Bądź pierwszy i dodaj jakiegoś!</p>
+{% endif %}
+
+{% include "_lightbox.html" %}
+
+<script>
+document.querySelectorAll('.hl-reaction-bar').forEach(bar => {
+    bar.querySelectorAll('.hl-reaction').forEach(btn => btn.addEventListener('click', () => {
+        fetch('/news/' + bar.dataset.newsId + '/react', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emoji: btn.dataset.emoji })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'success') return;
+                bar.querySelectorAll('.hl-reaction').forEach(b => {
+                    const r = data.reactions[b.dataset.emoji];
+                    b.classList.toggle('mine', r.mine);
+                    b.querySelector('.hl-reaction-count').textContent = r.count || '';
+                });
+            });
+    }));
+});
+</script>
 {% endblock %}

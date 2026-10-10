@@ -1,28 +1,131 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="camera-container">
-    <h3>Co dzieje się na Hlywie</h3>
-       <iframe id="camera-frame" src="https://rtsp.me/embed/62bBnQNN" frameborder="0" allowfullscreen></iframe>
-
-    <!-- Sekcja czatu -->
-    <div class="chat-container mt-4">
-        <h3>Czat użytkowników</h3>
-        <div id="chat-messages" class="chat-messages">
-            <!-- Wiadomości czatu będą wyświetlane tutaj -->
+<h3 class="mb-3">Co dzieje się na Hlywie</h3>
+<div class="row">
+    <div class="col-lg-8 mb-3">
+        <div class="hl-stream">
+            <iframe id="camera-frame" src="https://rtsp.me/embed/62bBnQNN" allowfullscreen></iframe>
+            <span class="hl-live">NA ŻYWO</span>
+            <span class="hl-clock" id="hl-clock"></span>
         </div>
-                <div class="active-users-container">
-    <h3>Kto teraz patrzy</h3>
-    <div id="active-users"></div>
-</div>
-        <form id="chat-form">
-            <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość..." rows="3"></textarea>
-            <button type="submit" class="btn btn-primary mt-2">Wyślij</button>
-        </form>
+
+        <div class="d-flex align-items-center mt-3">
+            <strong class="mr-2">Kto teraz patrzy:</strong>
+            <div id="active-users" class="hl-viewers"></div>
+        </div>
+    </div>
+
+    <div class="col-lg-4 mb-3">
+        <div class="chat-container hl-chat">
+            <h5>Czat</h5>
+            <div id="chat-messages" class="chat-messages"></div>
+            <div class="hl-reactions">
+                {% for emoji in ['🔥', '😂', '👏', '😮', '🍺'] %}
+                <button type="button" data-emoji="{{ emoji }}" title="Wyślij {{ emoji }}">{{ emoji }}</button>
+                {% endfor %}
+            </div>
+            <form id="chat-form">
+                <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość... (Enter wysyła, Shift+Enter nowa linia)" rows="2" maxlength="500"></textarea>
+                <button type="submit" class="btn btn-primary mt-2">Wyślij</button>
+            </form>
+        </div>
     </div>
 </div>
 
+<script>
+(function () {
+    const chat = document.getElementById('chat-messages');
+    const input = document.getElementById('chat-message');
+    const photoUrl = photo => '/static/images/profile_pics/' + encodeURIComponent(photo);
 
+    // zegar na obrazie
+    const clock = document.getElementById('hl-clock');
+    function tick() { clock.textContent = new Date().toLocaleTimeString('pl-PL'); }
+    tick(); setInterval(tick, 1000);
 
+    function renderMessages(messages) {
+        // przewijamy w dół tylko, gdy użytkownik już był na dole - nie przeszkadzamy w czytaniu starszych
+        const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
+        chat.innerHTML = '';
+        messages.slice().reverse().forEach(msg => {
+            const row = document.createElement('div');
+            row.className = 'chat-message';
+            const img = document.createElement('img');
+            img.src = photoUrl(msg.photo);
+            img.className = 'user-photo';
+            const body = document.createElement('div');
+            const name = document.createElement('span');
+            name.className = 'username';
+            name.textContent = msg.username;
+            const text = document.createElement('div');
+            text.className = 'message-content';
+            text.textContent = msg.content;
+            body.append(name, text);
+            const time = document.createElement('span');
+            time.className = 'chat-time';
+            time.textContent = msg.time || '';
+            row.append(img, body, time);
+            chat.appendChild(row);
+        });
+        if (atBottom) chat.scrollTop = chat.scrollHeight;
+    }
+
+    function loadMessages() {
+        fetch('/get_messages').then(r => r.json()).then(data => renderMessages(data.messages));
+    }
+
+    function send(message) {
+        if (!message.trim()) return;
+        fetch('/send_message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: message })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'success') { alert('Błąd podczas wysyłania wiadomości!'); return; }
+                chat.scrollTop = chat.scrollHeight;
+                loadMessages();
+            });
+    }
+
+    document.getElementById('chat-form').addEventListener('submit', e => {
+        e.preventDefault();
+        send(input.value);
+        input.value = '';
+    });
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            document.getElementById('chat-form').requestSubmit();
+        }
+    });
+    document.querySelectorAll('.hl-reactions button').forEach(b => b.addEventListener('click', () => send(b.dataset.emoji)));
+
+    function loadActiveUsers() {
+        fetch('/get_active_users').then(r => r.json()).then(data => {
+            const box = document.getElementById('active-users');
+            box.innerHTML = '';
+            data.users.forEach(u => {
+                const img = document.createElement('img');
+                img.src = photoUrl(u.photo);
+                img.title = u.username;
+                img.alt = u.username;
+                box.appendChild(img);
+            });
+        });
+    }
+    function sendUserActive() {
+        fetch('/user_active', { method: 'POST' }).then(loadActiveUsers);
+    }
+
+    loadMessages();
+    sendUserActive();
+    setInterval(loadMessages, 3000);
+    setInterval(sendUserActive, 5000);
+    setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 500);
+})();
+</script>
 
 {% endblock %}

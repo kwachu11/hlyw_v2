@@ -66,3 +66,14 @@ class ResetPasswordForm(FlaskForm):
     password = PasswordField('Nowe hasło', validators=[DataRequired(), Length(min=6)])
     confirm_password = PasswordField('Potwierdź nowe hasło', validators=[DataRequired(), EqualTo('password', message='Hasła nie są zgodne.')])
     submit = SubmitField('Ustaw nowe hasło')
+
+class ChangePasswordForm(FlaskForm):
+    current_password = PasswordField('Obecne hasło', validators=[DataRequired()])
+    password = PasswordField('Nowe hasło', validators=[DataRequired(), Length(min=6)])
+    confirm_password = PasswordField('Potwierdź nowe hasło', validators=[DataRequired(), EqualTo('password', message='Hasła nie są zgodne.')])
+    submit = SubmitField('Zmień hasło')
+
+class UpgradeForm(FlaskForm):
+    title = StringField('Tytuł', validators=[DataRequired(), Length(max=150)])
+    description = TextAreaField('Opis', validators=[DataRequired()])
+    submit = SubmitField('Dodaj ulepszenie')
