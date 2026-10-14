@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+<a href="{{ url_for('quiz_admin') }}" class="small">&larr; wszystkie quizy</a>
+
+<form method="POST" class="d-flex hl-gap mt-2 mb-3">
+    <input type="hidden" name="action" value="rename">
+    <input type="text" name="title" class="form-control form-control-lg" value="{{ quiz.title }}" maxlength="150" required>
+    <button type="submit" class="btn btn-outline-secondary w-auto text-nowrap">Zmień nazwę</button>
+</form>
+
+{% if quiz.state == 'trwa' %}
+<div class="alert alert-warning">Ten quiz właśnie trwa — zmiany od razu widzą gracze.</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-lg-7 mb-4">
+        <h4>Pytania ({{ quiz.items|length }})</h4>
+        {% for it in quiz.items %}
+        <div class="hl-quiz-item {{ 'editing' if edit_item and edit_item.id == it.id }}">
+            <div class="d-flex justify-content-between hl-gap">
+                <div>
+                    <strong>{{ loop.index }}.</strong> {{ it.text }}
+                    <div class="small text-muted">
+                        {{ 'ABCD' if it.kind == 'abcd' else 'otwarte' }} · {{ it.points }} pkt ·
+                        poprawna: <strong class="text-success">{{ it.correct_label() }}</strong>
+                    </div>
+                </div>
+                <div class="hl-quiz-item-actions">
+                    <form method="POST" class="d-inline">
+                        <input type="hidden" name="item_id" value="{{ it.id }}">
+                        <button name="action" value="up" class="btn btn-sm btn-light w-auto" title="W górę" {{ 'disabled' if loop.first }}>↑</button>
+                        <button name="action" value="down" class="btn btn-sm btn-light w-auto" title="W dół" {{ 'disabled' if loop.last }}>↓</button>
+                    </form>
+                    <a href="{{ url_for('quiz_edit', quiz_id=quiz.id, item=it.id) }}#form" class="btn btn-sm btn-light" title="Edytuj">✏️</a>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Usunąć to pytanie?')">
+                        <input type="hidden" name="item_id" value="{{ it.id }}">
+                        <button name="action" value="delete" class="btn btn-sm btn-light w-auto" title="Usuń">🗑️</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p class="text-muted">Brak pytań — dodaj pierwsze w formularzu obok.</p>
+        {% endfor %}
+
+        <div class="d-flex flex-wrap hl-gap mt-3">
+            <a href="{{ url_for('quiz_host', quiz_id=quiz.id) }}" class="btn btn-success">▶️ Przejdź do prowadzenia</a>
+            <form method="POST" action="{{ url_for('quiz_delete', quiz_id=quiz.id) }}" onsubmit="return confirm('Usunąć cały quiz razem z odpowiedziami?')">
+                <button type="submit" class="btn btn-outline-danger w-auto">Usuń quiz</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-lg-5" id="form">
+        {% set it = edit_item %}
+        {% set opts = it.options_dict if it else {} %}
+        <div class="card">
+            <div class="card-header"><strong>{{ 'Edytuj pytanie' if it else 'Nowe pytanie' }}</strong></div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="action" value="save">
+                    {% if it %}<input type="hidden" name="item_id" value="{{ it.id }}">{% endif %}
+                    <div class="form-group">
+                        <label>Treść pytania</label>
+                        <textarea name="text" class="form-control" rows="2" required>{{ it.text if it }}</textarea>
+                    </div>
+                    <div class="form-group d-flex hl-gap align-items-center">
+                        <div class="btn-group btn-group-toggle" data-toggle="buttons">
+                            <label class="btn btn-outline-primary btn-sm {{ 'active' if not it or it.kind == 'abcd' }}">
+                                <input type="radio" name="kind" value="abcd" {{ 'checked' if not it or it.kind == 'abcd' }}> ABCD
+                            </label>
+                            <label class="btn btn-outline-primary btn-sm {{ 'active' if it and it.kind == 'otwarte' }}">
+                                <input type="radio" name="kind" value="otwarte" {{ 'checked' if it and it.kind == 'otwarte' }}> Otwarte
+                            </label>
+                        </div>
+                        <label class="mb-0 ml-auto small">Punkty</label>
+                        <input type="number" name="points" min="1" max="10" class="form-control form-control-sm" style="width: 70px" value="{{ it.points if it else 1 }}">
+                    </div>
+
+                    <div class="hl-kind-abcd">
+                        <label>Odpowiedzi <small class="text-muted">(zaznacz poprawną, C i D są opcjonalne)</small></label>
+                        {% for k in 'abcd' %}
+                        <div class="input-group mb-2">
+                            <div class="input-group-prepend">
+                                <div class="input-group-text">
+                                    <input type="radio" name="correct_choice" value="{{ k }}" {{ 'checked' if it and it.kind == 'abcd' and it.correct_answer == k }} aria-label="Poprawna {{ k|upper }}">
+                                    <span class="ml-2 font-weight-bold">{{ k|upper }}</span>
+                                </div>
+                            </div>
+                            <input type="text" name="option_{{ k }}" class="form-control" maxlength="150" value="{{ opts.get(k, '') }}">
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="hl-kind-open form-group">
+                        <label>Poprawna odpowiedź</label>
+                        <input type="text" name="correct_text" class="form-control" maxlength="500" value="{{ it.correct_answer if it and it.kind == 'otwarte' }}" placeholder="np. Mirage|de_mirage">
+                        <small class="text-muted">Kilka wariantów oddziel znakiem <code>|</code>. Wielkość liter i polskie znaki nie mają znaczenia, a w trakcie quizu możesz ręcznie uznać odpowiedź.</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">{{ 'Zapisz zmiany' if it else 'Dodaj pytanie' }}</button>
+                    {% if it %}<a href="{{ url_for('quiz_edit', quiz_id=quiz.id) }}" class="btn btn-link btn-block">Anuluj</a>{% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// pokazuje pola dla wybranego typu pytania
+(function () {
+    const form = document.querySelector('#form form');
+    function update() {
+        const open = form.querySelector('input[name="kind"]:checked').value === 'otwarte';
+        form.querySelector('.hl-kind-abcd').style.display = open ? 'none' : '';
+        form.querySelector('.hl-kind-open').style.display = open ? '' : 'none';
+    }
+    form.querySelectorAll('input[name="kind"]').forEach(r => r.addEventListener('change', update));
+    update();
+})();
+</script>
+{% endblock %}

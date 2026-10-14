@@ -1,0 +1,194 @@
+{# Kalkulator czasu turnieju FIFA - liczy w przeglądarce, nic nie zapisuje.
+   Parametry: timer_players, timer_advance, timer_start ("HH:MM") #}
+<details class="hl-timer card mb-4" {{ 'open' if not tournament }}>
+    <summary class="card-header"><strong>⏱️ Ile to potrwa? — kalkulator czasu gry</strong></summary>
+    <div class="card-body">
+        <form class="hl-timer-form" onsubmit="return false">
+            <div class="form-row">
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-players">Graczy</label>
+                    <input type="number" id="t-players" class="form-control" min="4" max="32" value="{{ timer_players if timer_players >= 4 else 8 }}">
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-advance">Z grupy wychodzi</label>
+                    <select id="t-advance" class="custom-select">
+                        <option value="2" {{ 'selected' if timer_advance != 4 }}>2 → półfinały</option>
+                        <option value="4" {{ 'selected' if timer_advance == 4 }}>4 → ćwierćfinały</option>
+                    </select>
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-consoles">Konsol / telewizorów</label>
+                    <input type="number" id="t-consoles" class="form-control" min="1" max="8" value="1">
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-half">Połowa (min)</label>
+                    <input type="number" id="t-half" class="form-control" min="1" max="20" value="5">
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-overhead" title="wybór drużyn, ładowanie, przerwa w połowie, zmiany">Narzut na mecz (min)</label>
+                    <input type="number" id="t-overhead" class="form-control" min="0" max="15" value="3">
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-extra" title="średni zapas w meczach pucharowych">Zapas na dogrywkę/karne (min)</label>
+                    <input type="number" id="t-extra" class="form-control" min="0" max="20" value="3">
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-start">Start</label>
+                    <input type="time" id="t-start" class="form-control" value="{{ timer_start }}">
+                </div>
+                <div class="form-group col-6 col-md-3">
+                    <label for="t-deadline">Musimy skończyć do <small class="text-muted">(opcj.)</small></label>
+                    <input type="time" id="t-deadline" class="form-control">
+                </div>
+            </div>
+            <div class="custom-control custom-checkbox mb-3">
+                <input type="checkbox" class="custom-control-input" id="t-final-alone" checked>
+                <label class="custom-control-label" for="t-final-alone">Finał gramy osobno (wszyscy oglądają), nie równolegle z meczem o 3. miejsce</label>
+            </div>
+        </form>
+
+        <div id="t-result"></div>
+    </div>
+</details>
+
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    const num = (id, min, max) => Math.min(max, Math.max(min, parseInt($(id).value, 10) || min));
+
+    // terminarz "każdy z każdym" metodą koła: k graczy -> lista kolejek z parami
+    function roundRobin(players) {
+        const list = players.slice();
+        if (list.length % 2) list.push(null);
+        const rounds = [];
+        for (let r = 0; r < list.length - 1; r++) {
+            const pairs = [];
+            for (let i = 0; i < list.length / 2; i++) {
+                const a = list[i], b = list[list.length - 1 - i];
+                if (a !== null && b !== null) pairs.push([a, b]);
+            }
+            rounds.push(pairs);
+            list.splice(1, 0, list.pop());
+        }
+        return rounds;
+    }
+
+    // ile "tur" przy C konsolach - w jednej turze gracz gra najwyżej jeden mecz
+    function countSlots(matches, consoles) {
+        let left = matches.slice(), slots = 0;
+        while (left.length) {
+            const busy = new Set(), next = [];
+            let used = 0;
+            for (const m of left) {
+                if (used < consoles && !busy.has(m[0]) && !busy.has(m[1])) {
+                    busy.add(m[0]); busy.add(m[1]); used++;
+                } else next.push(m);
+            }
+            left = next; slots++;
+        }
+        return slots;
+    }
+
+    function plan(p) {
+        const sizeA = Math.floor(p.players / 2), sizeB = p.players - sizeA;
+        const ids = [...Array(p.players).keys()];
+        const roundsA = roundRobin(ids.slice(0, sizeA)), roundsB = roundRobin(ids.slice(sizeA));
+        const groupMatches = [];
+        for (let r = 0; r < Math.max(roundsA.length, roundsB.length); r++) {
+            groupMatches.push(...(roundsA[r] || []), ...(roundsB[r] || []));
+        }
+        const groupMin = 2 * p.half + p.overhead, koMin = groupMin + p.extra;
+        const stages = [{name: 'Faza grupowa', matches: groupMatches.length,
+                         slots: countSlots(groupMatches, p.consoles), perMatch: groupMin}];
+        const ko = p.advance === 4 ? [['Ćwierćfinały', 4], ['Półfinały', 2]] : [['Półfinały', 2]];
+        ko.forEach(([name, n]) => stages.push({name, matches: n, slots: Math.ceil(n / p.consoles), perMatch: koMin}));
+        if (p.finalAlone || p.consoles < 2) {
+            stages.push({name: 'Mecz o 3. miejsce', matches: 1, slots: 1, perMatch: koMin});
+            stages.push({name: 'Finał', matches: 1, slots: 1, perMatch: koMin});
+        } else {
+            stages.push({name: 'Finał + mecz o 3. miejsce', matches: 2, slots: 1, perMatch: koMin});
+        }
+        stages.forEach(s => s.minutes = s.slots * s.perMatch);
+        return {stages, sizeA, sizeB, total: stages.reduce((t, s) => t + s.minutes, 0),
+                matches: stages.reduce((t, s) => t + s.matches, 0)};
+    }
+
+    const fmtDur = m => (m >= 60 ? Math.floor(m / 60) + ' h ' : '') + (m % 60) + ' min';
+    function addMinutes(hhmm, m) {
+        if (!hhmm) return null;
+        const [h, mi] = hhmm.split(':').map(Number);
+        const t = h * 60 + mi + m;
+        return String(Math.floor(t / 60) % 24).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0')
+            + (t >= 24 * 60 ? ' (następnego dnia)' : '');
+    }
+    function minutesBetween(start, end) {
+        const [h1, m1] = start.split(':').map(Number), [h2, m2] = end.split(':').map(Number);
+        let d = h2 * 60 + m2 - (h1 * 60 + m1);
+        return d <= 0 ? d + 24 * 60 : d;   // np. start 20:00, koniec 01:00
+    }
+
+    function render() {
+        const p = {
+            players: num('t-players', 4, 32), advance: parseInt($('t-advance').value, 10),
+            consoles: num('t-consoles', 1, 8), half: num('t-half', 1, 20),
+            overhead: num('t-overhead', 0, 15), extra: num('t-extra', 0, 20), finalAlone: $('t-final-alone').checked,
+        };
+        const out = $('t-result');
+        if (p.advance === 4 && p.players < 8) {
+            out.innerHTML = '<div class="alert alert-warning mb-0">Przy 4 wychodzących z grupy potrzeba minimum 8 graczy.</div>';
+            return;
+        }
+        const r = plan(p);
+        const start = $('t-start').value, end = addMinutes(start, r.total);
+        let html = `
+            <div class="hl-timer-summary">
+                <div><span class="hl-timer-big">${fmtDur(r.total)}</span><br><small class="text-muted">cały turniej, ${r.matches} meczów</small></div>
+                ${end ? `<div><span class="hl-timer-big">${end}</span><br><small class="text-muted">koniec przy starcie o ${start}</small></div>` : ''}
+                <div><span class="hl-timer-big">${2 * p.half + p.overhead} min</span><br><small class="text-muted">jeden mecz (${p.half}+${p.half} min + ${p.overhead})</small></div>
+            </div>
+            <p class="small text-muted mb-2">Grupy: ${r.sizeA} i ${r.sizeB} graczy — każdy gra ${r.sizeA - 1}${r.sizeA !== r.sizeB ? '–' + (r.sizeB - 1) : ''} mecze w grupie.
+                ${p.consoles > 1 ? `Przy ${p.consoles} konsolach mecze idą równolegle, ale nikt nie gra dwóch naraz.` : ''}</p>
+            <div class="table-responsive"><table class="table table-sm mb-0">
+                <thead class="thead-light"><tr><th>Faza</th><th>Mecze</th><th>Tury</th><th>Czas</th><th>Od – do</th></tr></thead><tbody>`;
+        let t = 0;
+        r.stages.forEach(s => {
+            html += `<tr><td>${s.name}</td><td>${s.matches}</td><td>${s.slots}</td><td>${fmtDur(s.minutes)}</td>
+                     <td class="text-nowrap">${start ? addMinutes(start, t).slice(0, 5) + ' – ' + addMinutes(start, t + s.minutes).slice(0, 5) : '–'}</td></tr>`;
+            t += s.minutes;
+        });
+        html += '</tbody></table></div>';
+
+        const deadline = $('t-deadline').value;
+        if (start && deadline) {
+            const available = minutesBetween(start, deadline);
+            const MIN_HALF = 4;   // najkrótsza połowa, jaką da się ustawić w FIFA
+            // najdłuższa połowa, przy której zdążycie (albo null)
+            const bestHalf = opts => {
+                for (let half = 20; half >= MIN_HALF; half--) {
+                    if (plan({...p, ...opts, half}).total <= available) return half;
+                }
+                return null;
+            };
+            const best = bestHalf({});
+            let tip = '';
+            if (best === null || best < p.half) {
+                for (let c = p.consoles + 1; c <= 4; c++) {
+                    const h = bestHalf({consoles: c});
+                    if (h !== null) { tip = ` Z <strong>${c} konsolami</strong> zdążycie grając po <strong>${Math.min(h, p.half)} min</strong>.`; break; }
+                }
+            }
+            html += best !== null
+                ? `<div class="alert ${best >= p.half ? 'alert-success' : 'alert-warning'} mt-3 mb-0">
+                       Żeby skończyć do <strong>${deadline}</strong> (${fmtDur(available)}), połowy mogą trwać maksymalnie <strong>${best} min</strong>
+                       — turniej zajmie ${fmtDur(plan({...p, half: best}).total)}.
+                       ${best < p.half ? `Przy ${p.half} min nie zdążycie.` : ''}${tip}</div>`
+                : `<div class="alert alert-danger mt-3 mb-0">Do ${deadline} (${fmtDur(available)}) nie zdążycie nawet przy ${MIN_HALF}-minutowych połowach.${tip ||
+                       ' Zacznijcie wcześniej albo niech z grupy wychodzi 2 zamiast 4.'}</div>`;
+        }
+        out.innerHTML = html;
+    }
+
+    document.querySelectorAll('.hl-timer-form input, .hl-timer-form select').forEach(el => el.addEventListener('input', render));
+    render();
+})();
+</script>

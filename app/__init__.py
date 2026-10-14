@@ -9,13 +9,14 @@ from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, true
 import re
+import unicodedata
 import uuid
 from sqlalchemy.exc import OperationalError
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort
 from flask_login import login_user, logout_user, login_required, current_user, LoginManager, UserMixin
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
@@ -80,6 +81,13 @@ ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
 NEWS_REACTIONS = ['👍', '😂', '🔥', '😮', '💀']
 # Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
 UPGRADE_NEW_DAYS = 14
+# Statusy zgłoszeń: wartość w bazie -> (etykieta, klasa plakietki Bootstrapa). Zmienia je admin.
+REPORT_STATUSES = {
+    'nowe': ('Nowe', 'badge-primary'),
+    'w_trakcie': ('W trakcie', 'badge-warning'),
+    'zrobione': ('Zrobione', 'badge-success'),
+    'odrzucone': ('Odrzucone', 'badge-secondary'),
+}
 
 
 def to_local(dt):
@@ -162,7 +170,10 @@ def create_app():
             db.extract('month', Calendar.date) == month
         ).all()
 
-        event_days = [event.date.day for event in events]
+        # dzień -> lista tytułów, żeby kalendarz pokazywał, co się dzieje, a nie tylko zielone pole
+        event_days = {}
+        for event in sorted(events, key=lambda e: e.date):
+            event_days.setdefault(event.date.day, []).append(event.title)
         return event_days
 
     def generate_confirmation_token(email):
@@ -210,75 +221,83 @@ def create_app():
                     )
                     db.session.add(match)
 
-    def generate_knockout_stage(tournament):
-        groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).all()
-        if len(groups) < 2:
-            return
+    KNOCKOUT_ROUNDS = ['1/4 finału', '1/2 finału', 'o 3. miejsce', 'finał']
 
-        ranking = {g.id: calculate_group_ranking(g) for g in groups}
+    def match_winner_loser(match):
+        """(zwycięzca, przegrany) meczu pucharowego albo (None, None), jeśli jeszcze nie rozegrany."""
+        if match is None or match.home_score is None or match.away_score is None or match.home_score == match.away_score:
+            return None, None
+        if match.home_score > match.away_score:
+            return match.home_player_id, match.away_player_id
+        return match.away_player_id, match.home_player_id
 
-        # top 2 z każdej grupy
-        a1, a2 = ranking[groups[0].id][:2]
-        b1, b2 = ranking[groups[1].id][:2]
+    def has_score(match):
+        return match.home_score is not None or match.away_score is not None
 
-        # półfinały: A1 vs B2, B1 vs A2
-        semi1 = TournamentMatch(
-            tournament_id=tournament.id,
-            round="1/2 finału",
-            home_player_id=a1[0].id,  # User
-            away_player_id=b2[0].id
-        )
-        semi2 = TournamentMatch(
-            tournament_id=tournament.id,
-            round="1/2 finału",
-            home_player_id=b1[0].id,
-            away_player_id=a2[0].id
-        )
-        db.session.add_all([semi1, semi2])
-        db.session.commit()
+    def set_round(tournament, round_name, pairs):
+        """Ustawia mecze rundy na podane pary [(gospodarz, gość)]; pairs=None = runda jeszcze niegotowa.
+        Mecze z wynikiem zostawia - zwraca False, jeśli przez to drabinka nie zgadza się z tabelą."""
+        matches = TournamentMatch.query.filter_by(tournament_id=tournament.id, round=round_name) \
+            .order_by(TournamentMatch.id).all()
+        pairs = pairs or []
+        ok = True
+        for i, match in enumerate(matches):
+            if i >= len(pairs):          # ta runda nie powinna (jeszcze) istnieć albo ma za dużo meczów
+                if has_score(match):
+                    ok = False
+                else:
+                    db.session.delete(match)
+            elif (match.home_player_id, match.away_player_id) != pairs[i]:
+                if has_score(match):
+                    ok = False           # już rozegrany - nie ruszamy, admin musi poprawić ręcznie
+                else:
+                    match.home_player_id, match.away_player_id = pairs[i]
+        for home_id, away_id in pairs[len(matches):]:
+            db.session.add(TournamentMatch(tournament_id=tournament.id, round=round_name,
+                                           home_player_id=home_id, away_player_id=away_id))
+        db.session.flush()
+        return ok
 
+    def round_results(tournament, round_name):
+        matches = TournamentMatch.query.filter_by(tournament_id=tournament.id, round=round_name) \
+            .order_by(TournamentMatch.id).all()
+        return [match_winner_loser(m) for m in matches]
 
-    def generate_final(tournament):
-        semis = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="1/2 finału").all()
-        if len(semis) < 2:
-            return
+    def sync_knockout(tournament):
+        """Uzupełnia drabinkę po każdym wpisanym wyniku. Z każdej z 2 grup wychodzi tournament.advance graczy:
+        2 -> półfinały A1-B2, B1-A2; 4 -> ćwierćfinały A1-B4, B2-A3, B1-A4, A2-B3 (zwycięzcy grup w różnych
+        połówkach). Potem finał i mecz o 3. miejsce. Zwraca komunikat dla admina albo None."""
+        advance = 4 if tournament.advance == 4 else 2
+        groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).order_by(TournamentGroup.name).all()
+        group_matches = TournamentMatch.query.filter_by(tournament_id=tournament.id, round='grupa').all()
+        tables = [calculate_group_table(g) for g in groups]
+        groups_done = len(groups) == 2 and group_matches and all(len(t) >= advance for t in tables) \
+            and not any(m.home_score is None or m.away_score is None for m in group_matches)
 
-        winners = []
-        for match in semis:
-            if match.home_score is None or match.away_score is None:
-                return  # jeszcze nie gotowe
-            if match.home_score > match.away_score:
-                winners.append(match.home_player)
+        plan = dict.fromkeys(KNOCKOUT_ROUNDS)   # runda -> pary albo None (niegotowa)
+        if groups_done:
+            a, b = [[row['player'].id for row in t[:advance]] for t in tables]
+            if advance == 4:
+                plan['1/4 finału'] = [(a[0], b[3]), (b[1], a[2]), (b[0], a[3]), (a[1], b[2])]
             else:
-                winners.append(match.away_player)
+                plan['1/2 finału'] = [(a[0], b[1]), (b[0], a[1])]
 
-        final = TournamentMatch(
-            tournament_id=tournament.id,
-            round="finał",
-            home_player_id=winners[0].id,
-            away_player_id=winners[1].id
-        )
-        db.session.add(final)
-        db.session.commit()
+        ok = set_round(tournament, '1/4 finału', plan['1/4 finału'])
+        if advance == 4 and plan['1/4 finału']:
+            winners = [w for w, _ in round_results(tournament, '1/4 finału')]
+            if len(winners) == 4 and all(winners):
+                plan['1/2 finału'] = [(winners[0], winners[1]), (winners[2], winners[3])]
+        ok &= set_round(tournament, '1/2 finału', plan['1/2 finału'])
 
-    def calculate_group_ranking(group):
-        ranking = {}
-        for match in group.matches:
-            if match.home_score is None or match.away_score is None:
-                continue
-            for pid in [match.home_player_id, match.away_player_id]:
-                ranking.setdefault(pid, 0)
-
-            if match.home_score > match.away_score:
-                ranking[match.home_player_id] += 3
-            elif match.home_score < match.away_score:
-                ranking[match.away_player_id] += 3
-            else:
-                ranking[match.home_player_id] += 1
-                ranking[match.away_player_id] += 1
-
-        sorted_ranking = sorted(ranking.items(), key=lambda x: x[1], reverse=True)
-        return [(User.query.get(uid), pts) for uid, pts in sorted_ranking]
+        if plan['1/2 finału']:
+            results = round_results(tournament, '1/2 finału')
+            if len(results) == 2 and all(w for w, _ in results):
+                plan['finał'] = [(results[0][0], results[1][0])]
+                plan['o 3. miejsce'] = [(results[0][1], results[1][1])]
+        ok &= set_round(tournament, 'finał', plan['finał'])
+        ok &= set_round(tournament, 'o 3. miejsce', plan['o 3. miejsce'])
+        return None if ok else 'Drabinka nie zgadza się z wynikami, bo któryś mecz pucharowy ma już wynik - ' \
+                               'popraw go albo zresetuj fazę pucharową.'
 
     def calculate_group_table(group):
         players = set()
@@ -428,6 +447,7 @@ def create_app():
         title = db.Column(db.String(150), nullable=False)
         description = db.Column(db.Text, nullable=False)
         created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+        status = db.Column(db.String(20), nullable=False, default='nowe', server_default='nowe')
 
         # Powiązanie z użytkownikiem - klucz obcy
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -479,46 +499,53 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
-    class Statki(db.Model):
-        id = db.Column(db.Integer, primary_key=True)
-        points = db.Column(db.Integer)
-        created_at = db.Column(db.DateTime, default=datetime.utcnow)
-        created_by = db.Column(db.String(500))
-
     class Formula(db.Model):
         id = db.Column(db.Integer, primary_key=True)
         points = db.Column(db.Integer)
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
-    class QuizParticipant(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
+    # Quiz na żywo: admin układa pytania i prowadzi quiz pytanie po pytaniu, gracze odpowiadają z telefonów.
+    # (Stare tabele quiz_question / quiz_answer / quiz_participant zostają w bazie, ale nie są już używane.)
+    class Quiz(db.Model):
         id = db.Column(db.Integer, primary_key=True)
-        username = db.Column(db.String(500), nullable=False)  # Dodano ograniczenie NOT NULL
-        score = db.Column(db.Integer, default=0)  # Wynik domyślnie 0
+        title = db.Column(db.String(150), nullable=False)
+        state = db.Column(db.String(20), nullable=False, default='szkic')  # szkic / trwa / koniec
+        current_item_id = db.Column(db.Integer, nullable=True)   # pytanie wyświetlane teraz graczom
+        revealed = db.Column(db.Boolean, nullable=False, default=False)  # czy pokazano poprawną odpowiedź
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        items = db.relationship('QuizItem', backref='quiz', order_by='QuizItem.position, QuizItem.id',
+                                cascade='all, delete-orphan')
 
-        # Powiązanie z odpowiedziami (relacja odwrotna)
-        answers = db.relationship('QuizAnswer', backref='participant', lazy=True)
-
-    class QuizQuestion(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
+    class QuizItem(db.Model):
         id = db.Column(db.Integer, primary_key=True)
-        question_text = db.Column(db.Text, nullable=False)  # Użyto Text zamiast String dla dłuższych pytań
-        is_active = db.Column(db.Boolean, default=False)
-        type = db.Column(db.Integer, nullable=False, default="0")
-        correct_answer=db.Column(db.String(500), nullable=False)
-        options=db.Column(db.String(500), nullable=True)
+        quiz_id = db.Column(db.Integer, db.ForeignKey('quiz.id'), nullable=False, index=True)
+        position = db.Column(db.Integer, nullable=False, default=0)
+        text = db.Column(db.Text, nullable=False)
+        kind = db.Column(db.String(10), nullable=False, default='abcd')  # abcd / otwarte
+        options = db.Column(db.Text, nullable=True)        # JSON: {"a": "...", "b": "..."} dla abcd
+        correct_answer = db.Column(db.String(500), nullable=False)  # litera albo tekst; kilka wariantów po |
+        points = db.Column(db.Integer, nullable=False, default=1)
+        responses = db.relationship('QuizResponse', backref='item', cascade='all, delete-orphan')
 
-        # Powiązanie z odpowiedziami (relacja odwrotna)
-        answers = db.relationship('QuizAnswer', backref='question', lazy=True)
+        @property
+        def options_dict(self):
+            return json.loads(self.options) if self.options else {}
 
-    class QuizAnswer(db.Model):  # Poprawiona nazwa na liczbie pojedynczej
+        def correct_label(self):
+            if self.kind == 'abcd':
+                return f"{self.correct_answer.upper()}) {self.options_dict.get(self.correct_answer, '')}"
+            return self.correct_answer.replace('|', ' / ')
+
+    class QuizResponse(db.Model):
         id = db.Column(db.Integer, primary_key=True)
-        answer = db.Column(db.Text, nullable=False)  # Użyto Text zamiast String dla dłuższych odpowiedzi
-
-        # Powiązanie z uczestnikiem
-        participant_id = db.Column(db.Integer, db.ForeignKey('quiz_participant.id'), nullable=False)
-
-        # Powiązanie z pytaniem
-        question_id = db.Column(db.Integer, db.ForeignKey('quiz_question.id'), nullable=False)
+        item_id = db.Column(db.Integer, db.ForeignKey('quiz_item.id'), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        answer = db.Column(db.String(500), nullable=False)
+        is_correct = db.Column(db.Boolean, nullable=False, default=False)  # liczone automatycznie, admin może zmienić
+        answered_at = db.Column(db.DateTime, default=datetime.utcnow)
+        user = db.relationship('User')
+        __table_args__ = (db.UniqueConstraint('item_id', 'user_id'),)
 
     class FifaParticipant(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -532,6 +559,7 @@ def create_app():
         event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'))
         started = db.Column(db.Boolean, default=False)
         finished = db.Column(db.Boolean, default=False)
+        advance = db.Column(db.Integer, nullable=False, default=2, server_default='2')  # ilu wychodzi z grupy: 2 albo 4
 
         groups = db.relationship('TournamentGroup', backref='tournament')
         matches = db.relationship('TournamentMatch', backref='tournament')
@@ -569,12 +597,33 @@ def create_app():
                 if 'already exists' not in str(e) or attempt == 2:
                     raise
 
+        # create_all nie dodaje kolumn do istniejących tabel - brakujące dokładamy ręcznie.
+        # "duplicate column" = inny worker zdążył pierwszy, wtedy nic nie robimy.
+        for table, column, ddl in ([
+            ('report', 'status', "VARCHAR(20) NOT NULL DEFAULT 'nowe'"),
+            ('tournament', 'advance', "INTEGER NOT NULL DEFAULT 2"),
+        ] if db.engine.dialect.name == 'sqlite' else []):
+            existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
+            if column not in existing:
+                try:
+                    db.session.execute(db.text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+                    db.session.commit()
+                except OperationalError as e:
+                    db.session.rollback()
+                    if 'duplicate column' not in str(e):
+                        raise
+
 
     @app.template_filter('media_url')
     def media_url(path):
         """Ścieżka z bazy (np. static\\images\\3\\x.jpg z Windowsa) jako adres od katalogu głównego,
         żeby działała też na podstronach typu /albums/3."""
         return '/' + (path or '').replace('\\', '/').lstrip('/')
+
+    @app.template_filter('avatar_url')
+    def avatar_url(photo):
+        """Adres zdjęcia profilowego; bez zdjęcia - domyślny awatar."""
+        return url_for('static', filename='images/profile_pics/' + (photo or 'default.jpg'))
 
     @app.template_filter('plural')
     def plural(n, one, few, many):
@@ -599,7 +648,9 @@ def create_app():
     def inject_upgrade_badge():
         """Plakietka NOWE przy 'Ostatnie Ulepszenia' w menu, gdy jest świeży wpis."""
         latest = db.session.query(func.max(Upgrade.date)).scalar()
-        return {'has_new_upgrade': bool(latest and latest >= datetime.utcnow() - timedelta(days=UPGRADE_NEW_DAYS))}
+        return {'has_new_upgrade': bool(latest and latest >= datetime.utcnow() - timedelta(days=UPGRADE_NEW_DAYS)),
+                'current_year': datetime.now().year,
+                'report_statuses': REPORT_STATUSES}
 
     @app.template_filter('is_video')
     def is_video(path):
@@ -671,6 +722,11 @@ def create_app():
                 flash('Niepoprawna nazwa użytkownika lub hasło', 'danger')
             else:
                 login_user(user)
+                next_page = request.args.get('next') or request.form.get('next')
+                # Tylko ścieżki lokalne (np. /calendar), żeby nie dało się przekierować na obcą domenę
+                if next_page and next_page.startswith('/') and not next_page.startswith('//') \
+                        and '\\' not in next_page:
+                    return redirect(next_page)
                 return redirect(url_for('index'))
         return render_template('login.html', form=form)
 
@@ -912,28 +968,34 @@ def create_app():
             # Turniej
             tournament = Tournament.query.filter_by(event_id=event.id).first()
             groups = []
-            semifinals = []
-            final = None
-            winner = None
+            knockout = []   # [(nazwa rundy, [mecze])] w kolejności rozgrywania
+            knockout_warning = None
+            podium = []
 
             if tournament:
-                groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).all()
+                if not tournament.finished:
+                    # np. wyniki grup wpisane przed tą wersją strony - drabinka ułoży się przy wejściu
+                    knockout_warning = sync_knockout(tournament)
+                    db.session.commit()
+                groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).order_by(TournamentGroup.name).all()
                 for group in groups:
-                    group.matches = TournamentMatch.query.filter_by(group_id=group.id, round="grupa").all()
+                    # osobny atrybut - przypisanie do relacji group.matches mogłoby zmienić dane w bazie
+                    group.match_list = sorted(group.matches, key=lambda m: m.id)
                     group.table = calculate_group_table(group)
 
-                semifinals = TournamentMatch.query.filter_by(
-                    tournament_id=tournament.id, round="1/2 finału"
-                ).all()
-                final = TournamentMatch.query.filter_by(
-                    tournament_id=tournament.id, round="finał"
-                ).first()
+                for round_name in KNOCKOUT_ROUNDS:
+                    matches = TournamentMatch.query.filter_by(tournament_id=tournament.id, round=round_name) \
+                        .order_by(TournamentMatch.id).all()
+                    if matches:
+                        knockout.append((round_name, matches))
 
-                if final and final.home_score is not None and final.away_score is not None:
-                    if final.home_score > final.away_score:
-                        winner = final.home_player
-                    elif final.away_score > final.home_score:
-                        winner = final.away_player
+                final = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="finał").first()
+                third = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="o 3. miejsce").first()
+                first_id, second_id = match_winner_loser(final)
+                third_id = match_winner_loser(third)[0]
+                # (miejsce, gracz) - numer miejsca stały, żeby np. sam mecz o 3. miejsce nie dawał złota
+                podium = [(place, User.query.get(uid))
+                          for place, uid in enumerate((first_id, second_id, third_id), 1) if uid]
 
         else:
             add_user = request.args.get('add_user', type=int)
@@ -960,10 +1022,11 @@ def create_app():
             fifa_mode=fifa_mode,
             czy_zapisany=czy_zapisany,
             current_user=current_user,
+            tournament=tournament if fifa_mode else None,
             groups=groups if fifa_mode else [],
-            semifinals=semifinals if fifa_mode else [],
-            final=final if fifa_mode else None,
-            winner=winner if fifa_mode else None
+            knockout=knockout if fifa_mode else [],
+            podium=podium if fifa_mode else [],
+            knockout_warning=knockout_warning if fifa_mode else None,
         )
 
     @app.route('/camera')
@@ -1141,7 +1204,24 @@ def create_app():
     @login_required
     def view_report_list():
         reports = Report.query.order_by(Report.created_at.desc()).all()
-        return render_template('view_report_list.html', reports=reports)
+        comment_counts = dict(db.session.query(Comment.report_id, func.count(Comment.id))
+                              .group_by(Comment.report_id).all())
+        return render_template('view_report_list.html', reports=reports, comment_counts=comment_counts)
+
+    @app.route('/report/<int:report_id>/status', methods=['POST'])
+    @login_required
+    def set_report_status(report_id):
+        report = Report.query.get_or_404(report_id)
+        status = request.form.get('status')
+        if current_user.is_admin == "0":
+            flash('Tylko admin może zmieniać status zgłoszenia.', 'danger')
+        elif status not in REPORT_STATUSES:
+            flash('Nieznany status.', 'danger')
+        else:
+            report.status = status
+            db.session.commit()
+            flash(f'Status zmieniony na: {REPORT_STATUSES[status][0]}.', 'success')
+        return redirect(url_for('view_report', report_id=report.id))
 
     @app.route('/add_comment/<int:report_id>', methods=['POST'])
     @login_required
@@ -1385,88 +1465,273 @@ def create_app():
         best = db.session.query(func.max(Dino.points)).filter(Dino.created_by == str(current_user.id), Dino.created_at >= CURRENT_EDITION_START).scalar() or 0
         return render_template('dino.html', best=best)
 
-    @app.route('/quiz', methods=['GET', 'POST'])
+    # ===================== Quiz na żywo =====================
+
+    def normalize_answer(text):
+        """Do porównywania odpowiedzi otwartych: bez wielkości liter, polskich znaków i zbędnych spacji."""
+        text = (text or '').strip().lower().replace('ł', 'l')
+        text = ''.join(c for c in unicodedata.normalize('NFKD', text) if not unicodedata.combining(c))
+        text = re.sub(r'[^\w\s,.-]', '', text)
+        return re.sub(r'\s+', ' ', text).strip(' .')
+
+    def check_quiz_answer(item, answer):
+        if item.kind == 'abcd':
+            return answer == item.correct_answer
+        accepted = [normalize_answer(a) for a in item.correct_answer.split('|')]
+        return normalize_answer(answer) in accepted
+
+    def quiz_ranking(quiz):
+        """[(user, punkty, poprawne)] od najlepszego; przy remisie wyżej ten, kto skończył odpowiadać wcześniej."""
+        rows = db.session.query(QuizResponse.user_id,
+                                func.sum(db.case((QuizResponse.is_correct == True, QuizItem.points), else_=0)),
+                                func.sum(db.case((QuizResponse.is_correct == True, 1), else_=0)),
+                                func.max(QuizResponse.answered_at)) \
+            .join(QuizItem, QuizItem.id == QuizResponse.item_id) \
+            .filter(QuizItem.quiz_id == quiz.id) \
+            .group_by(QuizResponse.user_id).all()
+        rows.sort(key=lambda r: (-(r[1] or 0), r[3]))
+        users = {u.id: u for u in User.query.filter(User.id.in_([r[0] for r in rows])).all()} if rows else {}
+        return [(users[r[0]], r[1] or 0, r[2] or 0) for r in rows if r[0] in users]
+
+    def live_quiz():
+        """Quiz, który właśnie trwa - ten widzą gracze na /quiz."""
+        return Quiz.query.filter_by(state='trwa').order_by(Quiz.id.desc()).first()
+
+    def quiz_admin_required():
+        if current_user.is_admin == "0":
+            flash('Quiz prowadzi tylko admin.', 'danger')
+            return redirect(url_for('quiz'))
+        return None
+
+    @app.context_processor
+    def inject_live_quiz():
+        """Pozycja „Quiz LIVE” w menu, gdy quiz trwa."""
+        return {'quiz_live': live_quiz() is not None}
+
+    @app.route('/quiz')
     @login_required
     def quiz():
-        options = []
-        pobrane = ""
-        pytanie = QuizQuestion.query.filter_by(is_active="1").first()
-        if pytanie == None:
-            return render_template('quiz.html', pytanie="Czekaj na pytanie...", options=options, odpowiedz="")
+        return render_template('quiz.html')
 
-        odpowiedz = QuizAnswer.query.filter_by(question_id=pytanie.id, participant_id=current_user.id).first()
-
-        return render_template('quiz.html', pytanie=pytanie, options=options, odpowiedz=odpowiedz.answer if odpowiedz else "")
-
-    @app.route('/dodaj_pytania', methods=['GET', 'POST'])
+    @app.route('/quiz/state')
     @login_required
-    def dodaj_pytania():
-        if current_user.is_admin == "0":
-            flash("Brak uprawnień do dodawania pytań", "danger")
-            return redirect(url_for('quiz'))
+    def quiz_state():
+        """Stan quizu dla gracza - strona /quiz odpytuje to co 2 sekundy."""
+        quiz = live_quiz()
+        if not quiz:
+            last = Quiz.query.filter_by(state='koniec').order_by(Quiz.id.desc()).first()
+            if last:
+                return jsonify({'state': 'koniec', 'title': last.title,
+                                'ranking': [{'username': u.username, 'points': p, 'correct': c, 'me': u.id == current_user.id}
+                                            for u, p, c in quiz_ranking(last)[:20]]})
+            return jsonify({'state': 'brak'})
 
-        db.session.query(QuizQuestion).delete()
-        db.session.commit()
+        data = {'state': 'trwa', 'title': quiz.title, 'total': len(quiz.items)}
+        item = QuizItem.query.get(quiz.current_item_id) if quiz.current_item_id else None
+        if not item:
+            data['item'] = None
+            return jsonify(data)
 
+        mine = QuizResponse.query.filter_by(item_id=item.id, user_id=current_user.id).first()
+        data.update({
+            'item': {'id': item.id, 'number': quiz.items.index(item) + 1, 'text': item.text, 'kind': item.kind,
+                     'options': item.options_dict, 'points': item.points},
+            'revealed': quiz.revealed,
+            'my_answer': mine.answer if mine else None,
+            'answered': QuizResponse.query.filter_by(item_id=item.id).count(),
+        })
+        if quiz.revealed:
+            data['correct'] = item.correct_label()
+            data['my_correct'] = bool(mine and mine.is_correct)
+            data['my_points'] = next((p for u, p, c in quiz_ranking(quiz) if u.id == current_user.id), 0)
+        return jsonify(data)
 
-        question1 = QuizQuestion(id=1, question_text="W którym roku powstał Hlyw?", correct_answer="2021")
-        question2 = QuizQuestion(id=2, type="1", question_text="Podaj liczbę powierzchni użytkowej Hlywa w m²",
-                                 correct_answer="b",
-                                 options=json.dumps({"a": "15,91 m²", "b": "16,88 m²", "c": "14,92 m²", "d": "17,08 m²"}))
-        question3 = QuizQuestion(id=3, type="1", question_text="Jaką pierwszą rzecz Prezes Hlywu wydrukował na drukarce 3D?",
-                                 correct_answer="c",
-                                 options=json.dumps({"a": "Papież", "b": "Napis HLYW", "c": "Sześcian", "d": "BMW"}))
-        question4 = QuizQuestion(id=4, type="1", question_text="Ile Czucz miał lat?",
-                                 correct_answer="a",
-                                 options=json.dumps({"a": "16", "b": "17", "c": "18", "d": "19"}))
-        question5 = QuizQuestion(id=5, question_text="Ile najwięcej osób było jednocześnie w Hlywie?", correct_answer="23")
-
-
-        db.session.add_all([question1, question2, question3, question4, question5])
-        db.session.commit()
-
-        return "Pytania zostały dodane"
-
-    @app.route('/current_question/', defaults={'answer': None}, methods=['GET', 'POST'])
-    @app.route('/current_question/<string:answer>', methods=['GET', 'POST'])
-    def current_question(answer):
-        question = QuizQuestion.query.filter_by(is_active=True).first()
-        odpowiedz=QuizAnswer.query.filter_by(question_id=question.id, participant_id=current_user.id).first()
-        if odpowiedz:
-            odpowiedz.answer=answer
-        else:
-            odpowiedz=QuizAnswer(answer=answer, question_id=question.id, participant_id=current_user.id)
-
-        if odpowiedz:
-            db.session.add(odpowiedz)
-            db.session.commit()
-
-
-        if question:
-            return jsonify({
-                'question_id': question.id,
-                'question_text': question.question_text,
-                'odpowiedz':answer
-            })
-        return jsonify({'question_id': None, 'question_text': "Czekaj na pytanie..."})
-
-    @app.route('/set_active_question/<int:question_id>', methods=['POST'])
+    @app.route('/quiz/answer', methods=['POST'])
     @login_required
-    def set_active_question(question_id):
-        if current_user.is_admin == "0":
-            return jsonify({'status': 'error', 'message': 'Brak uprawnień do sterowania quizem'}), 403
+    def quiz_answer():
+        data = request.get_json(silent=True) or {}
+        quiz = live_quiz()
+        item = QuizItem.query.get(quiz.current_item_id) if quiz and quiz.current_item_id else None
+        if not item or item.id != data.get('item_id'):
+            return jsonify({'ok': False, 'message': 'To pytanie jest już nieaktualne.'}), 409
+        if quiz.revealed:
+            return jsonify({'ok': False, 'message': 'Odpowiedź została już pokazana.'}), 409
 
-        # Wyłącz wszystkie pytania
-        QuizQuestion.query.update({'is_active': False})
+        answer = str(data.get('answer', '')).strip()[:500]
+        if not answer or (item.kind == 'abcd' and answer not in item.options_dict):
+            return jsonify({'ok': False, 'message': 'Wybierz odpowiedź.'}), 400
+
+        response = QuizResponse.query.filter_by(item_id=item.id, user_id=current_user.id).first() \
+            or QuizResponse(item_id=item.id, user_id=current_user.id)
+        response.answer = answer
+        response.is_correct = check_quiz_answer(item, answer)
+        response.answered_at = datetime.utcnow()
+        db.session.add(response)
         db.session.commit()
+        return jsonify({'ok': True})
 
-        # Włącz wybrane pytanie
-        question = QuizQuestion.query.get(question_id)
-        if question:
-            question.is_active = True
-            db.session.commit()
-            return jsonify({'status': 'success', 'message': f'Pytanie {question_id} ustawione jako aktywne'})
-        return jsonify({'status': 'error', 'message': 'Nie znaleziono pytania'})
+    # ----- panel admina -----
+
+    @app.route('/quiz/admin', methods=['GET', 'POST'])
+    @login_required
+    def quiz_admin():
+        denied = quiz_admin_required()
+        if denied:
+            return denied
+        if request.method == 'POST':
+            title = request.form.get('title', '').strip()
+            if title:
+                new_quiz = Quiz(title=title[:150])
+                db.session.add(new_quiz)
+                db.session.commit()
+                return redirect(url_for('quiz_edit', quiz_id=new_quiz.id))
+            flash('Podaj nazwę quizu.', 'warning')
+        return render_template('quiz_admin.html', quizzes=Quiz.query.order_by(Quiz.id.desc()).all())
+
+    @app.route('/quiz/<int:quiz_id>/edit', methods=['GET', 'POST'])
+    @login_required
+    def quiz_edit(quiz_id):
+        denied = quiz_admin_required()
+        if denied:
+            return denied
+        quiz = Quiz.query.get_or_404(quiz_id)
+        edit_item = QuizItem.query.get(request.args.get('item', type=int) or 0)
+        if edit_item and edit_item.quiz_id != quiz.id:
+            edit_item = None
+
+        if request.method == 'POST':
+            action = request.form.get('action')
+            if action == 'rename':
+                quiz.title = (request.form.get('title') or quiz.title).strip()[:150]
+                db.session.commit()
+                return redirect(url_for('quiz_edit', quiz_id=quiz.id))
+
+            item = QuizItem.query.get(request.form.get('item_id', type=int) or 0)
+            if item and item.quiz_id != quiz.id:
+                abort(404)
+
+            if action == 'delete' and item:
+                if quiz.current_item_id == item.id:
+                    quiz.current_item_id = None
+                db.session.delete(item)
+                db.session.commit()
+                flash('Pytanie usunięte.', 'success')
+                return redirect(url_for('quiz_edit', quiz_id=quiz.id))
+
+            if action in ('up', 'down') and item:
+                items = list(quiz.items)
+                i = items.index(item)
+                j = i - 1 if action == 'up' else i + 1
+                if 0 <= j < len(items):
+                    items[i], items[j] = items[j], items[i]
+                for pos, it in enumerate(items):
+                    it.position = pos
+                db.session.commit()
+                return redirect(url_for('quiz_edit', quiz_id=quiz.id))
+
+            if action == 'save':
+                text = request.form.get('text', '').strip()
+                kind = 'otwarte' if request.form.get('kind') == 'otwarte' else 'abcd'
+                points = max(1, min(10, request.form.get('points', 1, type=int) or 1))
+                if kind == 'abcd':
+                    options = {k: request.form.get(f'option_{k}', '').strip() for k in 'abcd'}
+                    options = {k: v for k, v in options.items() if v}
+                    correct = request.form.get('correct_choice', '')
+                    error = None if len(options) >= 2 and correct in options else \
+                        'Podaj co najmniej 2 odpowiedzi i zaznacz poprawną.'
+                else:
+                    options = None
+                    correct = '|'.join(a.strip() for a in request.form.get('correct_text', '').split('|') if a.strip())
+                    error = None if correct else 'Podaj poprawną odpowiedź.'
+                if not text:
+                    error = 'Wpisz treść pytania.'
+                if error:
+                    flash(error, 'warning')
+                    return redirect(url_for('quiz_edit', quiz_id=quiz.id, item=item.id if item else None))
+
+                if not item:
+                    item = QuizItem(quiz_id=quiz.id, position=len(quiz.items))
+                    db.session.add(item)
+                item.text, item.kind, item.points, item.correct_answer = text, kind, points, correct[:500]
+                item.options = json.dumps(options, ensure_ascii=False) if options else None
+                # po zmianie poprawnej odpowiedzi przeliczamy już oddane odpowiedzi
+                for r in item.responses:
+                    r.is_correct = check_quiz_answer(item, r.answer)
+                db.session.commit()
+                flash('Pytanie zapisane.', 'success')
+                return redirect(url_for('quiz_edit', quiz_id=quiz.id))
+
+        return render_template('quiz_edit.html', quiz=quiz, edit_item=edit_item)
+
+    @app.route('/quiz/<int:quiz_id>/delete', methods=['POST'])
+    @login_required
+    def quiz_delete(quiz_id):
+        denied = quiz_admin_required()
+        if denied:
+            return denied
+        db.session.delete(Quiz.query.get_or_404(quiz_id))
+        db.session.commit()
+        flash('Quiz usunięty.', 'success')
+        return redirect(url_for('quiz_admin'))
+
+    @app.route('/quiz/<int:quiz_id>/host')
+    @login_required
+    def quiz_host(quiz_id):
+        denied = quiz_admin_required()
+        if denied:
+            return denied
+        quiz = Quiz.query.get_or_404(quiz_id)
+        item = QuizItem.query.get(quiz.current_item_id) if quiz.current_item_id else None
+        responses = QuizResponse.query.filter_by(item_id=item.id).order_by(QuizResponse.answered_at).all() if item else []
+        return render_template('quiz_host.html', quiz=quiz, item=item, responses=responses,
+                               number=quiz.items.index(item) + 1 if item else 0, ranking=quiz_ranking(quiz))
+
+    @app.route('/quiz/<int:quiz_id>/host/answered')
+    @login_required
+    def quiz_host_answered(quiz_id):
+        """Kto już odpowiedział na bieżące pytanie - panel prowadzącego odświeża to na żywo."""
+        if current_user.is_admin == "0":
+            abort(403)
+        quiz = Quiz.query.get_or_404(quiz_id)
+        names = [r.user.username for r in QuizResponse.query.filter_by(item_id=quiz.current_item_id)
+                 .order_by(QuizResponse.answered_at).all()] if quiz.current_item_id else []
+        return jsonify({'count': len(names), 'names': names})
+
+    @app.route('/quiz/<int:quiz_id>/control', methods=['POST'])
+    @login_required
+    def quiz_control(quiz_id):
+        denied = quiz_admin_required()
+        if denied:
+            return denied
+        quiz = Quiz.query.get_or_404(quiz_id)
+        action = request.form.get('action')
+        items = list(quiz.items)
+        current = QuizItem.query.get(quiz.current_item_id) if quiz.current_item_id else None
+
+        if action == 'start':
+            if not items:
+                flash('Najpierw dodaj pytania.', 'warning')
+                return redirect(url_for('quiz_edit', quiz_id=quiz.id))
+            Quiz.query.filter(Quiz.id != quiz.id, Quiz.state == 'trwa').update({'state': 'koniec'})
+            for it in items:   # nowy start = czysta karta
+                QuizResponse.query.filter_by(item_id=it.id).delete()
+            quiz.state, quiz.current_item_id, quiz.revealed = 'trwa', items[0].id, False
+        elif action == 'reveal' and current:
+            quiz.revealed = True
+        elif action == 'next' and current:
+            i = items.index(current)
+            if i + 1 < len(items):
+                quiz.current_item_id, quiz.revealed = items[i + 1].id, False
+            else:
+                quiz.state, quiz.current_item_id, quiz.revealed = 'koniec', None, False
+        elif action == 'finish':
+            quiz.state, quiz.current_item_id, quiz.revealed = 'koniec', None, False
+        elif action == 'toggle':
+            response = QuizResponse.query.get_or_404(request.form.get('response_id', type=int))
+            if response.item.quiz_id == quiz.id:
+                response.is_correct = not response.is_correct
+        db.session.commit()
+        return redirect(url_for('quiz_host', quiz_id=quiz.id))
 
     @app.route("/api/videos", methods=["GET"])
     def get_videos():
@@ -1553,9 +1818,12 @@ def create_app():
 
         # gracze z eventu
         fifa_players = FifaParticipant.query.filter_by(event_id=event.id, role="player").all()
-        if len(fifa_players) < 8:
-            flash("Za mało graczy do rozpoczęcia turnieju. Musi być minimum 8.", "danger")
+        advance = 4 if request.form.get("advance", type=int) == 4 else 2
+        if len(fifa_players) < 2 * advance:
+            db.session.rollback()
+            flash(f"Za mało graczy: przy {advance} wychodzących z grupy potrzeba minimum {2 * advance}.", "danger")
             return redirect(request.referrer)
+        tournament.advance = advance
 
         generate_groups_and_matches(tournament, fifa_players)
         db.session.commit()
@@ -1571,80 +1839,53 @@ def create_app():
             return redirect(request.referrer)
 
         match = TournamentMatch.query.get_or_404(match_id)
-        match.home_score = request.form.get("home_score", type=int)
-        match.away_score = request.form.get("away_score", type=int)
+        home = request.form.get("home_score", type=int)
+        away = request.form.get("away_score", type=int)
+        if (home is None) != (away is None) or (home is not None and (home < 0 or away < 0)):
+            flash("Wpisz oba wyniki (liczby od 0) albo zostaw oba pola puste, żeby skasować wynik.", "warning")
+            return redirect(request.referrer)
+        if match.round != "grupa" and home is not None and home == away:
+            flash("W fazie pucharowej musi być zwycięzca - wpisz wynik po dogrywce/karnych (np. 3:2).", "warning")
+            return redirect(request.referrer)
 
+        match.home_score, match.away_score = home, away
+        message = sync_knockout(match.tournament)
         db.session.commit()
-        flash("Wynik meczu zapisany ✅", "success")
+        flash("Wynik meczu zapisany ✅" if home is not None else "Wynik skasowany.", "success")
+        if message:
+            flash(message, "warning")
         return redirect(request.referrer)
 
-    @app.route('/'
-               '/<int:tournament_id>', methods=['POST'])
+    @app.route("/tournament/<int:event_id>/knockout", methods=["POST"])
     @login_required
-    def generate_playoffs(tournament_id):
-        tournament = Tournament.query.get_or_404(tournament_id)
-        event = Calendar.query.get_or_404(tournament.event_id)
-
-        if current_user.id != int(event.created_by):
-            flash("Tylko organizator może generować fazę pucharową!", "danger")
-            return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year))
-
-        # dla każdej grupy obliczamy zwycięzców (2 najlepszych)
-        playoff_players = []
-        for group in tournament.groups:
-            # policz punkty: zwycięstwo=3, remis=1, przegrana=0
-            points = {}
-            for match in group.matches:
-                if match.home_score is None or match.away_score is None:
-                    continue  # mecz nie rozegrany
-                if match.home_score > match.away_score:
-                    points[match.home_player_id] = points.get(match.home_player_id, 0) + 3
-                    points[match.away_player_id] = points.get(match.away_player_id, 0)
-                elif match.home_score < match.away_score:
-                    points[match.away_player_id] = points.get(match.away_player_id, 0) + 3
-                    points[match.home_player_id] = points.get(match.home_player_id, 0)
-                else:
-                    points[match.home_player_id] = points.get(match.home_player_id, 0) + 1
-                    points[match.away_player_id] = points.get(match.away_player_id, 0) + 1
-
-            # sortowanie po punktach i wybór 2 najlepszych
-            sorted_players = sorted(points.items(), key=lambda x: x[1], reverse=True)
-            top_players = [player_id for player_id, pts in sorted_players[:2]]
-            playoff_players.extend(top_players)
-
-        # losujemy półfinały (1 z grupy A vs 2 z grupy B i odwrotnie)
-        if len(playoff_players) < 4:
-            flash("Za mało danych do wygenerowania fazy pucharowej!", "warning")
-            return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year))
-
-        # zakładamy: playoff_players = [A1, A2, B1, B2]
-        semifinals = [
-            (playoff_players[0], playoff_players[3]),  # A1 vs B2
-            (playoff_players[2], playoff_players[1]),  # B1 vs A2
-        ]
-
-        # generowanie półfinałów
-        for home_id, away_id in semifinals:
-            match = TournamentMatch(
-                tournament_id=tournament.id,
-                round="1/2 finału",
-                home_player_id=home_id,
-                away_player_id=away_id
-            )
-            db.session.add(match)
-
-        # generowanie finału (puste miejsca, uzupełni admin po rozegraniu półfinałów)
-        match_final = TournamentMatch(
-            tournament_id=tournament.id,
-            round="finał",
-            home_player_id=None,
-            away_player_id=None
-        )
-        db.session.add(match_final)
-
+    def tournament_knockout(event_id):
+        """Admin: ilu graczy wychodzi z grupy (2/4) albo reset całej fazy pucharowej."""
+        if current_user.is_admin == "0":
+            flash("Brak uprawnień", "danger")
+            return redirect(request.referrer)
+        tournament = Tournament.query.filter_by(event_id=event_id).first_or_404()
+        knockout = TournamentMatch.query.filter(TournamentMatch.tournament_id == tournament.id,
+                                                TournamentMatch.round != "grupa").all()
+        if request.form.get("action") == "reset":
+            for match in knockout:
+                db.session.delete(match)
+            db.session.flush()
+            flash("Faza pucharowa wyczyszczona - ułożyła się od nowa z tabel grup.", "success")
+        else:
+            advance = 4 if request.form.get("advance", type=int) == 4 else 2
+            if any(has_score(m) for m in knockout):
+                flash("Mecze pucharowe mają już wyniki - najpierw zresetuj fazę pucharową.", "warning")
+                return redirect(request.referrer)
+            if any(len(calculate_group_table(g)) < advance for g in tournament.groups):
+                flash(f"W którejś grupie jest mniej niż {advance} graczy.", "warning")
+                return redirect(request.referrer)
+            tournament.advance = advance
+            flash(f"Z każdej grupy wychodzi teraz {advance}.", "success")
+        message = sync_knockout(tournament)
         db.session.commit()
-        flash("Faza pucharowa wygenerowana!", "success")
-        return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year))
+        if message:
+            flash(message, "warning")
+        return redirect(request.referrer)
 
     @app.route("/finish_tournament/<int:event_id>", methods=["POST"])
     @login_required
@@ -1662,30 +1903,6 @@ def create_app():
         db.session.commit()
 
         flash("Turniej zakończony 🏁", "success")
-        return redirect(request.referrer)
-
-    @app.route("/generate_knockout/<int:event_id>", methods=["POST"])
-    @login_required
-    def generate_knockout(event_id):
-        if current_user.is_admin == "0":
-            flash("Brak uprawnień", "danger")
-            return redirect(request.referrer)
-
-        tournament = Tournament.query.filter_by(event_id=event_id).first()
-        generate_knockout_stage(tournament)
-        flash("Półfinały wygenerowane ✅", "success")
-        return redirect(request.referrer)
-
-    @app.route("/generate_final/<int:event_id>", methods=["POST"])
-    @login_required
-    def generate_final_route(event_id):
-        if current_user.is_admin == "0":
-            flash("Brak uprawnień", "danger")
-            return redirect(request.referrer)
-
-        tournament = Tournament.query.filter_by(event_id=event_id).first()
-        generate_final(tournament)
-        flash("Finał wygenerowany 🏆", "success")
         return redirect(request.referrer)
 
     @app.route("/join_fifa_event/<int:event_id>", methods=["POST"])
@@ -1764,34 +1981,6 @@ def create_app():
     def ranking_kolko_krzyzyk():
         ranking_data, rozegranych_gier = game_ranking(KolkoKrzyzyk, true())
         return render_template('ranking_kolko_krzyzyk.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
-
-    @app.route('/statki', methods=['GET', 'POST'])
-    @login_required
-    def statki():
-        best = db.session.query(func.max(Statki.points)).filter(Statki.created_by == str(current_user.id)).scalar() or 0
-        return render_template('statki.html', best=best)
-
-    @app.route('/statki/save_score', methods=['POST'])
-    @login_required
-    def save_score_statki():
-        data = request.get_json(silent=True, force=True) or {}
-        try:
-            score = max(0, int(data.get('score', 0)))
-        except (TypeError, ValueError):
-            return jsonify({'ok': False}), 400
-
-        new_game = Statki(points=score, created_by=current_user.id)
-        db.session.add(new_game)
-        db.session.commit()
-
-        best = db.session.query(func.max(Statki.points)).filter(Statki.created_by == str(current_user.id)).scalar() or 0
-        return jsonify({'ok': True, 'best': best})
-
-    @app.route('/ranking_statki', methods=['GET', 'POST'])
-    @login_required
-    def ranking_statki():
-        ranking_data, rozegranych_gier = game_ranking(Statki, true())
-        return render_template('ranking_statki.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     @app.route('/formula', methods=['GET', 'POST'])
     @login_required

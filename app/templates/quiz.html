@@ -1,48 +1,134 @@
 {% extends "base.html" %}
 
 {% block content %}
-
-<div id="quiz-question">
-        <h3 id="question-text">{{pytanie.question_text}}</h3>
+<div class="hl-quiz">
+    <div class="d-flex justify-content-between align-items-center mb-3 hl-gap">
+        <h2 class="mb-0" id="quiz-title">🧠 Quiz</h2>
+        {% if current_user.is_admin != "0" %}
+        <a href="{{ url_for('quiz_admin') }}" class="btn btn-outline-secondary btn-sm">Panel prowadzącego</a>
+        {% endif %}
     </div>
 
-
-{% if pytanie.type == 0 %}
-<div class="row g-3 align-items-center">
-  <div class="col-auto">
-    <label for="odpowiedz" class="col-form-label">Twoja odpowiedź: </label>
-  </div>
-  <div class="col-auto">
-    <input type="text" id="odpowiedz" class="form-control" value="{{odpowiedz}}">
-  </div>
-</div>
-{% endif %}
-
-{% if pytanie.type == 1 %}
-{% for key, value in options.items() %}
-<div class="form-check">
-  <input class="form-check-input" type="radio" name="exampleRadios" id="exampleRadios1" value="{{ key }}">
-  <label class="form-check-label" for="exampleRadios1">
-    {{ value }}
-  </label>
-</div>
-        {% endfor %}
-{% endif %}
-
-
-<br><br>
-
-    {% if current_user.is_admin == "1" %}
-    <div>
-        <button onclick="setActiveQuestion(0)">Wyłącz Quiz</button>
-        <button onclick="setActiveQuestion(1)">Aktywuj pytanie 1</button>
-        <button onclick="setActiveQuestion(2)">Aktywuj pytanie 2</button>
-        <button onclick="setActiveQuestion(3)">Aktywuj pytanie 3</button>
-      <button onclick="setActiveQuestion(4)">Aktywuj pytanie 4</button>
-      <button onclick="setActiveQuestion(5)">Aktywuj pytanie 5</button>
-
-        <a href="/dodaj_pytania"><button>Dodaj Pytania</button></a>
+    <!-- wypełniane przez skrypt na podstawie /quiz/state -->
+    <div id="quiz-box" class="hl-quiz-card">
+        <div class="text-center text-muted py-5">Ładowanie…</div>
     </div>
-    {% endif %}
+</div>
 
+<script>
+(function () {
+    const box = document.getElementById('quiz-box');
+    const title = document.getElementById('quiz-title');
+    let shownKey = null;     // co jest teraz narysowane - nie przerysowujemy, żeby nie zgubić wpisywanego tekstu
+    let draft = '';
+
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+    function waiting(text) {
+        return `<div class="text-center py-5"><div class="hl-quiz-wait">⏳</div><p class="lead mb-0">${text}</p></div>`;
+    }
+
+    function render(s) {
+        if (s.state === 'brak') {
+            title.textContent = '🧠 Quiz';
+            return set('brak', waiting('Nie ma teraz żadnego quizu. Poczekaj, aż prowadzący go uruchomi.'));
+        }
+        title.textContent = '🧠 ' + s.title;
+
+        if (s.state === 'koniec') {
+            const rows = s.ranking.map((r, i) => `
+                <tr class="${i < 3 ? 'hl-podium-' + (i + 1) : ''} ${r.me ? 'hl-quiz-me' : ''}">
+                    <td class="hl-place">${i < 3 ? '<span class="hl-medal-emoji">' + ['🥇', '🥈', '🥉'][i] + '</span>' : i + 1}</td>
+                    <td>${esc(r.username)}</td><td>${r.correct}</td><td><strong>${r.points}</strong></td>
+                </tr>`).join('');
+            return set('koniec' + JSON.stringify(s.ranking), `
+                <h4 class="text-center mb-3">🏁 Koniec quizu!</h4>
+                ${rows ? `<div class="table-responsive"><table class="table table-bordered mb-0">
+                    <thead class="thead-light"><tr><th>#</th><th>Gracz</th><th>Trafione</th><th>Punkty</th></tr></thead>
+                    <tbody>${rows}</tbody></table></div>` : '<p class="text-center text-muted">Nikt nie odpowiadał.</p>'}`);
+        }
+
+        if (!s.item) return set('start', waiting('Quiz zaraz się zacznie…'));
+
+        const it = s.item;
+        const head = `<div class="hl-quiz-meta">Pytanie ${it.number} / ${s.total} · ${it.points} pkt</div>
+                      <h3 class="hl-quiz-question">${esc(it.text)}</h3>`;
+
+        if (s.revealed) {
+            const mine = s.my_answer === null ? '<span class="text-muted">nie odpowiedziałeś</span>'
+                : esc(it.kind === 'abcd' ? s.my_answer.toUpperCase() + ') ' + (it.options[s.my_answer] || '') : s.my_answer);
+            return set('rev' + it.id + s.my_correct, head + `
+                <div class="alert ${s.my_correct ? 'alert-success' : 'alert-danger'} mt-3 mb-2">
+                    ${s.my_correct ? '✅ Dobrze!' : '❌ Niestety.'} Poprawna odpowiedź: <strong>${esc(s.correct)}</strong>
+                </div>
+                <p class="mb-1">Twoja odpowiedź: ${mine}</p>
+                <p class="text-muted mb-0">Masz już <strong>${s.my_points}</strong> pkt. Czekaj na kolejne pytanie…</p>`);
+        }
+
+        // pytanie otwarte na odpowiedzi
+        const key = 'q' + it.id + '|' + s.my_answer;
+        if (shownKey === key) {
+            const counter = box.querySelector('.hl-quiz-answered');
+            if (counter) counter.textContent = s.answered;
+            return;
+        }
+        let form;
+        if (it.kind === 'abcd') {
+            form = '<div class="hl-quiz-options">' + Object.entries(it.options).map(([k, v]) => `
+                <button type="button" class="hl-quiz-option ${s.my_answer === k ? 'chosen' : ''}" data-answer="${k}">
+                    <span class="hl-quiz-letter">${k.toUpperCase()}</span> ${esc(v)}
+                </button>`).join('') + '</div>';
+        } else {
+            const value = s.my_answer !== null ? s.my_answer : draft;
+            form = `<form class="hl-quiz-open d-flex hl-gap">
+                        <input type="text" class="form-control" maxlength="500" placeholder="Twoja odpowiedź…" value="${esc(value)}" autocomplete="off">
+                        <button type="submit" class="btn btn-primary w-auto">Wyślij</button>
+                    </form>`;
+        }
+        set(key, head + form + `
+            <p class="mt-3 mb-0 small text-muted">
+                ${s.my_answer !== null ? '✔️ Odpowiedź zapisana — możesz ją zmienić, dopóki prowadzący nie pokaże wyniku.' : 'Wybierz odpowiedź.'}
+                Odpowiedziało: <span class="hl-quiz-answered">${s.answered}</span>
+            </p>`);
+
+        box.querySelectorAll('.hl-quiz-option').forEach(b => b.addEventListener('click', () => send(it.id, b.dataset.answer)));
+        const open = box.querySelector('.hl-quiz-open');
+        if (open) {
+            const input = open.querySelector('input');
+            input.addEventListener('input', () => { draft = input.value; });
+            open.addEventListener('submit', e => { e.preventDefault(); if (input.value.trim()) send(it.id, input.value); });
+        }
+    }
+
+    function set(key, html) {
+        if (shownKey === key) return;
+        shownKey = key;
+        box.innerHTML = html;
+    }
+
+    function send(itemId, answer) {
+        fetch('{{ url_for('quiz_answer') }}', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({item_id: itemId, answer: answer})
+        }).then(r => r.json()).then(d => {
+            if (!d.ok && d.message) alertBox(d.message);
+            draft = '';
+            poll();
+        });
+    }
+
+    function alertBox(text) {
+        const div = document.createElement('div');
+        div.className = 'alert alert-warning mt-3 mb-0';
+        div.textContent = text;
+        box.appendChild(div);
+    }
+
+    function poll() {
+        fetch('{{ url_for('quiz_state') }}').then(r => r.json()).then(render).catch(() => {});
+    }
+    poll();
+    setInterval(poll, 2000);
+})();
+</script>
 {% endblock %}

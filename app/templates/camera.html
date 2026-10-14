@@ -37,7 +37,7 @@
 (function () {
     const chat = document.getElementById('chat-messages');
     const input = document.getElementById('chat-message');
-    const photoUrl = photo => '/static/images/profile_pics/' + encodeURIComponent(photo);
+    const photoUrl = photo => '/static/images/profile_pics/' + encodeURIComponent(photo || 'default.jpg');
 
     // zegar na obrazie
     const clock = document.getElementById('hl-clock');
@@ -108,11 +108,15 @@
             const box = document.getElementById('active-users');
             box.innerHTML = '';
             data.users.forEach(u => {
+                const chip = document.createElement('span');
+                chip.className = 'hl-viewer';
                 const img = document.createElement('img');
                 img.src = photoUrl(u.photo);
-                img.title = u.username;
-                img.alt = u.username;
-                box.appendChild(img);
+                img.alt = '';
+                const name = document.createElement('span');
+                name.textContent = u.username;
+                chip.append(img, name);
+                box.appendChild(chip);
             });
         });
     }

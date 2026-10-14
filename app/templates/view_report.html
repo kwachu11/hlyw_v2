@@ -1,7 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
-    <h2>{{ report.title }}</h2>
+    {% set label, badge = report_statuses.get(report.status, report_statuses['nowe']) %}
+    <a href="{{ url_for('view_report_list') }}" class="small">&larr; wszystkie zgłoszenia</a>
+    <div class="d-flex flex-wrap align-items-center hl-gap mt-2">
+        <h2 class="mb-0">{{ report.title }}</h2>
+        <span class="badge {{ badge }} badge-pill">{{ label }}</span>
+    </div>
+    <p class="text-muted small">{{ report.user.username }} · {{ report.created_at.strftime('%d.%m.%Y') }}</p>
     <p style="white-space: pre-line;">{{ report.description }}</p>
+
+    {% if current_user.is_authenticated and current_user.is_admin != "0" %}
+    <form action="{{ url_for('set_report_status', report_id=report.id) }}" method="POST" class="form-inline mb-4 hl-gap">
+        <label for="status" class="mr-2">Status:</label>
+        <select name="status" id="status" class="form-control form-control-sm">
+            {% for value, (name, _) in report_statuses.items() %}
+            <option value="{{ value }}" {{ 'selected' if value == report.status }}>{{ name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-primary w-auto">Zmień</button>
+    </form>
+    {% endif %}
 
     <!-- Wyświetlanie komentarzy -->
     <h3>Komentarze</h3>
@@ -11,6 +29,8 @@
                 <strong>{{ comment.user.username }}:</strong> <!-- Użytkownik, który dodał komentarz -->
                 {{ comment.content }} <small class="text-muted">({{ comment.created_at.strftime('%d.%m.%Y %H:%M') }})</small>
             </li>
+        {% else %}
+            <li class="text-muted">Brak komentarzy.</li>
         {% endfor %}
     </ul>
 

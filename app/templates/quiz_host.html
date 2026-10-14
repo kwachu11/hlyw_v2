@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+<a href="{{ url_for('quiz_edit', quiz_id=quiz.id) }}" class="small">&larr; pytania quizu</a>
+<div class="d-flex flex-wrap justify-content-between align-items-center hl-gap mt-2 mb-3">
+    <h2 class="mb-0">🎤 {{ quiz.title }}</h2>
+    {% if quiz.state == 'trwa' %}<span class="badge badge-danger hl-live-badge">LIVE</span>{% endif %}
+</div>
+
+{% macro control(action, label, cls='btn-primary', confirm=None) -%}
+<form method="POST" action="{{ url_for('quiz_control', quiz_id=quiz.id) }}" class="d-inline" {% if confirm %}onsubmit="return confirm('{{ confirm }}')"{% endif %}>
+    <button name="action" value="{{ action }}" class="btn {{ cls }} w-auto">{{ label }}</button>
+</form>
+{%- endmacro %}
+
+<div class="row">
+    <div class="col-lg-8 mb-4">
+        {% if quiz.state != 'trwa' %}
+        <div class="hl-quiz-card text-center">
+            {% if quiz.state == 'koniec' %}<p class="lead">Quiz zakończony. Ranking jest obok.</p>{% endif %}
+            <p class="text-muted">{{ quiz.items|length|plural('pytanie', 'pytania', 'pytań') }} gotowe.
+                Po starcie gracze zobaczą pierwsze pytanie na <strong>{{ request.host }}{{ url_for('quiz') }}</strong>.</p>
+            {{ control('start', '▶️ Start quizu' if quiz.state == 'szkic' else '🔁 Zagraj od nowa', 'btn-success btn-lg',
+                       'Start od nowa skasuje odpowiedzi z poprzedniej rozgrywki. Kontynuować?' if quiz.state == 'koniec' else None) }}
+        </div>
+        {% elif item %}
+        <div class="hl-quiz-card">
+            <div class="hl-quiz-meta">Pytanie {{ number }} / {{ quiz.items|length }} · {{ item.points }} pkt</div>
+            <h3 class="hl-quiz-question">{{ item.text }}</h3>
+            {% if item.kind == 'abcd' %}
+            <div class="hl-quiz-options">
+                {% for k, v in item.options_dict.items() %}
+                <div class="hl-quiz-option {{ 'correct' if quiz.revealed and k == item.correct_answer }}">
+                    <span class="hl-quiz-letter">{{ k|upper }}</span> {{ v }}
+                    {% if quiz.revealed %}<span class="ml-auto small">{{ responses|selectattr('answer', 'equalto', k)|list|length }} os.</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <p class="mt-3 mb-0">Poprawna: <strong class="text-success">{{ item.correct_label() }}</strong>
+                <small class="text-muted">{{ '(gracze już ją widzą)' if quiz.revealed else '(gracze jej nie widzą, dopóki jej nie pokażesz)' }}</small></p>
+        </div>
+
+        <div class="d-flex flex-wrap hl-gap my-3">
+            {% if not quiz.revealed %}
+                {{ control('reveal', '👀 Pokaż odpowiedź', 'btn-warning btn-lg') }}
+            {% else %}
+                {{ control('next', '➡️ Następne pytanie' if number < quiz.items|length else '🏁 Zakończ i pokaż ranking', 'btn-primary btn-lg') }}
+            {% endif %}
+            {{ control('finish', 'Zakończ teraz', 'btn-outline-danger', 'Zakończyć quiz przed czasem?') }}
+        </div>
+
+        <h5>Odpowiedzi: <span id="answered-count">{{ responses|length }}</span></h5>
+        {% if not quiz.revealed %}
+        <p class="text-muted small mb-1">Odpowiedzi pokażą się po kliknięciu „Pokaż odpowiedź”. Na razie tylko kto już odpowiedział:</p>
+        <div id="answered-names" class="hl-answered">
+            {% for r in responses %}<span class="badge badge-light">{{ r.user.username }}</span>{% endfor %}
+        </div>
+        {% else %}
+        <ul class="list-group hl-reports">
+            {% for r in responses %}
+            <li class="list-group-item hl-report-row d-flex justify-content-between align-items-center hl-gap">
+                <span>
+                    {{ '✅' if r.is_correct else '❌' }} <strong>{{ r.user.username }}</strong>:
+                    {{ r.answer|upper ~ ') ' ~ item.options_dict.get(r.answer, '') if item.kind == 'abcd' else r.answer }}
+                </span>
+                {% if item.kind == 'otwarte' %}
+                <form method="POST" action="{{ url_for('quiz_control', quiz_id=quiz.id) }}">
+                    <input type="hidden" name="response_id" value="{{ r.id }}">
+                    <button name="action" value="toggle" class="btn btn-sm w-auto {{ 'btn-outline-danger' if r.is_correct else 'btn-outline-success' }}">
+                        {{ 'Nie uznaj' if r.is_correct else 'Uznaj' }}
+                    </button>
+                </form>
+                {% endif %}
+            </li>
+            {% else %}
+            <li class="list-group-item hl-report-row text-muted">Nikt nie odpowiedział.</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><strong>🏆 Ranking</strong></div>
+            <ul class="list-group list-group-flush hl-side">
+                {% for u, points, correct in ranking %}
+                <li class="list-group-item d-flex justify-content-between">
+                    <span>{{ ['🥇', '🥈', '🥉'][loop.index0] if loop.index <= 3 else loop.index ~ '.' }} {{ u.username }}</span>
+                    <strong>{{ points }}</strong>
+                </li>
+                {% else %}
+                <li class="list-group-item text-muted">Jeszcze brak punktów.</li>
+                {% endfor %}
+            </ul>
+        </div>
+        <p class="small text-muted mt-2">Ranking liczy odpowiedzi już oddane — punkty za bieżące pytanie są w nim od razu, ale gracze widzą je dopiero po pokazaniu odpowiedzi.</p>
+    </div>
+</div>
+
+{% if quiz.state == 'trwa' and item and not quiz.revealed %}
+<script>
+// na żywo: kto już odpowiedział
+(function () {
+    const count = document.getElementById('answered-count');
+    const names = document.getElementById('answered-names');
+    setInterval(() => {
+        fetch('{{ url_for('quiz_host_answered', quiz_id=quiz.id) }}').then(r => r.json()).then(d => {
+            count.textContent = d.count;
+            names.innerHTML = '';
+            d.names.forEach(n => {
+                const b = document.createElement('span');
+                b.className = 'badge badge-light';
+                b.textContent = n;
+                names.appendChild(b);
+            });
+        }).catch(() => {});
+    }, 2000);
+})();
+</script>
+{% endif %}
+{% endblock %}

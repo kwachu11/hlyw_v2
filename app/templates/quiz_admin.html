@@ -1,8 +1,41 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 hl-gap">
+    <h2 class="mb-0">🧠 Quizy — panel prowadzącego</h2>
+    <a href="{{ url_for('quiz') }}" class="btn btn-outline-secondary btn-sm">Widok gracza</a>
+</div>
 
+<form method="POST" class="d-flex hl-gap mb-4">
+    <input type="text" name="title" class="form-control" maxlength="150" placeholder="Nazwa nowego quizu, np. Quiz turniejowy CS" required>
+    <button type="submit" class="btn btn-primary w-auto text-nowrap">+ Nowy quiz</button>
+</form>
 
+<div class="list-group hl-reports">
+    {% for q in quizzes %}
+    <div class="list-group-item hl-report-row d-flex flex-wrap justify-content-between align-items-center hl-gap">
+        <div>
+            <span class="hl-report-title">{{ q.title }}</span>
+            {% if q.state == 'trwa' %}<span class="badge badge-danger">LIVE</span>
+            {% elif q.state == 'koniec' %}<span class="badge badge-secondary">zakończony</span>
+            {% else %}<span class="badge badge-light">szkic</span>{% endif %}
+            <br><small class="text-muted">{{ q.items|length|plural('pytanie', 'pytania', 'pytań') }}</small>
+        </div>
+        <div class="d-flex hl-gap">
+            <a href="{{ url_for('quiz_edit', quiz_id=q.id) }}" class="btn btn-sm btn-outline-primary">Pytania</a>
+            <a href="{{ url_for('quiz_host', quiz_id=q.id) }}" class="btn btn-sm btn-success">{{ 'Prowadź' if q.state == 'trwa' else 'Uruchom' }}</a>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">Nie ma jeszcze żadnego quizu — dodaj pierwszy powyżej.</p>
+    {% endfor %}
+</div>
 
-
+<div class="card mt-4">
+    <div class="card-body small text-muted">
+        <strong>Jak to działa:</strong> dodajesz pytania (ABCD albo otwarte), klikasz <em>Uruchom</em> i prowadzisz quiz:
+        gracze na <a href="{{ url_for('quiz') }}">{{ request.host }}{{ url_for('quiz') }}</a> widzą na żywo bieżące pytanie i odpowiadają z telefonów.
+        Ty decydujesz, kiedy pokazać odpowiedź i przejść dalej. Na końcu wszyscy widzą ranking.
+    </div>
+</div>
 {% endblock %}

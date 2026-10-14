@@ -3,38 +3,34 @@
 {% block content %}
 <div class="container mt-4">
     <h2>Statystyki użytkowników</h2>
+    <p class="text-muted small d-md-none">Na telefonie widać same punkty — szczegóły na większym ekranie.</p>
     <div class="table-responsive">
         <table class="table table-bordered table-hover">
             <thead class="thead-light">
                 <tr>
-                    <th>Miejsce</th>
+                    <th>#</th>
                     <th>Użytkownik</th>
-                    <th>Wiadomości</th>
-                    <th>Zgłoszenia</th>
-                    <th>Zdjęcia</th>
-                    <th>Wydarzenia</th>
-                    <th>Komentarze</th>
-                    <th>Newsy</th>
+                    <th class="d-none d-md-table-cell">Wiadomości</th>
+                    <th class="d-none d-md-table-cell">Zgłoszenia</th>
+                    <th class="d-none d-md-table-cell">Zdjęcia</th>
+                    <th class="d-none d-md-table-cell">Wydarzenia</th>
+                    <th class="d-none d-md-table-cell">Komentarze</th>
+                    <th class="d-none d-md-table-cell">Newsy</th>
                     <th>Punkty</th>
                 </tr>
             </thead>
             <tbody>
                 {% for user in users_stats %}
-                <tr
-                    {% if loop.index == 1 %} style="background-color: gold;"
-                    {% elif loop.index == 2 %} style="background-color: silver;"
-                    {% elif loop.index == 3 %} style="background-color: #cd7f32;"
-                    {% endif %}
-                >
-                    <td>{{ loop.index }}</td>
-                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="static/images/profile_pics/{{ user.photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
-                    <td>{{ user.message_count }}</td>
-                    <td>{{ user.report_count }}</td>
-                    <td>{{ user.photo_count }}</td>
-                    <td>{{ user.calendar_count }}</td>
-                    <td>{{ user.comment_count }}</td>
-                    <td>{{ user.news_count }}</td>
-                    <td>{{ user.total_sum }}</td>
+                <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}">
+                    <td class="hl-place">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
+                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
+                    <td class="d-none d-md-table-cell">{{ user.message_count }}</td>
+                    <td class="d-none d-md-table-cell">{{ user.report_count }}</td>
+                    <td class="d-none d-md-table-cell">{{ user.photo_count }}</td>
+                    <td class="d-none d-md-table-cell">{{ user.calendar_count }}</td>
+                    <td class="d-none d-md-table-cell">{{ user.comment_count }}</td>
+                    <td class="d-none d-md-table-cell">{{ user.news_count }}</td>
+                    <td><strong>{{ user.total_sum }}</strong></td>
                 </tr>
                 {% else %}
                 <tr>

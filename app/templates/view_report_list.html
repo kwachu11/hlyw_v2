@@ -1,15 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="d-flex justify-content-end mb-3">
-    <a href="{{ url_for('report') }}" class="btn btn-primary mx-2">Dodaj Zgłoszenie / Propozycję</a>
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 hl-gap">
+    <h2 class="mb-0">Zgłoszenia / Propozycje</h2>
+    <a href="{{ url_for('report') }}" class="btn btn-primary">Dodaj zgłoszenie</a>
 </div>
-    <h2>Lista Zgłoszeń / Propozycji</h2>
-    <ul>
-        {% for report in reports %}
-            <li>
-                <a href="{{ url_for('view_report', report_id=report.id) }}">{{ report.title }}</a>
-                (dodane przez: {{ report.user.username }} - {{ report.created_at.strftime('%d.%m.%Y') }})
-            </li>
-        {% endfor %}
-    </ul>
+
+<div class="list-group hl-reports">
+    {% for report in reports %}
+    {% set label, badge = report_statuses.get(report.status, report_statuses['nowe']) %}
+    <a href="{{ url_for('view_report', report_id=report.id) }}" class="list-group-item list-group-item-action hl-report-row {{ 'hl-report-closed' if report.status in ('zrobione', 'odrzucone') }}">
+        <div class="d-flex justify-content-between align-items-start hl-gap">
+            <span class="hl-report-title">{{ report.title }}</span>
+            <span class="badge {{ badge }} badge-pill">{{ label }}</span>
+        </div>
+        <small class="text-muted">
+            {{ report.user.username }} · {{ report.created_at.strftime('%d.%m.%Y') }}
+            {% if comment_counts.get(report.id) %} · 💬 {{ comment_counts[report.id] }}{% endif %}
+        </small>
+    </a>
+    {% else %}
+    <p class="text-muted">Brak zgłoszeń.</p>
+    {% endfor %}
+</div>
 {% endblock %}

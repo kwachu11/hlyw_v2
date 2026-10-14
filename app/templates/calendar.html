@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-end mb-3">
-    <a href="{{ url_for('add_entry') }}" class="btn btn-primary mx-2">Dodaj Wydarzenie</a>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Kalendarz</h2>
+    <a href="{{ url_for('add_entry') }}" class="btn btn-primary">Dodaj wydarzenie</a>
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -12,7 +13,7 @@
     <button type="submit" class="btn btn-secondary w-auto">&larr;<span class="d-none d-sm-inline"> Poprzedni miesiąc</span></button>
 </form>
 
-    <h2 class="mb-0 text-center">{{ month_name }} {{ year }}</h2>
+    <h3 class="mb-0 text-center">{{ month_name }} {{ year }}</h3>
 
     <form method="GET" action="{{ url_for('calendar') }}">
     <input type="hidden" name="month" value="{{ next_month }}">
@@ -37,12 +38,18 @@
         {% for week in calendar %}
         <tr>
             {% for day in week %}
-            {% if day in event_days %}
-            <td class="hl-cal-event {{ 'hl-cal-today' if day == today_day }}">
-                <a href="event?day={{day}}&month={{month}}&year={{year}}">{{ day if day else '' }}</a>
-                {% endif %}
-                {% if day not in event_days %}
-                <td class="{{ 'hl-cal-today' if day == today_day }}">{{ day if day else '' }}
+            {% set titles = event_days.get(day) if day else None %}
+            <td class="{{ 'hl-cal-event' if titles }} {{ 'hl-cal-today' if day and day == today_day }} {{ 'hl-cal-empty' if not day }}">
+                {% if titles %}
+                <a href="{{ url_for('event', day=day, month=month, year=year) }}" title="{{ titles|join(', ') }}">
+                    <span class="hl-cal-day">{{ day }}</span>
+                    {% for t in titles[:2] %}
+                    <span class="hl-cal-title">{{ '⚽ ' if 'fif' in t|lower }}{{ t }}</span>
+                    {% endfor %}
+                    {% if titles|length > 2 %}<span class="hl-cal-more">+{{ titles|length - 2 }}</span>{% endif %}
+                </a>
+                {% elif day %}
+                <span class="hl-cal-day">{{ day }}</span>
                 {% endif %}
             </td>
             {% endfor %}

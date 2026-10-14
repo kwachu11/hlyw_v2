@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 
-{% if 'quiz' in request.url %}<meta http-equiv="refresh" content="5">{% endif %}
     <title>hlyw.pl</title>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
@@ -13,13 +12,29 @@
         <!-- Bootstrap JS i jQuery -->
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Brakujący obrazek: awatar -> domyślny, reszta -> szare tło zamiast ikonki i alt-tekstu.
+    // Nasłuch w fazie przechwytywania, bo zdarzenie "error" obrazków nie bąbelkuje.
+    document.addEventListener('error', function (e) {
+        var img = e.target;
+        if (img.tagName !== 'IMG' || img.dataset.hlFallback) return;
+        img.dataset.hlFallback = '1';
+        if (img.src.indexOf('/profile_pics/') !== -1 && img.src.indexOf('default.jpg') === -1) {
+            img.src = '{{ url_for('static', filename='images/profile_pics/default.jpg') }}';
+        } else {
+            img.classList.add('hl-img-missing');
+            img.alt = '';
+            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        }
+    }, true);
+    </script>
 
 
 </head>
-<body>
+<body class="hl-body">
     {% include 'menu.html' %}  <!-- Dodajemy menu do szablonu bazowego -->
 
-    <div class="container mt-4 hl-main">
+    <div class="container mt-4 mb-4 hl-main">
         {% with messages = get_flashed_messages(with_categories=True) %}
             {% for category, message in messages %}
                 <div class="alert alert-{{ 'info' if category == 'message' else category }} alert-dismissible fade show">
@@ -39,47 +54,7 @@
 <script>
 
 
-{% if 'quiz' in request.url %}
-// quiz
 
-  function fetchCurrentQuestion() {
-  const odpowiedz = document.querySelector('#odpowiedz').value;
-
-    fetch('/current_question/'+ encodeURIComponent(odpowiedz))
-        .then(response => response.json())
-        .then(data => {
-            const questionText = document.getElementById('question-text');
-            if (data.question_id) {
-                questionText.textContent = data.question_text;
-                 const poleTekstowe = document.getElementById('odpowiedz'); // Pobierz element input
-                poleTekstowe.value = data.odpowiedz; // Ustaw wartość pola tekstowego
-            }
-        })
-        .catch(error => console.error('Błąd podczas pobierania pytania:', error));
-}
-
-// Regularne odświeżanie pytania co 5 sekund
-setInterval(fetchCurrentQuestion, 5000);
-
-// Wywołanie funkcji od razu po załadowaniu strony
-fetchCurrentQuestion();
-
-function setActiveQuestion(questionId) {
-    fetch(`/set_active_question/${questionId}`, {
-        method: 'POST',
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                alert(data.message);
-                fetchCurrentQuestion(); // Odśwież aktualne pytanie
-            } else {
-                alert(data.message);
-            }
-        })
-        .catch(error => console.error('Błąd podczas ustawiania aktywnego pytania:', error));
-}
-{% endif %}
 
 
 

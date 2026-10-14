@@ -3,7 +3,7 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex align-items-center mb-4">
-        <img src="{{ url_for('static', filename='images/profile_pics/' + profile_user.photo) }}" class="rounded-circle mr-3" alt="{{ profile_user.username }}" width="80" height="80" style="object-fit: cover;">
+        <img src="{{ profile_user.photo|avatar_url }}" class="rounded-circle mr-3" alt="{{ profile_user.username }}" width="80" height="80" style="object-fit: cover;">
         <h2 class="mb-0">{{ profile_user.username }}</h2>
     </div>
 
@@ -15,22 +15,17 @@
                     <th>Gra</th>
                     <th>Miejsce</th>
                     <th>Rekord</th>
-                    <th>Ilość prób</th>
+                    <th>Liczba prób</th>
                     <th>Poprzednia edycja</th>
                 </tr>
             </thead>
             <tbody>
                 {% for game in stats %}
                 {% set place = game.current.place if game.current else None %}
-                <tr
-                    {% if place == 1 %} style="background-color: gold;"
-                    {% elif place == 2 %} style="background-color: silver;"
-                    {% elif place == 3 %} style="background-color: #cd7f32;"
-                    {% endif %}
-                >
+                <tr class="{{ 'hl-podium-%d' % place if place and place <= 3 }}">
                     <td><a href="{{ url_for(game.ranking) }}">{{ game.name }}</a></td>
                     {% if game.current %}
-                    <td>{{ game.current.place }} / {{ game.current.players }}</td>
+                    <td class="hl-place">{% if place <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][place - 1] }}</span>{% else %}{{ place }}{% endif %} / {{ game.current.players }}</td>
                     <td>{{ game.current.high_score }}</td>
                     <td>{{ game.current.attempts }}</td>
                     {% else %}

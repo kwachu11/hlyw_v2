@@ -17,7 +17,7 @@
                 {% for row in c.podium %}
                 <a href="{{ url_for('profil', user_id=row.id) }}" class="hl-podium-row text-body">
                     <span class="hl-medal">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>
-                    <img src="{{ url_for('static', filename='images/profile_pics/' + row.photo) }}" class="hl-avatar" width="32" height="32" alt="">
+                    <img src="{{ row.photo|avatar_url }}" class="hl-avatar" width="32" height="32" alt="">
                     <span>{{ row.username }}</span>
                     <span class="hl-score">{{ row.high_score }}</span>
                 </a>
@@ -45,14 +45,9 @@
             </thead>
             <tbody>
                 {% for user in overall %}
-                <tr
-                    {% if loop.index == 1 %} style="background-color: gold;"
-                    {% elif loop.index == 2 %} style="background-color: silver;"
-                    {% elif loop.index == 3 %} style="background-color: #cd7f32;"
-                    {% endif %}
-                >
-                    <td>{{ loop.index }}</td>
-                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ url_for('static', filename='images/profile_pics/' + user.photo) }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
+                <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}">
+                    <td class="hl-place">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
+                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
                     <td><strong>{{ user.points }}</strong></td>
                     <td>{{ user.gold }}</td>
                     <td>{{ user.podiums }}</td>
@@ -78,7 +73,7 @@
                     <div class="hl-leader-name">👑 {{ c.leader.username }}</div>
                     <div class="hl-leader-score">rekord: {{ c.leader.high_score }}</div>
                 </div>
-                <img src="{{ url_for('static', filename='images/profile_pics/' + c.leader.photo) }}" class="hl-avatar" width="40" height="40" alt="">
+                <img src="{{ c.leader.photo|avatar_url }}" class="hl-avatar" width="40" height="40" alt="">
             </a>
         </div>
         {% endfor %}

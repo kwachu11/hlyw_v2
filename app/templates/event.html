@@ -140,192 +140,157 @@
 
     <!-- ======================== TURNIEJ FIFA ======================== -->
     {% if fifa_mode %}
-    <hr>
-    <h2 class="mt-4">⚽ Turniej FIFA</h2>
-
-    {% if current_user.is_admin == "1" %}
-        <div class="mb-3">
-            {% if not tournament %}
-                <form action="{{ url_for('start_tournament', event_id=event.id) }}" method="POST">
-                    <button type="submit" class="btn btn-primary w-auto">🚀 Rozpocznij turniej</button>
-                </form>
-            {% elif tournament and tournament.started and not tournament.finished %}
-                <form action="{{ url_for('generate_knockout', event_id=event.id) }}" method="POST" class="d-inline">
-                    <button type="submit" class="btn btn-warning w-auto mb-1">🔀 Generuj półfinały</button>
-                </form>
-                <form action="{{ url_for('generate_final_route', event_id=event.id) }}" method="POST" class="d-inline">
-                    <button type="submit" class="btn btn-warning w-auto mb-1">🏆 Generuj finał</button>
-                </form>
-                <form action="{{ url_for('finish_tournament', event_id=event.id) }}" method="POST" class="d-inline">
-                    <button type="submit" class="btn btn-danger w-auto mb-1">🏁 Zakończ turniej</button>
-                </form>
-            {% endif %}
-        </div>
-    {% endif %}
-
-   {% for group in groups %}
-    <h4>Grupa {{ group.name }}</h4>
-
-    <h5>Tabela</h5>
+    {% set is_admin = current_user.is_admin != "0" %}
+    {% macro score_cell(match) -%}
+        {% if match.home_score is not none and match.away_score is not none %}
+            <strong>{{ match.home_score }} : {{ match.away_score }}</strong>
+        {% else %}
+            <span class="text-muted">–</span>
+        {% endif %}
+    {%- endmacro %}
+    {% macro score_form(match) -%}
+        <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex align-items-center hl-gap">
+            <input type="number" min="0" name="home_score" class="form-control form-control-sm hl-score-input" value="{{ match.home_score if match.home_score is not none }}" aria-label="Gole gospodarza">
+            <span>:</span>
+            <input type="number" min="0" name="away_score" class="form-control form-control-sm hl-score-input" value="{{ match.away_score if match.away_score is not none }}" aria-label="Gole gościa">
+            <button type="submit" class="btn btn-success btn-sm w-auto" title="Zapisz wynik">💾</button>
+        </form>
+    {%- endmacro %}
+    {% macro match_table(matches, editable) -%}
     <div class="table-responsive">
-    <table class="table table-sm table-bordered">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Zawodnik</th>
-                <th>P</th>
-                <th>W</th>
-                <th>R</th>
-                <th>Pp</th>
-                <th>Br+ </th>
-                <th>Br- </th>
-                <th>+/-</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in group.table %}
-<tr>
-    <td>{{ loop.index }}</td>  {# numer w tabeli, zaczyna od 1 #}
-    <td>{{ row.player.username }}</td>
-    <td>{{ row.points }}</td>
-    <td>{{ row.wins }}</td>
-    <td>{{ row.draws }}</td>
-    <td>{{ row.losses }}</td>
-    <td>{{ row.goals_for }}</td>
-    <td>{{ row.goals_against }}</td>
-    <td>{{ row.goal_diff }}</td>
-</tr>
-{% endfor %}
-        </tbody>
-    </table>
-    </div>
-
-    <!-- Tabela meczów grupy -->
-    <div class="table-responsive">
-    <table class="table table-bordered">
-        <thead>
+    <table class="table table-bordered hl-matches">
+        <thead class="thead-light">
             <tr>
                 <th>Gospodarz</th>
+                <th class="text-center">Wynik</th>
                 <th>Gość</th>
-                <th>Wynik</th>
-                {% if current_user.is_admin == "1" %}<th>Akcja</th>{% endif %}
+                {% if editable %}<th>Wpisz wynik</th>{% endif %}
             </tr>
         </thead>
         <tbody>
-            {% for match in group.matches %}
+            {% for match in matches %}
+            {% set done = match.home_score is not none and match.away_score is not none %}
             <tr>
-                <td>{{ match.home_player.username }}</td>
-                <td>{{ match.away_player.username }}</td>
-                <td>
-                    {% if match.home_score is not none and match.away_score is not none %}
-                        {{ match.home_score }} : {{ match.away_score }}
-                    {% else %}
-                        <span class="text-muted">Brak</span>
-                    {% endif %}
-                </td>
-                {% if current_user.is_admin == "1" %}
-                <td>
-                    <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex hl-gap">
-                        <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px" value="{{ match.home_score if match.home_score is not none }}">
-                        <input type="number" name="away_score" class="form-control form-control-sm" style="width:60px" value="{{ match.away_score if match.away_score is not none }}">
-                        <button type="submit" class="btn btn-success btn-sm w-auto">💾</button>
-                    </form>
-                </td>
-                {% endif %}
+                <td class="{{ 'font-weight-bold' if done and match.home_score > match.away_score }}">{{ match.home_player.username if match.home_player else '?' }}</td>
+                <td class="text-center">{{ score_cell(match) }}</td>
+                <td class="{{ 'font-weight-bold' if done and match.away_score > match.home_score }}">{{ match.away_player.username if match.away_player else '?' }}</td>
+                {% if editable %}<td>{{ score_form(match) }}</td>{% endif %}
             </tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
-{% endfor %}
+    {%- endmacro %}
 
-    {% if semifinals %}
-        <h3 class="mt-4">1/2 finału</h3>
+    <hr>
+    <h2 class="mt-4">⚽ Turniej FIFA</h2>
+
+    {% with timer_players = participants_names|selectattr('role', 'equalto', 'player')|list|length,
+            timer_advance = tournament.advance if tournament else 2,
+            timer_start = event.date.strftime('%H:%M') if event.date.hour or event.date.minute else '' %}
+        {% include '_fifa_timer.html' %}
+    {% endwith %}
+
+    {% if is_admin %}
+        <div class="mb-3">
+            {% if not tournament %}
+                <form action="{{ url_for('start_tournament', event_id=event.id) }}" method="POST" class="form-inline hl-gap">
+                    <label for="advance">Z grupy wychodzi:</label>
+                    <select name="advance" id="advance" class="custom-select custom-select-sm w-auto">
+                        <option value="2">2 → półfinały</option>
+                        <option value="4">4 → ćwierćfinały</option>
+                    </select>
+                    <button type="submit" class="btn btn-primary w-auto">🚀 Rozpocznij turniej (losowanie grup)</button>
+                </form>
+            {% elif not tournament.finished %}
+                <p class="small text-muted mb-2">Wpisuj wyniki — po rozegraniu wszystkich meczów grupowych drabinka ułoży się sama
+                    ({{ 'ćwierćfinały A1–B4, B2–A3, B1–A4, A2–B3' if tournament.advance == 4 else 'półfinały A1–B2, B1–A2' }}),
+                    a dalej kolejne rundy, finał i mecz o 3. miejsce. W fazie pucharowej nie ma remisów: wpisz wynik po karnych.</p>
+                {% if knockout_warning %}<div class="alert alert-warning py-2">{{ knockout_warning }}</div>{% endif %}
+                <div class="d-flex flex-wrap align-items-center hl-gap">
+                    <form action="{{ url_for('tournament_knockout', event_id=event.id) }}" method="POST" class="form-inline hl-gap">
+                        <label for="advance" class="small">Z grupy wychodzi:</label>
+                        <select name="advance" id="advance" class="custom-select custom-select-sm w-auto" onchange="this.form.submit()">
+                            <option value="2" {{ 'selected' if tournament.advance != 4 }}>2 → półfinały</option>
+                            <option value="4" {{ 'selected' if tournament.advance == 4 }}>4 → ćwierćfinały</option>
+                        </select>
+                    </form>
+                    {% if knockout %}
+                    <form action="{{ url_for('tournament_knockout', event_id=event.id) }}" method="POST" onsubmit="return confirm('Skasować wszystkie mecze pucharowe razem z wynikami? Ułożą się od nowa z tabel grup.')">
+                        <button name="action" value="reset" class="btn btn-outline-warning btn-sm w-auto">♻️ Resetuj fazę pucharową</button>
+                    </form>
+                    {% endif %}
+                    <form action="{{ url_for('finish_tournament', event_id=event.id) }}" method="POST" onsubmit="return confirm('Zakończyć turniej? Wyników nie będzie można już zmieniać.')">
+                        <button type="submit" class="btn btn-outline-danger btn-sm w-auto">🏁 Zakończ turniej</button>
+                    </form>
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+    {% set is_admin = is_admin and not (tournament and tournament.finished) %}
+
+    {% if podium %}
+        <div class="hl-podium mb-4">
+            {% for place, u in podium %}
+            <div class="hl-podium-place hl-podium-{{ place }}">
+                <div class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][place - 1] }}</div>
+                <img src="{{ u.photo|avatar_url }}" class="rounded-circle" width="56" height="56" alt="" style="object-fit: cover;">
+                <div class="font-weight-bold">{{ u.username }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if tournament and not groups %}
+        <p class="text-muted">Turniej nie ma jeszcze grup.</p>
+    {% endif %}
+
+    <div class="row">
+    {% for group in groups %}
+    <div class="{{ 'col-12' if is_admin else 'col-lg-6' }} mb-3">
+        <h4>Grupa {{ group.name }}</h4>
         <div class="table-responsive">
-        <table class="table table-bordered">
-            <thead>
+        <table class="table table-sm table-bordered hl-group-table">
+            <thead class="thead-light">
                 <tr>
-                    <th>Gospodarz</th>
-                    <th>Gość</th>
-                    <th>Wynik</th>
-                    {% if current_user.is_admin == "1" %}<th>Akcja</th>{% endif %}
+                    <th>#</th>
+                    <th>Zawodnik</th>
+                    <th title="Punkty">Pkt</th>
+                    <th title="Wygrane">W</th>
+                    <th title="Remisy">R</th>
+                    <th title="Porażki">P</th>
+                    <th title="Bramki">Bramki</th>
+                    <th title="Różnica bramek">+/-</th>
                 </tr>
             </thead>
             <tbody>
-                {% for match in semifinals %}
-                <tr>
-                    <td>{{ match.home_player.username }}</td>
-                    <td>{{ match.away_player.username }}</td>
-                    <td>
-                        {% if match.home_score is not none and match.away_score is not none %}
-                            {{ match.home_score }} : {{ match.away_score }}
-                        {% else %}
-                            <span class="text-muted">Brak</span>
-                        {% endif %}
-                    </td>
-                    {% if current_user.is_admin == "1" %}
-                    <td>
-                        <form action="{{ url_for('update_match', match_id=match.id) }}" method="POST" class="d-flex hl-gap">
-                            <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px"
-                                   value="{{ match.home_score if match.home_score is not none }}">
-                            <input type="number" name="away_score" class="form-control form-control-sm" style="width:60px"
-                                   value="{{ match.away_score if match.away_score is not none }}">
-                            <button type="submit" class="btn btn-success btn-sm w-auto">💾</button>
-                        </form>
-                    </td>
-                    {% endif %}
+                {% for row in group.table %}
+                <tr class="{{ 'hl-advance' if loop.index <= (tournament.advance or 2) }}">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ row.player.username }}</td>
+                    <td><strong>{{ row.points }}</strong></td>
+                    <td>{{ row.wins }}</td>
+                    <td>{{ row.draws }}</td>
+                    <td>{{ row.losses }}</td>
+                    <td>{{ row.goals_for }}:{{ row.goals_against }}</td>
+                    <td>{{ '%+d' % row.goal_diff if row.goal_diff else 0 }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         </div>
-    {% endif %}
+        <details {{ 'open' if is_admin }}>
+            <summary class="mb-2">Mecze grupy {{ group.name }} ({{ group.match_list|selectattr('home_score', 'ne', none)|list|length }}/{{ group.match_list|length }})</summary>
+            {{ match_table(group.match_list, is_admin) }}
+        </details>
+    </div>
+    {% endfor %}
+    </div>
 
-    {% if final %}
-        <h3 class="mt-4">Finał</h3>
-        <div class="table-responsive">
-        <table class="table table-bordered">
-            <thead>
-                <tr>
-                    <th>Gospodarz</th>
-                    <th>Gość</th>
-                    <th>Wynik</th>
-                    {% if current_user.is_admin == "1" %}<th>Akcja</th>{% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>{{ final.home_player.username }}</td>
-                    <td>{{ final.away_player.username }}</td>
-                    <td>
-                        {% if final.home_score is not none and final.away_score is not none %}
-                            {{ final.home_score }} : {{ final.away_score }}
-                        {% else %}
-                            <span class="text-muted">Brak</span>
-                        {% endif %}
-                    </td>
-                    {% if current_user.is_admin == "1" %}
-                    <td>
-                        <form action="{{ url_for('update_match', match_id=final.id) }}" method="POST" class="d-flex hl-gap">
-                            <input type="number" name="home_score" class="form-control form-control-sm" style="width:60px"
-                                   value="{{ final.home_score if final.home_score is not none }}">
-                            <input type="number" name="away_score" class="form-control form-control-sm" style="width:60px"
-                                   value="{{ final.away_score if final.away_score is not none }}">
-                            <button type="submit" class="btn btn-success btn-sm w-auto">💾</button>
-                        </form>
-                    </td>
-                    {% endif %}
-                </tr>
-            </tbody>
-        </table>
-        </div>
-    {% endif %}
-
-    {% if winner %}
-        <div class="alert alert-success mt-4">
-            🏆 Zwycięzcą turnieju jest <b>{{ winner.username }}</b>!
-        </div>
-    {% endif %}
+    {% for round_name, matches in knockout %}
+        <h3 class="mt-3">{{ {'1/4 finału': '🎯 Ćwierćfinały', '1/2 finału': '⚔️ Półfinały', 'o 3. miejsce': '🥉 Mecz o 3. miejsce', 'finał': '🏆 Finał'}[round_name] }}</h3>
+        {{ match_table(matches, is_admin) }}
+    {% endfor %}
 
     {% endif %}
 </div>

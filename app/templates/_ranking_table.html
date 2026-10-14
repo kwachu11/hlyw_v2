@@ -2,26 +2,21 @@
     <table class="table table-bordered table-hover">
         <thead class="thead-light">
             <tr>
-                <th>Miejsce</th>
+                <th>#</th>
                 <th>Użytkownik</th>
-                <th>Ilość prób</th>
-                <th>Zdobytych punktów</th>
+                <th>Liczba prób</th>
+                <th class="d-none d-sm-table-cell">Zdobytych punktów</th>
                 <th>Rekord</th>
             </tr>
         </thead>
         <tbody>
             {% for user in ranking_data %}
-            <tr
-                {% if loop.index == 1 %} style="background-color: gold;"
-                {% elif loop.index == 2 %} style="background-color: silver;"
-                {% elif loop.index == 3 %} style="background-color: #cd7f32;"
-                {% endif %}
-            >
-                <td>{{ loop.index }}</td>
-                <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="static/images/profile_pics/{{ user.photo }}" class="rounded-circle" alt="User" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
+            <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}">
+                <td class="hl-place">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
+                <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
                 <td>{{ user.attempts }}</td>
-                <td>{{ user.total_points }}</td>
-                <td>{{ user.high_score }}</td>
+                <td class="d-none d-sm-table-cell">{{ user.total_points }}</td>
+                <td><strong>{{ user.high_score }}</strong></td>
             </tr>
             {% else %}
             <tr>
@@ -30,7 +25,7 @@
             {% endfor %}
         </tbody>
     </table>
-    <div class="d-flex justify-content-end mt-3">
-        <strong>Rozegranych gier:&nbsp;</strong> {{ rozegranych_gier }}
-    </div>
+</div>
+<div class="d-flex justify-content-end mb-3">
+    <strong>Rozegranych gier:&nbsp;</strong> {{ rozegranych_gier }}
 </div>

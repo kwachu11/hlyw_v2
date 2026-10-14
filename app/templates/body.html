@@ -1,9 +1,20 @@
 <div class="content" >
-        <div class="marquee">
-        <div class="marquee-content">
-            PILNE!!! Witamy na stronie hlyw.pl v2! | Strona w wersji testowej!
-        </div>
+    {% set marquee_text = '🔥 Witaj na hlyw.pl v2! 🔥 | Nowy wygląd, nowe gry i stare rankingi wróciły — sprawdź, czy wciąż jesteś na szczycie! 🏆' %}
+    <div class="marquee" id="hl-marquee" data-key="{{ marquee_text }}">
+        <div class="marquee-content">{{ marquee_text }}</div>
+        <button type="button" class="close hl-marquee-close" aria-label="Ukryj pasek">&times;</button>
     </div>
+    <script>
+    // ukryty pasek wraca dopiero, gdy zmieni się jego treść
+    (function () {
+        var bar = document.getElementById('hl-marquee'), key = 'hl-marquee-hidden';
+        try { if (localStorage.getItem(key) === bar.dataset.key) bar.remove(); } catch (e) {}
+        bar.querySelector('.hl-marquee-close').addEventListener('click', function () {
+            bar.remove();
+            try { localStorage.setItem(key, bar.dataset.key); } catch (e) {}
+        });
+    })();
+    </script>
 
     <div class="hl-hero mt-3 mb-3">
         <h1>Witaj na stronie hlyw.pl</h1>
@@ -43,7 +54,7 @@
 
     <div class="row">
         <div class="{{ 'col-lg-8' if stats else 'col-12' }}">
-            <div id="carouselExample" class="carousel slide" data-ride="carousel">
+            <div id="carouselExample" class="carousel slide hl-carousel" data-ride="carousel">
                 <div class="carousel-inner">
                     {% for image in images %}
                     <div class="carousel-item {% if loop.first %}active{% endif %}">
@@ -65,7 +76,7 @@
             <div class="hl-section-title">Liderzy gier <small class="text-muted font-weight-normal">· <a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></small></div>
             <div class="row">
                 {% for item in leaders %}
-                <div class="col-sm-6 col-xl-4 mb-3">
+                <div class="col-6 col-xl-4 mb-3">
                     <a href="{{ url_for(item.game.ranking) }}" class="hl-leader">
                         <img src="{{ url_for('static', filename=item.game.icon) }}" class="hl-game-icon" alt="{{ item.game.name }}">
                         <div class="flex-grow-1">
@@ -79,7 +90,7 @@
                             {% endif %}
                         </div>
                         {% if item.leader %}
-                        <img src="{{ url_for('static', filename='images/profile_pics/' + item.leader.photo) }}" class="hl-avatar" width="40" height="40" alt="">
+                        <img src="{{ item.leader.photo|avatar_url }}" class="hl-avatar d-none d-sm-block" width="40" height="40" alt="">
                         {% endif %}
                     </a>
                 </div>
@@ -116,7 +127,7 @@
                     {% if viewers %}
                     <div class="hl-viewers">
                         {% for u in viewers %}
-                        <img src="{{ url_for('static', filename='images/profile_pics/' + u.photo) }}" title="{{ u.username }}" alt="{{ u.username }}">
+                        <img src="{{ u.photo|avatar_url }}" title="{{ u.username }}" alt="{{ u.username }}">
                         {% endfor %}
                     </div>
                     {% else %}
@@ -149,7 +160,7 @@
     <div class="hl-section-title">Breaking News <small class="text-muted font-weight-normal">· <a href="{{ url_for('news') }}">wszystkie</a></small></div>
     <div class="row">
         {% for n in latest_news %}
-        <div class="col-md-4 mb-4">
+        <div class="{{ 'col-md-6' if latest_news|length < 3 else 'col-md-4' }} mb-4">
             <div class="card h-100">
                 <img src="{{ n.file_path|media_url }}" class="card-img-top" alt="{{ n.title }}" style="height: 180px; object-fit: cover;">
                 <div class="card-body">
