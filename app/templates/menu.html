@@ -42,12 +42,18 @@
             </li>
             {% if current_user.is_authenticated %}
                 <li class="nav-item">
+                    <a class="nav-link hl-cash" href="{{ url_for('hall_of_fame') }}"
+                       title="Kasa: 1,000 $ za każdy punkt w rankingu ogólnym Hall of Fame + 10 $ za każdą grę">
+                        $<span id="hl-cash" data-cash="{{ my_cash }}">{{ my_cash|money }}</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('logout') }}">Wyloguj</a>
                 </li>
                 <li class="nav-item user-profile">
                     <a href="{{ url_for('user_settings') }}" class="d-flex align-items-center" title="Ustawienia konta">
                         <img src="{{ current_user.photo|avatar_url }}" class="rounded-circle" alt="" width="40" height="40" style="object-fit: cover;">
-                        <span class="d-xl-none ml-2 text-light">{{ current_user.username }} · ustawienia</span>
+                        <span class="d-xl-none ml-2 text-light">{{ current_user.username }}{{ crown(current_user.id) }} · ustawienia</span>
                     </a>
                 </li>
             {% else %}

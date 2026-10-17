@@ -179,6 +179,7 @@ function check(){
     buzz(20);
   } else if (w.who === 'O') {
     title = 'Porażka'; text = series ? 'Koniec serii. Wynik: ' + series : 'Komputer wygrał tę partię.';
+    if (window.gta) (series > best) ? gta.passed('Nowy rekord serii', series) : gta.wasted(series ? 'Seria' : 'Komputer wygrał', series || null);
     buzz([60, 40, 100]);
     if (series > 0) finishSeries();
     else resetSeries();
@@ -198,15 +199,15 @@ function finishSeries(){
   if (isRecord) best = s;
   setSaveMsg((isRecord ? 'Nowy rekord! ' : '') + 'Zapisywanie wyniku…');
   save(s, false, isRecord);
+  hlRun.start('kolko_krzyzyk');   // następna seria = nowy bilet
   resetSeries();
 }
 
 function resetSeries(){ series = 0; wins = 0; draws = 0; updateScore(); }
 
 function save(s, beacon, isRecord){
-  const body = JSON.stringify({score:s});
-  if (beacon && navigator.sendBeacon) { navigator.sendBeacon(SAVE_URL, new Blob([body], {type:'application/json'})); return; }
-  fetch(SAVE_URL, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body})
+  if (beacon && navigator.sendBeacon) { navigator.sendBeacon(SAVE_URL, new Blob([hlRun.body(s)], {type:'application/json'})); return; }
+  hlRun.send(SAVE_URL, s)
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(d => { if (d && d.best != null) best = Math.max(best, d.best); setSaveMsg((isRecord ? 'Nowy rekord! ' : '') + 'Wynik zapisany ✓'); updateScore(); })
     .catch(() => setSaveMsg('Nie udało się zapisać wyniku'));
@@ -272,7 +273,7 @@ addEventListener('pagehide', () => { if (series > 0) { save(series, true); reset
 
 function buzz(p){ if (navigator.vibrate && matchMedia('(pointer:coarse)').matches) try { navigator.vibrate(p); } catch (e) {} }
 
-updateScore(); newGame();
+updateScore(); newGame(); hlRun.start('kolko_krzyzyk');
 })();
 </script>
 {% endblock %}

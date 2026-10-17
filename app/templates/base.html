@@ -7,11 +7,20 @@
 
     <title>hlyw.pl</title>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <meta name="theme-color" content="#000000">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preload" href="{{ url_for('static', filename='css/fonts/pricedown.otf') }}" as="font" type="font/otf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/gta.css') }}">
 
         <!-- Bootstrap JS i jQuery -->
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/gta.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/game_run.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/upload_resize.js') }}" defer></script>
     <script>
     // Brakujący obrazek: awatar -> domyślny, reszta -> szare tło zamiast ikonki i alt-tekstu.
     // Nasłuch w fazie przechwytywania, bo zdarzenie "error" obrazków nie bąbelkuje.
@@ -32,6 +41,30 @@
 
 </head>
 <body class="hl-body">
+    {% if loading_screen %}
+    {# ekran ładowania jak w GTA V - raz na sesję, klik/klawisz zamyka od razu #}
+    <div class="gta-loading" id="gta-loading" role="presentation">
+        <img class="gta-loading-photo" src="{{ loading_screen.photo|media_url }}" alt="" onerror="this.onerror = function () { this.remove(); }; this.src = '{{ url_for('static', filename='images/hlyw_2.jpg') }}';">
+        <div class="gta-loading-shade"></div>
+        <div class="gta-loading-logo">hlyw.pl</div>
+        <div class="gta-loading-tip"><b>Wskazówka:</b> {{ loading_screen.tip }}</div>
+        <div class="gta-loading-spinner"><span></span>Ładowanie</div>
+    </div>
+    <script>
+    (function () {
+        var el = document.getElementById('gta-loading'), done = false;
+        function hide() {
+            if (done) return; done = true;
+            el.classList.add('out');
+            setTimeout(function () { el.remove(); }, 600);
+            removeEventListener('keydown', hide);
+        }
+        el.addEventListener('click', hide);
+        addEventListener('keydown', hide);
+        setTimeout(hide, 2200);
+    })();
+    </script>
+    {% endif %}
     {% include 'menu.html' %}  <!-- Dodajemy menu do szablonu bazowego -->
 
     <div class="container mt-4 mb-4 hl-main">

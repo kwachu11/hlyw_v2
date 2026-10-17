@@ -1,7 +1,7 @@
 
 @font-face {
     font-family: 'Pricedown';
-    src: url('fonts/pricedown.otf)') format('truetype'); /* Zmień ścieżkę na odpowiednią */
+    src: url('fonts/pricedown.otf') format('opentype');
 }
 
 .gta-font {

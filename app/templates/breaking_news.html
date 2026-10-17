@@ -6,7 +6,7 @@
         {% if author %}
         <a href="{{ url_for('profil', user_id=author.id) }}">
             <img src="{{ author.photo|avatar_url }}" class="hl-avatar" width="24" height="24" alt="">
-            {{ author.username }}
+            {{ author.username }}{{ crown(author.id) }}
         </a> ·
         {% endif %}
         {{ n.created_at|when }}

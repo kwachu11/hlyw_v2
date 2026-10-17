@@ -17,6 +17,7 @@ from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort
+from markupsafe import Markup
 from flask_login import login_user, logout_user, login_required, current_user, LoginManager, UserMixin
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
@@ -79,6 +80,43 @@ ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 
 ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
 
 NEWS_REACTIONS = ['👍', '😂', '🔥', '😮', '💀']
+
+# Ochrona rankingów (zgłoszenie #22 - ktoś wysyłał tysiące wymyślonych wyników do Dino).
+# Gra przy starcie dostaje jednorazowy bilet (GameRun), a zapis wyniku musi go oddać.
+# Wynik nie może być większy niż: zapas + tempo * sekundy od startu (tempa z dużym zapasem
+# względem tego, co da się realnie wyciągnąć w danej grze).
+GAME_SCORE_LIMITS = {          # gra: (zapas, punktów na sekundę)
+    'snake': (5, 6),           # 1 pkt za jabłko
+    'tetris': (2000, 400),     # linie x poziom + punkty za twarde zrzucanie
+    'dino': (100, 125),        # wynik = dystans / 8, maks. prędkość 920 px/s -> 115 pkt/s
+    'ice_tower': (1000, 1500), # piętra + kombo (kwadrat długości)
+    'kolko_krzyzyk': (5, 3),   # maks. 5 pkt za wygraną partię na trudnym
+    'formula': (10, 20),
+}
+# Kasa w stylu GTA (pasek w menu): za punkt w rankingu ogólnym Hall of Fame i za każdą rozegraną grę
+CASH_PER_HOF_POINT = 1000
+CASH_PER_GAME = 10
+# "Gwiazdki poszukiwania" (1-5) za aktywność z ostatnich 7 dni: punkty za akcję i progi gwiazdek
+WANTED_DAYS = 7
+WANTED_WEIGHTS = {'gry': 1, 'czat': 2, 'zdjęcia': 1, 'newsy': 5, 'komentarze': 2, 'wydarzenia': 5}
+WANTED_THRESHOLDS = [1, 15, 40, 100, 200]
+# Ekran ładowania jak w GTA V (raz na sesję przeglądarki): losowe zdjęcie z galerii + wskazówka
+LOADING_TIPS = [
+    'Pobij rekord w dowolnej grze, a dostaniesz „misja zaliczona” i kasę na koncie.',
+    'TOP 3 rankingu ogólnego Hall of Fame nosi koronę przy nicku.',
+    'Za każdy punkt w Hall of Fame wpada 1,000 $, za każdą grę 10 $.',
+    'Im więcej piszesz, grasz i wrzucasz zdjęć, tym więcej gwiazdek poszukiwania.',
+    'Gwiazdki poszukiwania gasną, jeśli przez tydzień nic nie robisz.',
+    'Coś nie działa? Zgłoś to w Dodatki → Zgłoszenia.',
+    'Na kamerze widać, kto akurat ogląda.',
+    'W kalendarzu zapiszesz się na turniej FIFA i Trackmanię.',
+    'Kliknij nick w rankingu, żeby zobaczyć profil gracza.',
+    'Reakcje pod newsami: 👍 😂 🔥 😮 💀 - wybierz mądrze.',
+]
+# Turniej Trackmania (wydarzenie z "trackmania" w tytule): punkty za miejsce na każdej trasie, jak w F1
+TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+GAME_RUN_MAX_AGE = timedelta(hours=6)   # dłużej nikt nie gra jednej partii
+GAME_RUN_STARTS_PER_MINUTE = 40
 # Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
 UPGRADE_NEW_DAYS = 14
 # Statusy zgłoszeń: wartość w bazie -> (etykieta, klasa plakietki Bootstrapa). Zmienia je admin.
@@ -88,6 +126,27 @@ REPORT_STATUSES = {
     'zrobione': ('Zrobione', 'badge-success'),
     'odrzucone': ('Odrzucone', 'badge-secondary'),
 }
+
+
+def parse_tm_time(text):
+    """'1:02.345', '62.345', '62,3' albo '1:02' -> milisekundy; None, gdy format jest zły."""
+    m = re.fullmatch(r'\s*(?:(\d{1,2}):)?(\d{1,3})(?:[.,](\d{1,3}))?\s*', text or '')
+    if not m:
+        return None
+    minutes, seconds, fraction = int(m.group(1) or 0), int(m.group(2)), (m.group(3) or '0').ljust(3, '0')
+    if m.group(1) and seconds >= 60:
+        return None
+    total = (minutes * 60 + seconds) * 1000 + int(fraction)
+    return total if total > 0 else None
+
+
+def format_tm_time(ms):
+    """62345 -> '1:02.345', 9876 -> '9.876'."""
+    if ms is None:
+        return '–'
+    minutes, rest = divmod(int(ms), 60000)
+    seconds, millis = divmod(rest, 1000)
+    return f'{minutes}:{seconds:02d}.{millis:03d}' if minutes else f'{seconds}.{millis:03d}'
 
 
 def to_local(dt):
@@ -505,6 +564,14 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
+    class GameRun(db.Model):
+        """Jednorazowy bilet na jedną partię gry - patrz GAME_SCORE_LIMITS."""
+        id = db.Column(db.String(32), primary_key=True)
+        user_id = db.Column(db.Integer, nullable=False, index=True)
+        game = db.Column(db.String(30), nullable=False)
+        started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+        used = db.Column(db.Boolean, nullable=False, default=False)
+
     # Quiz na żywo: admin układa pytania i prowadzi quiz pytanie po pytaniu, gracze odpowiadają z telefonów.
     # (Stare tabele quiz_question / quiz_answer / quiz_participant zostają w bazie, ale nie są już używane.)
     class Quiz(db.Model):
@@ -584,6 +651,23 @@ def create_app():
         home_player = db.relationship('User', foreign_keys=[home_player_id])
         away_player = db.relationship('User', foreign_keys=[away_player_id])
 
+    class TmTrack(db.Model):
+        """Trasa w turnieju Trackmania (wydarzenie z "trackmania" w tytule)."""
+        id = db.Column(db.Integer, primary_key=True)
+        event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'), nullable=False, index=True)
+        name = db.Column(db.String(100), nullable=False)
+        times = db.relationship('TmTime', backref='track', cascade='all, delete-orphan')
+
+    class TmTime(db.Model):
+        """Czas gracza na trasie - jeden na gracza i trasę, nowy wpis zastępuje stary."""
+        id = db.Column(db.Integer, primary_key=True)
+        track_id = db.Column(db.Integer, db.ForeignKey('tm_track.id'), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        time_ms = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        user = db.relationship('User')
+        __table_args__ = (db.UniqueConstraint('track_id', 'user_id'),)
+
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     # Kilka workerów (gunicorn) startuje naraz i każdy woła create_all - gdy dwa jednocześnie
     # zobaczą brak nowej tabeli, drugi dostaje "table already exists". Wtedy ponawiamy:
@@ -643,6 +727,7 @@ def create_app():
         return re.sub(r'<br\s*/?>', '\n', text or '', flags=re.IGNORECASE)
 
     app.add_template_filter(when_label, 'when')
+    app.add_template_filter(format_tm_time, 'tm_time')
 
     @app.context_processor
     def inject_upgrade_badge():
@@ -659,6 +744,18 @@ def create_app():
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
+
+    @app.errorhandler(404)
+    def page_not_found(e):
+        return render_template('error.html', code=404, message='Tej strony nie ma — zgubiłeś się w Los Santos.'), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        db.session.rollback()
+        try:
+            return render_template('error.html', code=500, message='Coś wybuchło po stronie serwera. Spróbuj za chwilę.'), 500
+        except Exception:
+            return 'WASTED — błąd serwera (500)', 500
 
     @app.route('/')
     def index():
@@ -716,10 +813,26 @@ def create_app():
     def login():
         form = LoginForm()
         if form.validate_on_submit():
-            user = User.query.filter_by(username=form.username.data).first()
-            if not user or not is_password_hash(user.password) \
-                    or not check_password_hash(user.password, form.password.data):
-                flash('Niepoprawna nazwa użytkownika lub hasło', 'danger')
+            login, password = form.username.data.strip(), form.password.data
+
+            def password_ok(u):
+                return is_password_hash(u.password) and check_password_hash(u.password, password)
+
+            user = User.query.filter_by(username=login).first()
+            if user and not password_ok(user):
+                user = None
+            if not user and '@' in login:
+                # Logowanie e-mailem (zgłoszenie #10). Jeden e-mail może mieć kilka kont - wpuszczamy na to,
+                # do którego pasuje hasło; gdy pasuje do kilku, trzeba podać nazwę użytkownika.
+                matches = [u for u in User.query.filter(func.lower(func.trim(User.email)) == login.lower()).all()
+                           if password_ok(u)]
+                if len(matches) > 1:
+                    flash('Na ten e-mail jest kilka kont z tym samym hasłem - zaloguj się nazwą użytkownika: '
+                          + ', '.join(u.username for u in matches), 'warning')
+                    return render_template('login.html', form=form)
+                user = matches[0] if matches else None
+            if not user:
+                flash('Niepoprawna nazwa użytkownika / e-mail lub hasło', 'danger')
             else:
                 login_user(user)
                 next_page = request.args.get('next') or request.form.get('next')
@@ -950,6 +1063,7 @@ def create_app():
         owner = User.query.get(event.created_by)
 
         fifa_mode = "fifa" in event.title.lower()
+        tm = trackmania_data(event) if "trackmania" in event.title.lower() else None
         czy_zapisany = False
         participants_names = []
 
@@ -1027,6 +1141,7 @@ def create_app():
             knockout=knockout if fifa_mode else [],
             podium=podium if fifa_mode else [],
             knockout_warning=knockout_warning if fifa_mode else None,
+            tm=tm,
         )
 
     @app.route('/camera')
@@ -1099,11 +1214,13 @@ def create_app():
 
         for msg in messages:
             user = msg.user  # Dostęp do użytkownika powiązanego z wiadomością
+            place = standings().get(user.id, {}).get('place')
             messages_data.append({
                 "content": msg.content,
                 "timestamp": msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                 "time": when_label(msg.timestamp),
                 "username": user.username,  # Dodajemy nazwę użytkownika
+                "crown": place if place and place <= 3 else None,  # korona TOP 1-3 Hall of Fame
                 "photo": user.photo  # Dodajemy zdjęcie użytkownika
             })
 
@@ -1271,6 +1388,40 @@ def create_app():
 
         return render_template('uzytkownicy.html', users_stats=users_stats)
 
+    @app.route('/game_run/<game>', methods=['POST'])
+    @login_required
+    def game_run_start(game):
+        """Gra woła to przy starcie partii i dostaje bilet, który odda razem z wynikiem."""
+        if game not in GAME_SCORE_LIMITS:
+            abort(404)
+        now = datetime.utcnow()
+        recent = GameRun.query.filter(GameRun.user_id == current_user.id,
+                                      GameRun.started_at >= now - timedelta(minutes=1)).count()
+        if recent >= GAME_RUN_STARTS_PER_MINUTE:
+            return jsonify({'ok': False, 'error': 'Za dużo gier naraz - zwolnij trochę.'}), 429
+        GameRun.query.filter(GameRun.started_at < now - GAME_RUN_MAX_AGE).delete()
+        run = GameRun(id=uuid.uuid4().hex, user_id=current_user.id, game=game, started_at=now)
+        db.session.add(run)
+        db.session.commit()
+        return jsonify({'ok': True, 'run': run.id})
+
+    def check_game_run(game, score, data):
+        """Sprawdza bilet z zapisu wyniku i od razu go zużywa. Zwraca opis błędu albo None."""
+        run = GameRun.query.get(str(data.get('run') or ''))
+        if not run or run.user_id != current_user.id or run.game != game:
+            return 'Brak biletu gry - odśwież stronę i zagraj jeszcze raz.'
+        if run.used:
+            return 'Ten wynik został już zapisany.'
+        run.used = True
+        db.session.commit()
+        elapsed = (datetime.utcnow() - run.started_at).total_seconds()
+        base, per_second = GAME_SCORE_LIMITS[game]
+        if elapsed > GAME_RUN_MAX_AGE.total_seconds() or score > base + per_second * elapsed:
+            app.logger.warning('Odrzucony wynik %s: user=%s score=%s czas=%.0fs', game, current_user.id, score, elapsed)
+            return 'Ten wynik wygląda na niemożliwy - nie został zapisany.'
+        standings_cache['data'] = None   # wynik zaraz się zapisze - kasa i korony do przeliczenia
+        return None
+
     @app.route('/snake', methods=['GET', 'POST'])
     @login_required
     def snake():
@@ -1285,6 +1436,10 @@ def create_app():
             score = max(0, int(data.get('score', 0)))
         except (TypeError, ValueError):
             return jsonify({'ok': False}), 400
+
+        error = check_game_run('snake', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
 
         new_game = Snake(points=score, created_by=current_user.id)
         db.session.add(new_game)
@@ -1337,6 +1492,10 @@ def create_app():
         except (TypeError, ValueError):
             return jsonify({'ok': False}), 400
 
+        error = check_game_run('tetris', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+
         new_game = Tetris(points=score, created_by=current_user.id)
         db.session.add(new_game)
         db.session.commit()
@@ -1352,6 +1511,10 @@ def create_app():
             score = max(0, int(data.get('score', 0)))
         except (TypeError, ValueError):
             return jsonify({'ok': False}), 400
+
+        error = check_game_run('dino', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
 
         new_game = Dino(points=score, created_by=current_user.id)
         db.session.add(new_game)
@@ -1429,7 +1592,7 @@ def create_app():
             stats.append({'name': game['name'], 'ranking': game['ranking'], 'has_editions': game['previous'] is not None,
                           'current': player_place(game['model'], game['current'], user.id),
                           'previous': player_place(game['model'], game['previous'], user.id) if game['previous'] is not None else None})
-        return render_template('profil.html', profile_user=user, stats=stats)
+        return render_template('profil.html', profile_user=user, stats=stats, profile_cash=user_cash(user.id))
 
     def overall_ranking(rankings):
         """Ranking ogólny: za miejsca 1-10 w każdej grze 10, 9, ... 1 pkt."""
@@ -1458,6 +1621,156 @@ def create_app():
         return render_template('hall_of_fame.html', champions=champions,
                                previous_champions=previous_champions, overall=overall_ranking(rankings),
                                edition_start=CURRENT_EDITION_START)
+
+    standings_cache = {'at': 0, 'data': None}
+
+    def standings():
+        """{user_id: {'place', 'points', 'games', 'cash'}} z rankingu ogólnego Hall of Fame (bieżąca edycja).
+        Liczone najwyżej raz na minutę na workera - korona i kasa są w menu na każdej stronie."""
+        if standings_cache['data'] is not None and time.time() - standings_cache['at'] < 60:
+            return standings_cache['data']
+        rankings, result = [], {}
+        for game in game_catalog():
+            ranking_data, _ = game_ranking(game['model'], game['current'])
+            rankings.append(ranking_data)
+            for row in ranking_data:
+                entry = result.setdefault(row.id, {'place': None, 'points': 0, 'games': 0})
+                entry['games'] += row.attempts
+        for place, entry in enumerate(overall_ranking(rankings), 1):
+            result[entry['id']].update(place=place, points=entry['points'])
+        for entry in result.values():
+            entry['cash'] = CASH_PER_HOF_POINT * entry['points'] + CASH_PER_GAME * entry['games']
+        standings_cache.update(at=time.time(), data=result)
+        return result
+
+    def user_cash(user_id):
+        return standings().get(user_id, {}).get('cash', 0)
+
+    @app.template_global('crown')
+    def crown(user_id):
+        """Korona przy nicku dla TOP 1-3 rankingu ogólnego Hall of Fame (zgłoszenie #20)."""
+        try:
+            place = standings().get(int(user_id), {}).get('place')
+        except (TypeError, ValueError):
+            return ''
+        if not place or place > 3:
+            return ''
+        return Markup(f'<span class="hl-crown hl-crown-{place}" title="{place}. miejsce w Hall of Fame">👑</span>')
+
+    @app.template_filter('money')
+    def money(value):
+        """1234567 -> 1,234,567 (jak kasa w GTA)."""
+        return f'{int(value or 0):,}'
+
+    @app.context_processor
+    def inject_loading_screen():
+        """Ekran ładowania tylko przy pierwszej stronie w sesji przeglądarki (flaga w ciasteczku sesji)."""
+        if session.get('intro_seen') or request.method != 'GET' or request.blueprint or                 (request.endpoint or 'static') == 'static' or request.path.startswith('/api'):
+            return {}
+        session['intro_seen'] = True
+        photo = Images.query.filter(db.or_(*[Images.file_path.ilike('%.' + ext) for ext in
+                                             ('jpg', 'jpeg', 'png', 'webp')])).order_by(func.random()).first()
+        return {'loading_screen': {'photo': photo.file_path if photo else 'static/images/hlyw_2.jpg',
+                                   'tip': random.choice(LOADING_TIPS)}}
+
+    @app.context_processor
+    def inject_cash():
+        if not current_user.is_authenticated:
+            return {}
+        return {'my_cash': user_cash(current_user.id)}
+
+    wanted_cache = {'at': 0, 'data': None}
+
+    def wanted_levels():
+        """{user_id: (gwiazdki 0-5, punkty aktywności)} z ostatnich WANTED_DAYS dni, liczone raz na minutę."""
+        if wanted_cache['data'] is not None and time.time() - wanted_cache['at'] < 60:
+            return wanted_cache['data']
+        since = datetime.utcnow() - timedelta(days=WANTED_DAYS)
+        activity = {}
+
+        def add(kind, rows):
+            for user_id, count in rows:
+                try:
+                    user_id = int(user_id)
+                except (TypeError, ValueError):
+                    continue
+                activity[user_id] = activity.get(user_id, 0) + WANTED_WEIGHTS[kind] * count
+
+        def count_by(column, date_column):
+            return db.session.query(column, func.count()).filter(date_column >= since).group_by(column).all()
+
+        for game in game_catalog():
+            add('gry', count_by(game['model'].created_by, game['model'].created_at))
+        add('czat', count_by(Message.user_id, Message.timestamp))
+        add('zdjęcia', count_by(Images.created_by, Images.created_at))
+        add('newsy', count_by(News.created_by, News.created_at))
+        add('komentarze', count_by(Comment.user_id, Comment.created_at))
+        add('wydarzenia', count_by(Calendar.created_by, Calendar.created_at))
+        result = {user_id: (sum(points >= t for t in WANTED_THRESHOLDS), points) for user_id, points in activity.items()}
+        wanted_cache.update(at=time.time(), data=result)
+        return result
+
+    @app.template_global('wanted_stars')
+    def wanted_stars(user_id):
+        """Gwiazdki poszukiwania jak w GTA V: zapalone ★ + szare ★, razem 5."""
+        level, points = wanted_levels().get(int(user_id), (0, 0))
+        return Markup(f'<span class="hl-wanted" title="Poziom poszukiwania {level}/5 - aktywność z {WANTED_DAYS} dni: {points} pkt">'
+                      f'{"★" * level}<span class="off">{"★" * (5 - level)}</span></span>')
+
+    @app.route('/api/powiadomienia')
+    @login_required
+    def api_notifications():
+        """Powiadomienia jak SMS-y w GTA: co nowego dodali inni od `since` (UTC, ISO). Strona pyta co 45 s.
+        Bez `since` zwraca tylko aktualny czas serwera - od niego liczy się następne zapytanie."""
+        now = datetime.utcnow()
+        try:
+            since = datetime.fromisoformat(request.args['since'])
+        except (KeyError, ValueError):
+            return jsonify({'now': now.isoformat(), 'items': []})
+        since = max(since, now - timedelta(hours=1))   # po długiej przerwie nie zalewamy starociami
+        me = current_user.id
+        users = {}
+
+        def who(user_id):
+            try:
+                user_id = int(user_id)
+            except (TypeError, ValueError):
+                return None
+            if user_id not in users:
+                users[user_id] = User.query.get(user_id)
+            return users[user_id]
+
+        items = []
+
+        def add(kind, user_id, text, url, at):
+            user = who(user_id)
+            if user and user.id != me:
+                items.append({'kind': kind, 'username': user.username, 'photo': user.photo,
+                              'text': text, 'url': url, 'at': at.isoformat()})
+
+        for n in News.query.filter(News.created_at > since).all():
+            add('news', n.created_by, 'Breaking News: ' + n.title, url_for('news'), n.created_at)
+        for e in Calendar.query.filter(Calendar.created_at > since).all():
+            add('event', e.created_by, f'Nowe wydarzenie: {e.title} ({e.date.strftime("%d.%m")})',
+                url_for('event', day=e.date.day, month=e.date.month, year=e.date.year), e.created_at)
+        for m in Message.query.filter(Message.timestamp > since).order_by(Message.timestamp).all():
+            add('chat', m.user_id, m.content[:120], url_for('camera'), m.timestamp)
+        for album_id, user_id, count, at in db.session.query(Images.album_id, Images.created_by, func.count(),
+                                                             func.max(Images.created_at))                 .filter(Images.created_at > since).group_by(Images.album_id, Images.created_by).all():
+            album = Albums.query.get(album_id)
+            add('photos', user_id, f'Wrzucił {plural(count, "zdjęcie", "zdjęcia", "zdjęć")} do albumu {album.name if album else ""}',
+                url_for('album', album_id=album_id) if album else url_for('albums'), at)
+        for u in Upgrade.query.filter(Upgrade.date > since).all():
+            items.append({'kind': 'upgrade', 'username': 'hlyw.pl', 'photo': None,
+                          'text': 'Nowe ulepszenie: ' + u.title, 'url': url_for('ostatnie_ulepszenia'),
+                          'at': u.date.isoformat()})
+        items.sort(key=lambda i: i['at'])
+        return jsonify({'now': now.isoformat(), 'items': items[-5:]})
+
+    @app.route('/api/kasa')
+    @login_required
+    def api_cash():
+        return jsonify({'cash': user_cash(current_user.id)})
 
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required
@@ -1905,6 +2218,107 @@ def create_app():
         flash("Turniej zakończony 🏁", "success")
         return redirect(request.referrer)
 
+    # ===================== Turniej Trackmania =====================
+
+    def trackmania_data(event):
+        """Trasy z wynikami, klasyfikacja generalna i to, kto może co edytować - dla event.html."""
+        tracks = TmTrack.query.filter_by(event_id=event.id).order_by(TmTrack.id).all()
+        standings_tm = {}
+        for track in tracks:
+            track.results = sorted(track.times, key=lambda t: (t.time_ms, t.created_at))
+            for place, result in enumerate(track.results, 1):
+                result.place = place
+                result.points = TM_POINTS[place - 1] if place <= len(TM_POINTS) else 0
+                row = standings_tm.setdefault(result.user_id, {'user': result.user, 'points': 0, 'wins': 0,
+                                                               'tracks': 0, 'total_ms': 0})
+                row['points'] += result.points
+                row['wins'] += place == 1
+                row['tracks'] += 1
+                row['total_ms'] += result.time_ms
+        # remis: więcej wygranych tras, potem więcej przejechanych, potem krótszy łączny czas
+        general = sorted(standings_tm.values(), key=lambda r: (-r['points'], -r['wins'], -r['tracks'], r['total_ms']))
+        participant_ids = {int(p.user_id) for p in Participant.query.filter_by(event_id=event.id).all()
+                           if str(p.user_id).isdigit()}
+        can_manage = current_user.is_admin != "0" or str(event.created_by) == str(current_user.id)
+        return {'tracks': tracks, 'general': general, 'can_manage': can_manage,
+                'can_drive': can_manage or current_user.id in participant_ids,
+                'players': User.query.filter(User.id.in_(participant_ids)).order_by(User.username).all()
+                           if can_manage else [],
+                'points': TM_POINTS}
+
+    def tm_event_or_404(event_id):
+        event = Calendar.query.get_or_404(event_id)
+        if 'trackmania' not in event.title.lower():
+            abort(404)
+        return event
+
+    def redirect_to_event(event):
+        return redirect(url_for('event', day=event.date.day, month=event.date.month, year=event.date.year) + '#trackmania')
+
+    @app.route('/event/<int:event_id>/tm/track', methods=['POST'])
+    @login_required
+    def tm_add_track(event_id):
+        event = tm_event_or_404(event_id)
+        if not trackmania_data(event)['can_manage']:
+            abort(403)
+        name = (request.form.get('name') or '').strip()[:100]
+        if name:
+            db.session.add(TmTrack(event_id=event.id, name=name))
+            db.session.commit()
+            flash(f'Dodano trasę „{name}”.', 'success')
+        return redirect_to_event(event)
+
+    @app.route('/event/<int:event_id>/tm/track/<int:track_id>/delete', methods=['POST'])
+    @login_required
+    def tm_delete_track(event_id, track_id):
+        event = tm_event_or_404(event_id)
+        if not trackmania_data(event)['can_manage']:
+            abort(403)
+        track = TmTrack.query.filter_by(id=track_id, event_id=event.id).first_or_404()
+        db.session.delete(track)
+        db.session.commit()
+        flash(f'Usunięto trasę „{track.name}” razem z jej czasami.', 'info')
+        return redirect_to_event(event)
+
+    @app.route('/event/<int:event_id>/tm/time', methods=['POST'])
+    @login_required
+    def tm_save_time(event_id):
+        event = tm_event_or_404(event_id)
+        rights = trackmania_data(event)
+        track = TmTrack.query.filter_by(id=request.form.get('track_id', type=int), event_id=event.id).first_or_404()
+        user_id = current_user.id
+        if rights['can_manage'] and request.form.get('user_id', type=int):
+            user_id = request.form.get('user_id', type=int)      # organizator wpisuje czas za kogoś
+        elif not rights['can_drive']:
+            flash('Najpierw zapisz się na wydarzenie.', 'warning')
+            return redirect_to_event(event)
+        time_ms = parse_tm_time(request.form.get('time'))
+        if time_ms is None:
+            flash('Zły format czasu - wpisz np. 1:02.345 albo 58.120.', 'danger')
+            return redirect_to_event(event)
+        entry = TmTime.query.filter_by(track_id=track.id, user_id=user_id).first()
+        if entry:
+            entry.time_ms, entry.created_at = time_ms, datetime.utcnow()
+        else:
+            db.session.add(TmTime(track_id=track.id, user_id=user_id, time_ms=time_ms))
+        db.session.commit()
+        flash(f'Zapisano czas {format_tm_time(time_ms)} na trasie „{track.name}”.', 'success')
+        return redirect_to_event(event)
+
+    @app.route('/event/<int:event_id>/tm/time/<int:time_id>/delete', methods=['POST'])
+    @login_required
+    def tm_delete_time(event_id, time_id):
+        event = tm_event_or_404(event_id)
+        entry = TmTime.query.get_or_404(time_id)
+        if entry.track.event_id != event.id:
+            abort(404)
+        if entry.user_id != current_user.id and not trackmania_data(event)['can_manage']:
+            abort(403)
+        db.session.delete(entry)
+        db.session.commit()
+        flash('Usunięto czas.', 'info')
+        return redirect_to_event(event)
+
     @app.route("/join_fifa_event/<int:event_id>", methods=["POST"])
     @login_required
     def join_fifa_event(event_id):
@@ -1941,6 +2355,10 @@ def create_app():
         except (TypeError, ValueError):
             return jsonify({'ok': False}), 400
 
+        error = check_game_run('ice_tower', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+
         new_game = IceTower(points=score, created_by=current_user.id)
         db.session.add(new_game)
         db.session.commit()
@@ -1969,6 +2387,10 @@ def create_app():
         except (TypeError, ValueError):
             return jsonify({'ok': False}), 400
 
+        error = check_game_run('kolko_krzyzyk', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+
         new_game = KolkoKrzyzyk(points=score, created_by=current_user.id)
         db.session.add(new_game)
         db.session.commit()
@@ -1996,6 +2418,10 @@ def create_app():
             score = max(0, int(data.get('score', 0)))
         except (TypeError, ValueError):
             return jsonify({'ok': False}), 400
+
+        error = check_game_run('formula', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
 
         new_game = Formula(points=score, created_by=current_user.id)
         db.session.add(new_game)

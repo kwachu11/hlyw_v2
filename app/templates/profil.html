@@ -4,7 +4,13 @@
 <div class="container mt-4">
     <div class="d-flex align-items-center mb-4">
         <img src="{{ profile_user.photo|avatar_url }}" class="rounded-circle mr-3" alt="{{ profile_user.username }}" width="80" height="80" style="object-fit: cover;">
-        <h2 class="mb-0">{{ profile_user.username }}</h2>
+        <div>
+            <h2 class="mb-1">{{ profile_user.username }}{{ crown(profile_user.id) }}</h2>
+            <div class="hl-profile-hud">
+                <span class="hl-profile-cash" title="1,000 $ za punkt w Hall of Fame + 10 $ za grę">${{ profile_cash|money }}</span>
+                {{ wanted_stars(profile_user.id) }}
+            </div>
+        </div>
     </div>
 
     <h4>Gry</h4>

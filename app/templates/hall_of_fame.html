@@ -18,7 +18,7 @@
                 <a href="{{ url_for('profil', user_id=row.id) }}" class="hl-podium-row text-body">
                     <span class="hl-medal">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>
                     <img src="{{ row.photo|avatar_url }}" class="hl-avatar" width="32" height="32" alt="">
-                    <span>{{ row.username }}</span>
+                    <span>{{ row.username }}{{ crown(row.id) }}</span>
                     <span class="hl-score">{{ row.high_score }}</span>
                 </a>
                 {% else %}
@@ -47,7 +47,7 @@
                 {% for user in overall %}
                 <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}">
                     <td class="hl-place">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
-                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
+                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a>{{ crown(user.id) }}</td>
                     <td><strong>{{ user.points }}</strong></td>
                     <td>{{ user.gold }}</td>
                     <td>{{ user.podiums }}</td>

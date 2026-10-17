@@ -149,7 +149,7 @@ function gen(){
 function newWorld(){ floors = []; nextN = 0; camY = 60 - H; gen(); }
 
 function start(){
-  newWorld();
+  newWorld(); hlRun.start('ice_tower');
   p = {x:W/2-13, y:-38, w:26, h:38, vx:0, vy:0, grounded:true, face:1, angle:0, spin:0, sq:0, run:0, last:0, coyote:0};
   highest = 0; comboPts = 0; combo = {f:0,j:0,t:0}; bestCombo = 0;
   scrolling = false; level = 0; levelT = 0; scrollSpeed = 0; hurryFlash = 0;
@@ -222,12 +222,13 @@ function die(){
   state = 'over'; overT = 0; finalScore = score();
   newRecord = finalScore > best && finalScore > 0;
   if (newRecord) best = finalScore;
+  if (window.gta) newRecord ? gta.passed('Nowy rekord', finalScore) : gta.wasted('Wynik', finalScore);
   sfx.over(); shake = 12; updateButtons(); save(finalScore);
 }
 
 function save(s){
   saveState = 'saving';
-  fetch(SAVE_URL, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({score:s})})
+  hlRun.send(SAVE_URL, s)
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(d => { saveState = 'ok'; if (d && d.best != null) best = Math.max(best, d.best); bestEl.textContent = `Twój rekord: ${best}`; })
     .catch(() => { saveState = 'err'; });

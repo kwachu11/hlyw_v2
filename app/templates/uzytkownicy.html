@@ -16,6 +16,7 @@
                     <th class="d-none d-md-table-cell">Wydarzenia</th>
                     <th class="d-none d-md-table-cell">Komentarze</th>
                     <th class="d-none d-md-table-cell">Newsy</th>
+                    <th class="d-none d-sm-table-cell" title="Aktywność z ostatnich 7 dni">Poszukiwany</th>
                     <th>Punkty</th>
                 </tr>
             </thead>
@@ -23,13 +24,14 @@
                 {% for user in users_stats %}
                 <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}">
                     <td class="hl-place">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
-                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a></td>
+                    <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;"> {{ user.username }}</a>{{ crown(user.id) }}</td>
                     <td class="d-none d-md-table-cell">{{ user.message_count }}</td>
                     <td class="d-none d-md-table-cell">{{ user.report_count }}</td>
                     <td class="d-none d-md-table-cell">{{ user.photo_count }}</td>
                     <td class="d-none d-md-table-cell">{{ user.calendar_count }}</td>
                     <td class="d-none d-md-table-cell">{{ user.comment_count }}</td>
                     <td class="d-none d-md-table-cell">{{ user.news_count }}</td>
+                    <td class="d-none d-sm-table-cell text-nowrap">{{ wanted_stars(user.id) }}</td>
                     <td><strong>{{ user.total_sum }}</strong></td>
                 </tr>
                 {% else %}

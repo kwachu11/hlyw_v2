@@ -253,12 +253,13 @@ function die(){
   state = 'over'; diedAt = performance.now(); buzz([70, 50, 120]);
   newRecord = score > best && score > 0;
   if (newRecord) best = score;
+  if (window.gta) newRecord ? gta.passed('Nowy rekord', score) : gta.wasted('Wynik', score);
   updateScore(); updateButtons(); save(score);
 }
 
 function save(s){
   saveState = 'saving';
-  fetch(SAVE_URL, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({score:s})})
+  hlRun.send(SAVE_URL, s)
     .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(d => { saveState = 'ok'; if (d && d.best != null) best = Math.max(best, d.best); updateScore(); })
     .catch(() => { saveState = 'err'; })
@@ -281,7 +282,7 @@ function updateButtons(){
 }
 
 function start(){
-  reset(); state = 'run'; last = performance.now(); acc = 0; step.lastMilestone = 0;
+  reset(); state = 'run'; last = performance.now(); acc = 0; step.lastMilestone = 0; hlRun.start('dino');
   updateButtons(); cv.focus({preventScroll:true});
   if (IS_TOUCH) {
     const r = cv.getBoundingClientRect();

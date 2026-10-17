@@ -26,7 +26,7 @@
     <ul>
         {% for comment in comments %}
             <li>
-                <strong>{{ comment.user.username }}:</strong> <!-- Użytkownik, który dodał komentarz -->
+                <strong>{{ comment.user.username }}{{ crown(comment.user.id) }}:</strong> <!-- Użytkownik, który dodał komentarz -->
                 {{ comment.content }} <small class="text-muted">({{ comment.created_at.strftime('%d.%m.%Y %H:%M') }})</small>
             </li>
         {% else %}

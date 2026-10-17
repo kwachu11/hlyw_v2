@@ -1,0 +1,115 @@
+{# Turniej Trackmania - dołączany w event.html, gdy w tytule wydarzenia jest "trackmania" #}
+<section id="trackmania" class="hl-tm mt-4">
+    <h2>🏁 Turniej Trackmania</h2>
+    <p class="text-muted">
+        Na każdej trasie liczy się najlepszy czas. Punkty za miejsca: {{ tm.points|join(', ') }}.
+        Wygrywa ten, kto zbierze najwięcej punktów ze wszystkich tras.
+    </p>
+
+    {% if tm.general %}
+    <h3 class="mt-3">Klasyfikacja generalna</h3>
+    {% if tm.general|length >= 2 %}
+    <div class="hl-podium mb-3">
+        {% for row in tm.general[:3] %}
+        <div class="hl-podium-place hl-podium-{{ loop.index }}">
+            <span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>
+            <img src="{{ row.user.photo|avatar_url }}" class="rounded-circle" width="56" height="56" style="object-fit: cover;" alt="">
+            <div><strong>{{ row.user.username }}</strong>{{ crown(row.user.id) }}</div>
+            <div class="hl-tm-pts">{{ row.points }} pkt</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead class="thead-light">
+                <tr><th>#</th><th>Kierowca</th><th>Punkty</th><th>Wygrane trasy</th><th class="d-none d-sm-table-cell">Przejechane trasy</th></tr>
+            </thead>
+            <tbody>
+                {% for row in tm.general %}
+                <tr class="{{ 'hl-podium-%d' % loop.index if loop.index <= 3 }}">
+                    <td class="hl-place">{{ loop.index }}</td>
+                    <td><a href="{{ url_for('profil', user_id=row.user.id) }}">{{ row.user.username }}</a>{{ crown(row.user.id) }}</td>
+                    <td><strong>{{ row.points }}</strong></td>
+                    <td>{{ row.wins }}</td>
+                    <td class="d-none d-sm-table-cell">{{ row.tracks }} / {{ tm.tracks|length }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <h3 class="mt-3">Trasy</h3>
+    {% if not tm.tracks %}
+    <p class="text-muted">Organizator nie dodał jeszcze tras.</p>
+    {% endif %}
+
+    <div class="row">
+    {% for track in tm.tracks %}
+        <div class="col-lg-6 mb-3">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center">
+                    <span>🏎️ {{ track.name }}</span>
+                    {% if tm.can_manage %}
+                    <form action="{{ url_for('tm_delete_track', event_id=event.id, track_id=track.id) }}" method="POST" class="ml-auto"
+                          onsubmit="return confirm('Usunąć trasę ' + {{ track.name|tojson|forceescape }} + ' razem ze wszystkimi czasami?')">
+                        <button type="submit" class="btn btn-outline-danger btn-sm w-auto" title="Usuń trasę">✕</button>
+                    </form>
+                    {% endif %}
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                        {% for r in track.results %}
+                            <tr class="{{ 'hl-podium-%d' % r.place if r.place <= 3 }}">
+                                <td class="hl-place pl-3">{{ ['🥇', '🥈', '🥉'][r.place - 1] if r.place <= 3 else r.place }}</td>
+                                <td>{{ r.user.username }}</td>
+                                <td class="hl-tm-time">{{ r.time_ms|tm_time }}</td>
+                                <td class="text-muted small">{% if not loop.first %}+{{ (r.time_ms - track.results[0].time_ms)|tm_time }}{% endif %}</td>
+                                <td class="text-nowrap">{{ r.points }} pkt</td>
+                                <td class="text-right pr-2">
+                                    {% if tm.can_manage or r.user_id == current_user.id %}
+                                    <form action="{{ url_for('tm_delete_time', event_id=event.id, time_id=r.id) }}" method="POST" class="d-inline">
+                                        <button type="submit" class="btn btn-link btn-sm p-0 w-auto text-muted" title="Usuń czas">✕</button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr><td class="text-muted pl-3">Nikt jeszcze nie przejechał tej trasy.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if tm.can_drive %}
+                <div class="card-footer">
+                    <form action="{{ url_for('tm_save_time', event_id=event.id) }}" method="POST" class="form-inline hl-gap">
+                        <input type="hidden" name="track_id" value="{{ track.id }}">
+                        {% if tm.can_manage and tm.players %}
+                        <select name="user_id" class="custom-select custom-select-sm w-auto" aria-label="Kierowca">
+                            {% for p in tm.players %}
+                            <option value="{{ p.id }}" {{ 'selected' if p.id == current_user.id }}>{{ p.username }}</option>
+                            {% endfor %}
+                        </select>
+                        {% endif %}
+                        <input type="text" name="time" class="form-control form-control-sm hl-tm-input" placeholder="1:02.345"
+                               inputmode="decimal" pattern="\s*(\d{1,2}:)?\d{1,3}([.,]\d{1,3})?\s*" required aria-label="Czas">
+                        <button type="submit" class="btn btn-primary btn-sm w-auto">Zapisz czas</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+    </div>
+
+    {% if tm.can_manage %}
+    <form action="{{ url_for('tm_add_track', event_id=event.id) }}" method="POST" class="form-inline hl-gap mb-3">
+        <input type="text" name="name" class="form-control" placeholder="Nazwa trasy, np. Summer 2026 - 01" maxlength="100" required aria-label="Nazwa trasy">
+        <button type="submit" class="btn btn-outline-primary w-auto">+ Dodaj trasę</button>
+    </form>
+    {% elif not tm.can_drive %}
+    <p class="text-muted">Zapisz się na wydarzenie, żeby wpisywać swoje czasy.</p>
+    {% endif %}
+</section>

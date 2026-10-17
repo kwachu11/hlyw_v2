@@ -82,7 +82,7 @@
                         <div class="flex-grow-1">
                             <div class="hl-leader-score">{{ item.game.name }}</div>
                             {% if item.leader %}
-                            <div class="hl-leader-name">{{ item.leader.username }}</div>
+                            <div class="hl-leader-name">{{ item.leader.username }}{{ crown(item.leader.id) }}</div>
                             <div class="hl-leader-score">rekord: {{ item.leader.high_score }}</div>
                             {% else %}
                             <div class="hl-leader-name text-muted">Wolne miejsce!</div>
@@ -144,7 +144,7 @@
                 <ul class="list-group list-group-flush">
                     {% for m in latest_messages %}
                     <li class="list-group-item hl-chat-line">
-                        <strong>{{ m.user.username }}:</strong> {{ m.content|truncate(80) }}
+                        <strong>{{ m.user.username }}{{ crown(m.user.id) }}:</strong> {{ m.content|truncate(80) }}
                         <div class="text-muted">{{ m.timestamp|when }}</div>
                     </li>
                     {% else %}

@@ -261,12 +261,13 @@ function crash(){
 
 function gameOver(){
   state = 'over'; overAt = performance.now();
+  if (window.gta) (score > best && score > 0) ? gta.passed('Nowy rekord', score) : gta.wasted('Wynik', score);
   showMsg(`<big>GAME OVER</big>WYNIK ${score}<small id="fm-save">${score > 0 ? 'Zapisywanie…' : ''}</small><small>START — jeszcze raz</small>`);
   if (score > 0) save(score);
 }
 
 function save(s){
-  fetch(SAVE_URL, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({score: s})})
+  hlRun.send(SAVE_URL, s)
     .then(r => r.json())
     .then(d => {
       const el = $('fm-save');
@@ -284,7 +285,7 @@ function start(){
   if (state === 'play') { state = 'pause'; showMsg('<big>PAUZA</big><small>START — dalej</small>'); return; }
   if (state === 'pause') { state = 'play'; hideMsg(); last = performance.now(); return; }
   if (state === 'crash' || (state === 'over' && performance.now() - overAt < 700)) return;
-  reset(); state = 'play'; hideMsg(); last = performance.now();
+  reset(); state = 'play'; hideMsg(); last = performance.now(); hlRun.start('formula');
   if (fitMQ.matches) $('fm-gb').scrollIntoView({block: 'center', behavior: 'smooth'});
   beep(523, .08); setTimeout(() => beep(784, .1), 100);
   updatePanel(); draw();

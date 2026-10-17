@@ -58,6 +58,13 @@
             const name = document.createElement('span');
             name.className = 'username';
             name.textContent = msg.username;
+            if (msg.crown) {
+                const c = document.createElement('span');
+                c.className = 'hl-crown hl-crown-' + msg.crown;
+                c.title = msg.crown + '. miejsce w Hall of Fame';
+                c.textContent = '👑';
+                name.appendChild(c);
+            }
             const text = document.createElement('div');
             text.className = 'message-content';
             text.textContent = msg.content;
