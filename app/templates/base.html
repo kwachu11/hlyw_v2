@@ -47,21 +47,31 @@
         <img class="gta-loading-photo" src="{{ loading_screen.photo|media_url }}" alt="" onerror="this.onerror = function () { this.remove(); }; this.src = '{{ url_for('static', filename='images/hlyw_2.jpg') }}';">
         <div class="gta-loading-shade"></div>
         <div class="gta-loading-logo">hlyw.pl</div>
-        <div class="gta-loading-tip"><b>Wskazówka:</b> {{ loading_screen.tip }}</div>
+        <div class="gta-loading-tip"><b>Wskazówka:</b> <span id="gta-loading-tip">{{ loading_screen.tips[0] }}</span></div>
+        <div class="gta-loading-bar"><span style="animation-duration: {{ loading_screen.duration_ms }}ms"></span></div>
+        <div class="gta-loading-skip">Kliknij albo naciśnij dowolny klawisz, żeby pominąć</div>
         <div class="gta-loading-spinner"><span></span>Ładowanie</div>
     </div>
     <script>
     (function () {
         var el = document.getElementById('gta-loading'), done = false;
+        var tips = {{ loading_screen.tips|tojson }}, tipEl = document.getElementById('gta-loading-tip'), n = 0;
+        // wskazówki zmieniają się w trakcie ładowania, jak w GTA
+        var rotate = setInterval(function () {
+            n = (n + 1) % tips.length;
+            tipEl.classList.add('swap');
+            setTimeout(function () { tipEl.textContent = tips[n]; tipEl.classList.remove('swap'); }, 250);
+        }, {{ loading_screen.duration_ms }} / tips.length);
         function hide() {
             if (done) return; done = true;
+            clearInterval(rotate);
             el.classList.add('out');
             setTimeout(function () { el.remove(); }, 600);
             removeEventListener('keydown', hide);
         }
         el.addEventListener('click', hide);
         addEventListener('keydown', hide);
-        setTimeout(hide, 2200);
+        setTimeout(hide, {{ loading_screen.duration_ms }});
     })();
     </script>
     {% endif %}

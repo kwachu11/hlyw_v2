@@ -495,14 +495,14 @@ h3, h4, h5, h6 { color: #fff; text-shadow: 2px 2px 0 #000; }
    ===================================================================== */
 .gta-loading { position: fixed; inset: 0; z-index: 5000; background: #000; cursor: pointer; overflow: hidden; transition: opacity .5s; }
 .gta-loading.out { opacity: 0; pointer-events: none; }
-.gta-loading-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: gta-kenburns 6s ease-out forwards; }
+.gta-loading-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: gta-kenburns 8s ease-out forwards; }
 .gta-loading-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.25) 0%, transparent 35%, rgba(0,0,0,.85) 100%); }
 .gta-loading-logo {
     position: absolute; left: 5vw; bottom: 16vh;
     font-family: var(--gta-font-title); font-size: clamp(3.5rem, 12vw, 8rem); line-height: 1; color: #fff;
     text-shadow: 4px 4px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
 }
-.gta-loading-tip { position: absolute; left: 5vw; right: 5vw; bottom: 7vh; max-width: 760px; color: #fff; font-size: 1.05rem;
+.gta-loading-tip { position: absolute; left: 5vw; right: 5vw; bottom: 8vh; max-width: 760px; color: #fff; font-size: 1.05rem;
     background: rgba(0,0,0,.6); padding: 10px 14px; border-left: 4px solid var(--gta-yellow); }
 .gta-loading-tip b { color: var(--gta-yellow); font-family: var(--gta-font-ui); font-weight: normal; letter-spacing: .04em; }
 .gta-loading-spinner { position: absolute; right: 4vw; bottom: 3vh; display: flex; align-items: center; gap: 10px;
@@ -510,10 +510,19 @@ h3, h4, h5, h6 { color: #fff; text-shadow: 2px 2px 0 #000; }
 .gta-loading-spinner span { width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25);
     border-top-color: #fff; animation: gta-spin .8s linear infinite; }
 @keyframes gta-spin { to { transform: rotate(360deg); } }
-@keyframes gta-kenburns { from { transform: scale(1.08); } to { transform: scale(1); } }
+@keyframes gta-kenburns { from { transform: scale(1.12); } to { transform: scale(1); } }
+#gta-loading-tip { transition: opacity .25s; }
+#gta-loading-tip.swap { opacity: 0; }
+/* pasek postępu na samym dole, jak w GTA V */
+.gta-loading-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.12); }
+.gta-loading-bar span { display: block; height: 100%; width: 0; background: var(--gta-yellow);
+    box-shadow: 0 0 8px var(--gta-yellow); animation: gta-loading-progress linear forwards; }
+@keyframes gta-loading-progress { 0% { width: 0; } 30% { width: 38%; } 55% { width: 52%; } 80% { width: 86%; } 100% { width: 100%; } }
+.gta-loading-skip { position: absolute; left: 5vw; bottom: 3vh; color: rgba(255,255,255,.5); font-size: .8rem; }
 @media (max-width: 575.98px) {
     .gta-loading-logo { bottom: 24vh; }
     .gta-loading-tip { bottom: 10vh; font-size: .95rem; }
+    .gta-loading-skip { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .gta-loading-photo { animation: none; } }
 

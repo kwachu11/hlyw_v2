@@ -117,6 +117,7 @@ LOADING_TIPS = [
 TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 # Rodzaje aktywności, o których przychodzą powiadomienia (gry pomijamy - byłoby ich za dużo)
 NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user'}
+LOADING_SCREEN_MS = 6000   # jak długo trwa ekran ładowania (klik / klawisz zamyka od razu)
 GAME_RUN_MAX_AGE = timedelta(hours=6)   # dłużej nikt nie gra jednej partii
 GAME_RUN_STARTS_PER_MINUTE = 40
 # Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
@@ -1681,7 +1682,8 @@ def create_app():
         photo = Images.query.filter(db.or_(*[Images.file_path.ilike('%.' + ext) for ext in
                                              ('jpg', 'jpeg', 'png', 'webp')])).order_by(func.random()).first()
         return {'loading_screen': {'photo': photo.file_path if photo else 'static/images/hlyw_2.jpg',
-                                   'tip': random.choice(LOADING_TIPS)}}
+                                   'tips': random.sample(LOADING_TIPS, 3),
+                                   'duration_ms': LOADING_SCREEN_MS}}
 
     @app.context_processor
     def inject_cash():
