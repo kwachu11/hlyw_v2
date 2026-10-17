@@ -566,3 +566,13 @@ h3, h4, h5, h6 { color: #fff; text-shadow: 2px 2px 0 #000; }
 /* migająca kropka "na żywo" w nagłówku karty */
 .hl-live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--gta-red);
     margin-right: 4px; vertical-align: middle; box-shadow: 0 0 6px var(--gta-red); animation: hl-blink 1.2s infinite; }
+
+/* Hall of Fame: "Jak liczy się kasa?" */
+.hl-cash-rules { padding-left: 1.2rem; margin-bottom: .6rem; }
+.hl-cash-rules li { margin-bottom: 4px; }
+.hl-cash-amount { font-family: var(--gta-font-title); color: var(--gta-green); font-size: 1.15em; letter-spacing: 1px;
+    text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; white-space: nowrap; }
+.hl-cash-calc { background: var(--gta-input); border-left: 4px solid var(--gta-green); padding: 10px 14px; }
+.hl-cash-calc-title { font-family: var(--gta-font-ui); letter-spacing: .04em; color: #fff; margin-bottom: 4px; }
+.hl-cash-calc-sum { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--gta-border); font-size: 1.1rem; }
+a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }

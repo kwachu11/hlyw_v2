@@ -79,5 +79,48 @@
         {% endfor %}
     </div>
     {% endif %}
+
+    <h3 class="hl-section-title" id="kasa">💵 Jak liczy się kasa?</h3>
+    <div class="row">
+        <div class="col-lg-7 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <p class="mb-2">Kasa (zielona kwota w menu) zarabia się sama - grając i wygrywając:</p>
+                    <ul class="hl-cash-rules">
+                        <li><span class="hl-cash-amount">{{ '{:,}'.format(cash_per_point) }} $</span> za każdy punkt w rankingu ogólnym z tabeli wyżej
+                            (miejsca 1-10 w każdej grze dają od 10 do 1 pkt),</li>
+                        <li><span class="hl-cash-amount">{{ cash_per_game }} $</span> za każdą rozegraną grę.</li>
+                    </ul>
+                    <p class="text-muted small mb-3">
+                        Liczy się bieżąca edycja (w Snake, Tetrisie i Dino od {{ edition_start.strftime('%d.%m.%Y') }}).
+                        Kasa jest liczona na bieżąco z rankingów - jak ktoś Cię wyprzedzi, spadnie też Twoja kasa.
+                    </p>
+                    <div class="hl-cash-calc">
+                        <div class="hl-cash-calc-title">Twoje konto</div>
+                        <div>{{ my_standing.points }} pkt × {{ '{:,}'.format(cash_per_point) }} $ = <b>{{ (my_standing.points * cash_per_point)|money }} $</b></div>
+                        <div>{{ my_standing.games|plural('gra', 'gry', 'gier') }} × {{ cash_per_game }} $ = <b>{{ (my_standing.games * cash_per_game)|money }} $</b></div>
+                        <div class="hl-cash-calc-sum">Razem: <span class="hl-cash-amount">${{ my_standing.cash|money }}</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5 mb-3">
+            <div class="card h-100">
+                <div class="card-header">💰 Najbogatsi</div>
+                <ul class="list-group list-group-flush">
+                    {% for u, entry in richest %}
+                    <li class="list-group-item d-flex align-items-center hl-gap">
+                        <span class="hl-medal">{{ ['🥇', '🥈', '🥉'][loop.index0] if loop.index <= 3 else loop.index }}</span>
+                        <img src="{{ u.photo|avatar_url }}" class="hl-avatar" width="32" height="32" alt="">
+                        <a href="{{ url_for('profil', user_id=u.id) }}">{{ u.username }}</a>{{ crown(u.id) }}
+                        <span class="hl-cash-amount ml-auto">${{ entry.cash|money }}</span>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted">Nikt jeszcze nie zarobił - zagraj w coś!</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

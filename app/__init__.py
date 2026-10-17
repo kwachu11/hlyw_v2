@@ -1595,7 +1595,8 @@ def create_app():
             stats.append({'name': game['name'], 'ranking': game['ranking'], 'has_editions': game['previous'] is not None,
                           'current': player_place(game['model'], game['current'], user.id),
                           'previous': player_place(game['model'], game['previous'], user.id) if game['previous'] is not None else None})
-        return render_template('profil.html', profile_user=user, stats=stats, profile_cash=user_cash(user.id))
+        return render_template('profil.html', profile_user=user, stats=stats, profile_cash=user_cash(user.id),
+                               profile_standing=standings().get(user.id, {'points': 0, 'games': 0, 'cash': 0}))
 
     def overall_ranking(rankings):
         """Ranking ogólny: za miejsca 1-10 w każdej grze 10, 9, ... 1 pkt."""
@@ -1621,9 +1622,15 @@ def create_app():
                 old_data, _ = game_ranking(game['model'], game['previous'])
                 if old_data:
                     previous_champions.append({'game': game, 'leader': old_data[0]})
+        # sekcja "Jak liczy się kasa?": wyliczenie dla zalogowanego i 5 najbogatszych
+        all_standings = standings()
+        top_cash = sorted((item for item in all_standings.items() if item[1]['cash']), key=lambda item: -item[1]['cash'])[:5]
+        cash_users = {u.id: u for u in User.query.filter(User.id.in_([uid for uid, _ in top_cash])).all()} if top_cash else {}
         return render_template('hall_of_fame.html', champions=champions,
                                previous_champions=previous_champions, overall=overall_ranking(rankings),
-                               edition_start=CURRENT_EDITION_START)
+                               edition_start=CURRENT_EDITION_START,
+                               my_standing=all_standings.get(current_user.id, {'points': 0, 'games': 0, 'cash': 0}),
+                               richest=[(cash_users[uid], entry) for uid, entry in top_cash if uid in cash_users])
 
     standings_cache = {'at': 0, 'data': None}
 
@@ -1680,7 +1687,8 @@ def create_app():
     def inject_cash():
         if not current_user.is_authenticated:
             return {}
-        return {'my_cash': user_cash(current_user.id)}
+        return {'my_cash': user_cash(current_user.id),
+                'cash_per_point': CASH_PER_HOF_POINT, 'cash_per_game': CASH_PER_GAME}
 
     wanted_cache = {'at': 0, 'data': None}
 

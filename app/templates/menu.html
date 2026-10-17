@@ -43,8 +43,8 @@
             </li>
             {% if current_user.is_authenticated %}
                 <li class="nav-item">
-                    <a class="nav-link hl-cash" href="{{ url_for('hall_of_fame') }}"
-                       title="Kasa: 1,000 $ za każdy punkt w rankingu ogólnym Hall of Fame + 10 $ za każdą grę">
+                    <a class="nav-link hl-cash" href="{{ url_for('hall_of_fame') }}#kasa"
+                       title="Twoja kasa: {{ '{:,}'.format(cash_per_point) }} $ za każdy punkt w rankingu ogólnym Hall of Fame + {{ cash_per_game }} $ za każdą grę. Kliknij, żeby zobaczyć wyliczenie.">
                         $<span id="hl-cash" data-cash="{{ my_cash }}">{{ my_cash|money }}</span>
                     </a>
                 </li>

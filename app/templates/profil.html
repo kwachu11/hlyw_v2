@@ -7,8 +7,13 @@
         <div>
             <h2 class="mb-1">{{ profile_user.username }}{{ crown(profile_user.id) }}</h2>
             <div class="hl-profile-hud">
-                <span class="hl-profile-cash" title="1,000 $ za punkt w Hall of Fame + 10 $ za grę">${{ profile_cash|money }}</span>
+                <a href="{{ url_for('hall_of_fame') }}#kasa" class="hl-profile-cash" title="Jak liczy się kasa?">${{ profile_cash|money }}</a>
                 {{ wanted_stars(profile_user.id) }}
+            </div>
+            <div class="text-muted small">
+                {{ profile_standing.points }} pkt w Hall of Fame × {{ '{:,}'.format(cash_per_point) }} $
+                + {{ profile_standing.games|plural('gra', 'gry', 'gier') }} × {{ cash_per_game }} $
+                · <a href="{{ url_for('hall_of_fame') }}#kasa">jak to działa?</a>
             </div>
         </div>
     </div>
