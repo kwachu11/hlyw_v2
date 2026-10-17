@@ -5,7 +5,9 @@ dźwięki, ekran ładowania, ostatnia aktywność („Co się dzieje”), turnie
 
 ## 1. Kopia bazy na serwerze (przed wgraniem!)
 
-Przy starcie aplikacja sama dokłada nowe tabele: `game_run` (bilety gier), `tm_track`, `tm_time` (Trackmania).
+Przy starcie aplikacja sama dokłada nowe tabele: `game_run` (bilety gier), `tm_track`, `tm_time` (Trackmania),
+`camera_visit` (historia oglądania kamery) i kolumny z datami: `participant.created_at`, `fifa_participant.created_at`,
+`news_reaction.created_at`, `tournament_match.score_at` (do ostatniej aktywności).
 Nic nie jest zmieniane ani usuwane, ale kopia na wszelki wypadek nie zaszkodzi.
 
 ## 2. Pliki do wgrania (podmienić / dodać)

@@ -116,8 +116,9 @@ LOADING_TIPS = [
 # Turniej Trackmania (wydarzenie z "trackmania" w tytule): punkty za miejsce na każdej trasie, jak w F1
 TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 # Rodzaje aktywności, o których przychodzą powiadomienia (gry pomijamy - byłoby ich za dużo)
-NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user'}
+NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user', 'camera', 'album', 'match'}
 LOADING_SCREEN_MS = 6000   # jak długo trwa ekran ładowania (klik / klawisz zamyka od razu)
+CAMERA_VISIT_GAP = timedelta(minutes=2)   # dłuższa przerwa w oglądaniu kamery = nowe wejście
 GAME_RUN_MAX_AGE = timedelta(hours=6)   # dłużej nikt nie gra jednej partii
 GAME_RUN_STARTS_PER_MINUTE = 40
 # Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
@@ -473,6 +474,7 @@ def create_app():
         user_id = db.Column(db.String(100), nullable=False)
         event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'),
                              nullable=False)  # Klucz obcy odnoszący się do wydarzenia
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)   # kiedy się zapisał (starsze wpisy: brak)
 
     class Message(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -486,6 +488,7 @@ def create_app():
         news_id = db.Column(db.Integer, db.ForeignKey('news.id'), nullable=False, index=True)
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
         emoji = db.Column(db.String(16), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)   # starsze reakcje: brak
         __table_args__ = (db.UniqueConstraint('news_id', 'user_id', 'emoji'),)
 
     class Presence(db.Model):
@@ -493,6 +496,15 @@ def create_app():
         bo każdy worker gunicorna ma własną pamięć i widziałby innych oglądających."""
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
         last_seen = db.Column(db.DateTime, nullable=False)
+        user = db.relationship('User')
+
+    class CameraVisit(db.Model):
+        """Jedno oglądanie kamery: od wejścia do ostatniego sygnału (strona kamery pinguje co 5 s).
+        Presence mówi tylko, kto ogląda teraz - to jest historia do ostatniej aktywności."""
+        id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+        started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+        last_seen = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
         user = db.relationship('User')
 
     class Upgrade(db.Model):
@@ -623,6 +635,7 @@ def create_app():
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
         role = db.Column(db.String(20))  # "player" albo "observer"
         club = db.Column(db.String(100), nullable=True)  # tylko jeśli player
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)   # kiedy się zapisał (starsze wpisy: brak)
 
     class Tournament(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -650,6 +663,7 @@ def create_app():
         away_player_id = db.Column(db.Integer, db.ForeignKey('user.id'))
         home_score = db.Column(db.Integer, nullable=True)
         away_score = db.Column(db.Integer, nullable=True)
+        score_at = db.Column(db.DateTime, nullable=True)   # kiedy wpisano wynik - do ostatniej aktywności
 
         home_player = db.relationship('User', foreign_keys=[home_player_id])
         away_player = db.relationship('User', foreign_keys=[away_player_id])
@@ -689,6 +703,10 @@ def create_app():
         for table, column, ddl in ([
             ('report', 'status', "VARCHAR(20) NOT NULL DEFAULT 'nowe'"),
             ('tournament', 'advance', "INTEGER NOT NULL DEFAULT 2"),
+            ('participant', 'created_at', "DATETIME"),
+            ('fifa_participant', 'created_at', "DATETIME"),
+            ('news_reaction', 'created_at', "DATETIME"),
+            ('tournament_match', 'score_at', "DATETIME"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -1804,6 +1822,56 @@ def create_app():
         if want('user'):
             for u in User.query.filter(User.confirmed_on > since).all():
                 add('user', '👋', u.id, 'nowa osoba na Hlywie - witamy!', url_for('profil', user_id=u.id), u.confirmed_on)
+        if want('camera'):
+            live_since = datetime.utcnow() - timedelta(seconds=30)
+            for v in CameraVisit.query.filter(CameraVisit.last_seen > since).all():
+                minutes = int((v.last_seen - v.started_at).total_seconds() // 60)
+                if v.last_seen >= live_since:
+                    text = '🔴 teraz na kamerze' + (f' (od {minutes} min)' if minutes else '')
+                else:
+                    text = f'oglądanie kamery: {minutes} min' if minutes else 'zajrzenie na kamerę'
+                add('camera', '🎥', v.user_id, text, url_for('camera'), v.started_at)
+        if want('album'):
+            for a in Albums.query.filter(Albums.created_at > since).all():
+                add('album', '📁', a.created_by, 'nowy album: ' + a.name, url_for('album', album_id=a.id), a.created_at)
+        if want('reaction'):
+            rows = db.session.query(NewsReaction.user_id, NewsReaction.news_id,
+                                    func.group_concat(NewsReaction.emoji, ''), func.max(NewsReaction.created_at)) \
+                .filter(NewsReaction.created_at > since).group_by(NewsReaction.user_id, NewsReaction.news_id).all()
+            for user_id, news_id, emojis, at in rows:
+                n = News.query.get(news_id)
+                if n:
+                    add('reaction', emojis[:1] or '👍', user_id, f'reakcja {emojis} pod newsem: {n.title}', url_for('news'), at)
+        if want('signup'):
+            def signup(event_id, user_id, at, extra=''):
+                ev = Calendar.query.get(event_id)
+                if ev:
+                    add('signup', '✋', user_id, f'zapis na: {ev.title}{extra}',
+                        url_for('event', day=ev.date.day, month=ev.date.month, year=ev.date.year), at)
+            for p in Participant.query.filter(Participant.created_at > since).all():
+                signup(p.event_id, p.user_id, p.created_at)
+            for p in FifaParticipant.query.filter(FifaParticipant.created_at > since).all():
+                signup(p.event_id, p.user_id, p.created_at,
+                       f' - gracz ({p.club})' if p.role == 'player' and p.club else (' - gracz' if p.role == 'player' else ' - kibic'))
+        if want('match'):
+            for m in TournamentMatch.query.filter(TournamentMatch.score_at > since).all():
+                if m.home_score is None or not m.home_player or not m.away_player:
+                    continue
+                ev = Calendar.query.get(m.tournament.event_id) if m.tournament else None
+                round_name = 'grupa' if m.round == 'grupa' else m.round
+                add('match', '⚽', None,
+                    f'FIFA ({round_name}): {m.home_player.username} {m.home_score}:{m.away_score} {m.away_player.username}',
+                    url_for('event', day=ev.date.day, month=ev.date.month, year=ev.date.year) if ev else url_for('calendar'),
+                    m.score_at, system=True)
+        if want('quiz'):
+            rows = db.session.query(QuizResponse.user_id, QuizItem.quiz_id, func.count(), func.max(QuizResponse.answered_at)) \
+                .join(QuizItem, QuizItem.id == QuizResponse.item_id) \
+                .filter(QuizResponse.answered_at > since).group_by(QuizResponse.user_id, QuizItem.quiz_id).all()
+            for user_id, quiz_id, count, at in rows:
+                q = Quiz.query.get(quiz_id)
+                if q:
+                    add('quiz', '🧠', user_id, f'quiz „{q.title}”: {plural(count, "odpowiedź", "odpowiedzi", "odpowiedzi")}',
+                        url_for('quiz'), at)
         if want('upgrade'):
             # kilka ulepszeń dodanych jednego dnia = jeden wpis, żeby nie zasłoniły reszty
             by_day = {}
@@ -1847,7 +1915,9 @@ def create_app():
         except (KeyError, ValueError):
             return jsonify({'now': now.isoformat(), 'items': []})
         since = max(since, now - timedelta(hours=1))   # po długiej przerwie nie zalewamy starociami
-        items = recent_activity(since, limit=5, kinds=NOTIFY_KINDS, exclude_user_id=current_user.id)
+        items = recent_activity(since, limit=20, kinds=NOTIFY_KINDS, exclude_user_id=current_user.id)
+        # tylko to, co zaczęło się od ostatniego pytania - np. trwające oglądanie kamery nie wraca co 45 s
+        items = [i for i in items if i['at'] > since][:5]
         return jsonify({'now': now.isoformat(), 'items': [activity_json(i) for i in reversed(items)]})
 
     @app.route('/api/kasa')
@@ -2154,9 +2224,16 @@ def create_app():
     @login_required
     def user_active():
         """Rejestruje użytkownika jako aktywnego na stronie streamu"""
+        now = datetime.utcnow()
         presence = Presence.query.get(current_user.id) or Presence(user_id=current_user.id)
-        presence.last_seen = datetime.utcnow()
+        presence.last_seen = now
         db.session.add(presence)
+        # historia oglądania: przerwa dłuższa niż CAMERA_VISIT_GAP = nowe wejście
+        visit = CameraVisit.query.filter_by(user_id=current_user.id).order_by(CameraVisit.last_seen.desc()).first()
+        if visit and visit.last_seen >= now - CAMERA_VISIT_GAP:
+            visit.last_seen = now
+        else:
+            db.session.add(CameraVisit(user_id=current_user.id, started_at=now, last_seen=now))
         db.session.commit()
         return jsonify({"status": "ok"})
 
@@ -2245,6 +2322,7 @@ def create_app():
             return redirect(request.referrer)
 
         match.home_score, match.away_score = home, away
+        match.score_at = datetime.utcnow() if home is not None else None
         message = sync_knockout(match.tournament)
         db.session.commit()
         flash("Wynik meczu zapisany ✅" if home is not None else "Wynik skasowany.", "success")
