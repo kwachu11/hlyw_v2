@@ -495,7 +495,9 @@ h3, h4, h5, h6 { color: #fff; text-shadow: 2px 2px 0 #000; }
    ===================================================================== */
 .gta-loading { position: fixed; inset: 0; z-index: 5000; background: #000; cursor: pointer; overflow: hidden; transition: opacity .5s; }
 .gta-loading.out { opacity: 0; pointer-events: none; }
-.gta-loading-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: gta-kenburns 8s ease-out forwards; }
+.gta-loading-blur { position: absolute; inset: -40px; width: calc(100% + 80px); height: calc(100% + 80px); object-fit: cover;
+    filter: blur(28px) brightness(.45) saturate(1.2); }
+.gta-loading-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; animation: gta-kenburns 8s ease-out forwards; }
 .gta-loading-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.25) 0%, transparent 35%, rgba(0,0,0,.85) 100%); }
 .gta-loading-logo {
     position: absolute; left: 5vw; bottom: 16vh;
@@ -510,7 +512,7 @@ h3, h4, h5, h6 { color: #fff; text-shadow: 2px 2px 0 #000; }
 .gta-loading-spinner span { width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25);
     border-top-color: #fff; animation: gta-spin .8s linear infinite; }
 @keyframes gta-spin { to { transform: rotate(360deg); } }
-@keyframes gta-kenburns { from { transform: scale(1.12); } to { transform: scale(1); } }
+@keyframes gta-kenburns { from { transform: scale(1.06); } to { transform: scale(1); } }
 #gta-loading-tip { transition: opacity .25s; }
 #gta-loading-tip.swap { opacity: 0; }
 /* pasek postępu na samym dole, jak w GTA V */
@@ -585,3 +587,13 @@ h3, h4, h5, h6 { color: #fff; text-shadow: 2px 2px 0 #000; }
 .hl-cash-calc-title { font-family: var(--gta-font-ui); letter-spacing: .04em; color: #fff; margin-bottom: 4px; }
 .hl-cash-calc-sum { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--gta-border); font-size: 1.1rem; }
 a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
+
+/* przeglądarka zdjęć: przybliżanie (szczypanie, dwuklik, kółko myszy) */
+.hl-lightbox { touch-action: none; }   /* gesty obsługujemy sami - bez powiększania całej strony */
+.hl-lightbox img { cursor: zoom-in; user-select: none; -webkit-user-select: none; -webkit-user-drag: none;
+    transform-origin: center center; will-change: transform; }
+.hl-lightbox.zoomed img { cursor: grab; max-width: 92vw; }
+.hl-lightbox.zoomed img:active { cursor: grabbing; }
+.hl-lightbox img.hl-lb-anim { transition: transform .2s ease-out; }
+.hl-lightbox .hl-lb-zoom { right: 76px; top: 16px; font-size: 1.15rem; }
+.hl-lightbox.zoomed .hl-lb-prev, .hl-lightbox.zoomed .hl-lb-next, .hl-lightbox.zoomed .hl-lb-counter { opacity: .25; }

@@ -4,6 +4,7 @@
     <button type="button" class="hl-lb-btn hl-lb-prev" aria-label="Poprzednie">&#8249;</button>
     <div id="hlLightboxMedia"></div>
     <button type="button" class="hl-lb-btn hl-lb-next" aria-label="Następne">&#8250;</button>
+    <button type="button" class="hl-lb-btn hl-lb-zoom" aria-label="Przybliż" title="Przybliż / oddal">&#128269;</button>
     <div class="hl-lb-counter" id="hlLightboxCounter"></div>
 </div>
 
@@ -12,8 +13,41 @@
     const box = document.getElementById('hlLightbox');
     const media = document.getElementById('hlLightboxMedia');
     const counter = document.getElementById('hlLightboxCounter');
+    const zoomBtn = box.querySelector('.hl-lb-zoom');
     const thumbs = Array.from(document.querySelectorAll('.hl-thumb[data-src]'));
-    let index = 0, touchX = null;
+    const MAX_SCALE = 5, TAP_SCALE = 2.5;
+    let index = 0, img = null;
+
+    // ---- przybliżanie: transform translate + scale na zdjęciu (środek zdjęcia = środek ekranu) ----
+    let scale = 1, tx = 0, ty = 0;
+
+    function apply(animate) {
+        if (!img) return;
+        img.classList.toggle('hl-lb-anim', !!animate);
+        img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        box.classList.toggle('zoomed', scale > 1.01);
+    }
+    function clamp() {
+        // nie da się odsunąć zdjęcia tak, żeby za brzegiem została pusta przestrzeń
+        const maxX = Math.max(0, (img.offsetWidth * scale - innerWidth) / 2);
+        const maxY = Math.max(0, (img.offsetHeight * scale - innerHeight) / 2);
+        tx = Math.min(maxX, Math.max(-maxX, tx));
+        ty = Math.min(maxY, Math.max(-maxY, ty));
+    }
+    // przybliż do newScale tak, żeby punkt (x, y) ekranu został pod palcem / kursorem
+    function zoomAt(newScale, x, y, animate) {
+        if (!img) return;
+        newScale = Math.min(MAX_SCALE, Math.max(1, newScale));
+        const px = x - innerWidth / 2, py = y - innerHeight / 2;
+        tx = px - (px - tx) * (newScale / scale);
+        ty = py - (py - ty) * (newScale / scale);
+        scale = newScale;
+        if (scale === 1) { tx = 0; ty = 0; }
+        clamp();
+        apply(animate);
+    }
+    function resetZoom() { scale = 1; tx = 0; ty = 0; apply(false); }
+    function toggleZoom(x, y) { zoomAt(scale > 1.01 ? 1 : TAP_SCALE, x, y, true); }
 
     function show(i) {
         index = (i + thumbs.length) % thumbs.length;
@@ -21,30 +55,113 @@
         media.innerHTML = '';
         const el = document.createElement(t.dataset.video ? 'video' : 'img');
         el.src = t.dataset.src;
-        if (t.dataset.video) { el.controls = true; el.autoplay = true; }
+        if (t.dataset.video) { el.controls = true; el.autoplay = true; img = null; }
+        else { el.draggable = false; el.alt = ''; img = el; }
         media.appendChild(el);
-        counter.textContent = (index + 1) + ' / ' + thumbs.length;
+        scale = 1; tx = 0; ty = 0; box.classList.remove('zoomed');
+        zoomBtn.hidden = !img;
+        counter.textContent = (index + 1) + ' / ' + thumbs.length + (img ? ' · dwuklik / szczypnięcie = przybliż' : '');
     }
     function open(i) { show(i); box.classList.add('open'); document.body.style.overflow = 'hidden'; }
-    function close() { box.classList.remove('open'); media.innerHTML = ''; document.body.style.overflow = ''; }
+    function close() { box.classList.remove('open', 'zoomed'); media.innerHTML = ''; img = null; document.body.style.overflow = ''; }
 
     thumbs.forEach((t, i) => t.addEventListener('click', e => { e.preventDefault(); open(i); }));
     box.querySelector('.hl-lb-close').addEventListener('click', close);
     box.querySelector('.hl-lb-prev').addEventListener('click', () => show(index - 1));
     box.querySelector('.hl-lb-next').addEventListener('click', () => show(index + 1));
-    box.addEventListener('click', e => { if (e.target === box || e.target === media) close(); });
+    zoomBtn.addEventListener('click', () => toggleZoom(innerWidth / 2, innerHeight / 2));
     document.addEventListener('keydown', e => {
         if (!box.classList.contains('open')) return;
-        if (e.key === 'Escape') close();
-        if (e.key === 'ArrowLeft') show(index - 1);
-        if (e.key === 'ArrowRight') show(index + 1);
+        if (e.key === 'Escape') { scale > 1.01 ? zoomAt(1, 0, 0, true) : close(); }
+        if (e.key === 'ArrowLeft' && scale <= 1.01) show(index - 1);
+        if (e.key === 'ArrowRight' && scale <= 1.01) show(index + 1);
+        if (e.key === '+' || e.key === '=') zoomAt(scale * 1.5, innerWidth / 2, innerHeight / 2, true);
+        if (e.key === '-') zoomAt(scale / 1.5, innerWidth / 2, innerHeight / 2, true);
     });
-    box.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
-    box.addEventListener('touchend', e => {
-        if (touchX === null) return;
-        const dx = e.changedTouches[0].clientX - touchX;
-        if (Math.abs(dx) > 50) show(index + (dx < 0 ? 1 : -1));
-        touchX = null;
+
+    // kółko myszy: przybliżanie w miejscu kursora
+    box.addEventListener('wheel', e => {
+        if (!img) return;
+        e.preventDefault();
+        zoomAt(scale * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY, false);
+    }, { passive: false });
+
+    // ---- dotyk i mysz (Pointer Events): szczypanie, przesuwanie, przewijanie, podwójne stuknięcie ----
+    const pointers = new Map();
+    let gesture = null, lastTap = { t: 0, x: 0, y: 0 };
+
+    function mid() {
+        const [a, b] = Array.from(pointers.values());
+        return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+    }
+
+    box.addEventListener('pointerdown', e => {
+        if (e.target.closest('button') || e.target.tagName === 'VIDEO') return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        try { box.setPointerCapture(e.pointerId); } catch (err) {}   // bez tego gest i tak działa
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size === 1) {
+            // przy setPointerCapture koniec gestu zawsze trafia w tło - zapamiętujemy, co było dotknięte
+            gesture = { type: 'one', x0: e.clientX, y0: e.clientY, tx0: tx, ty0: ty, moved: false, multi: false,
+                        onBackground: e.target === box || e.target === media };
+        } else if (pointers.size === 2 && img) {
+            const m = mid();
+            gesture = { type: 'pinch', d0: m.d, s0: scale, x: m.x, y: m.y, multi: true };
+        }
     });
+
+    box.addEventListener('pointermove', e => {
+        if (!pointers.has(e.pointerId) || !gesture) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (gesture.type === 'pinch' && pointers.size === 2) {
+            const m = mid();
+            // przesunięcie palców razem = przesuwanie zdjęcia, rozsunięcie = przybliżanie
+            tx += m.x - gesture.x; ty += m.y - gesture.y;
+            gesture.x = m.x; gesture.y = m.y;
+            zoomAt(gesture.s0 * m.d / gesture.d0, m.x, m.y, false);
+        } else if (gesture.type === 'one') {
+            const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
+            if (Math.abs(dx) > 6 || Math.abs(dy) > 6) gesture.moved = true;
+            if (scale > 1.01) {          // przybliżone: palec / mysz przesuwa zdjęcie
+                tx = gesture.tx0 + dx; ty = gesture.ty0 + dy;
+                clamp(); apply(false);
+            }
+        }
+    });
+
+    function pointerEnd(e) {
+        if (!pointers.has(e.pointerId)) return;
+        pointers.delete(e.pointerId);
+        if (!gesture) return;
+        if (gesture.type === 'pinch') {
+            if (pointers.size === 0) { if (scale < 1.05) zoomAt(1, 0, 0, true); gesture = null; }
+            else {                       // jeden palec został - dalej przesuwa
+                const p = Array.from(pointers.values())[0];
+                gesture = { type: 'one', x0: p.x, y0: p.y, tx0: tx, ty0: ty, moved: true, multi: true };
+            }
+            return;
+        }
+        if (pointers.size > 0) return;
+        const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
+        if (!gesture.moved) {
+            // stuknięcie / kliknięcie: podwójne = przybliż, pojedyncze w tło = zamknij
+            const now = Date.now();
+            if (img && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+                toggleZoom(e.clientX, e.clientY);
+                lastTap.t = 0;
+            } else {
+                lastTap = { t: now, x: e.clientX, y: e.clientY };
+                if (gesture.onBackground && scale <= 1.01) {
+                    setTimeout(() => { if (lastTap.t === now) close(); }, 330);
+                }
+            }
+        } else if (!gesture.multi && scale <= 1.01 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+            show(index + (dx < 0 ? 1 : -1));      // przesunięcie w bok bez przybliżenia = następne zdjęcie
+        }
+        gesture = null;
+    }
+    box.addEventListener('pointerup', pointerEnd);
+    box.addEventListener('pointercancel', pointerEnd);
+    addEventListener('resize', () => { if (img) { clamp(); apply(false); } });
 })();
 </script>

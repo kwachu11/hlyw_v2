@@ -44,7 +44,10 @@
     {% if loading_screen %}
     {# ekran ładowania jak w GTA V - raz na sesję, klik/klawisz zamyka od razu #}
     <div class="gta-loading" id="gta-loading" role="presentation">
-        <img class="gta-loading-photo" src="{{ loading_screen.photo|media_url }}" alt="" onerror="this.onerror = function () { this.remove(); }; this.src = '{{ url_for('static', filename='images/hlyw_2.jpg') }}';">
+        {# całe zdjęcie na środku (bez ucinania głów na zdjęciach z telefonu), boki wypełnia to samo zdjęcie rozmyte #}
+        <img class="gta-loading-blur" id="gta-loading-blur" src="{{ loading_screen.photo|media_url }}" alt="">
+        <img class="gta-loading-photo" src="{{ loading_screen.photo|media_url }}" alt=""
+             onerror="var b = document.getElementById('gta-loading-blur'); this.onerror = function () { this.remove(); b.remove(); }; this.src = b.src = '{{ url_for('static', filename='images/hlyw_2.jpg') }}';">
         <div class="gta-loading-shade"></div>
         <div class="gta-loading-logo">hlyw.pl</div>
         <div class="gta-loading-tip"><b>Wskazówka:</b> <span id="gta-loading-tip">{{ loading_screen.tips[0] }}</span></div>
