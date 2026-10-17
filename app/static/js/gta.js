@@ -62,7 +62,7 @@
             phoneBox.className = 'gta-phone-stack';
             document.body.appendChild(phoneBox);
         }
-        var icon = ICONS[item.kind] || '📱';
+        var icon = item.icon || ICONS[item.kind] || '📱';
         var a = document.createElement('a');
         a.className = 'gta-phone';
         a.href = item.url;

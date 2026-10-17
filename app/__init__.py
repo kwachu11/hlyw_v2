@@ -115,6 +115,8 @@ LOADING_TIPS = [
 ]
 # Turniej Trackmania (wydarzenie z "trackmania" w tytule): punkty za miejsce na każdej trasie, jak w F1
 TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+# Rodzaje aktywności, o których przychodzą powiadomienia (gry pomijamy - byłoby ich za dużo)
+NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user'}
 GAME_RUN_MAX_AGE = timedelta(hours=6)   # dłużej nikt nie gra jednej partii
 GAME_RUN_STARTS_PER_MINUTE = 40
 # Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
@@ -807,7 +809,8 @@ def create_app():
                                stats=stats, leaders=leaders,
                                latest_news=News.query.order_by(News.created_at.desc()).limit(3).all(),
                                latest_messages=Message.query.order_by(Message.timestamp.desc()).limit(4).all(),
-                               viewers=camera_viewers())
+                               viewers=camera_viewers(),
+                               activity=recent_activity(datetime.utcnow() - timedelta(days=3), limit=8))
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -1717,6 +1720,112 @@ def create_app():
         return Markup(f'<span class="hl-wanted" title="Poziom poszukiwania {level}/5 - aktywność z {WANTED_DAYS} dni: {points} pkt">'
                       f'{"★" * level}<span class="off">{"★" * (5 - level)}</span></span>')
 
+    # ===================== Ostatnia aktywność =====================
+
+    def recent_activity(since, limit, kinds=None, exclude_user_id=None):
+        """Co się dzieje na stronie od `since` (UTC): lista słowników {kind, icon, user, text, url, at},
+        od najnowszego. Gry jednej osoby w jedną grę są zebrane w jeden wpis (inaczej zalałyby listę).
+        kinds - tylko wybrane rodzaje (np. dla powiadomień), exclude_user_id - bez własnych działań."""
+        users, items = {}, []
+
+        def who(user_id):
+            try:
+                user_id = int(user_id)
+            except (TypeError, ValueError):
+                return None
+            if user_id not in users:
+                users[user_id] = User.query.get(user_id)
+            return users[user_id]
+
+        def want(kind):
+            return kinds is None or kind in kinds
+
+        def add(kind, icon, user_id, text, url, at, system=False):
+            user = None if system else who(user_id)
+            if not system and (not user or user.id == exclude_user_id):
+                return
+            items.append({'kind': kind, 'icon': icon, 'user': user, 'text': text, 'url': url, 'at': at})
+
+        if want('game'):
+            for game in game_catalog():
+                model = game['model']
+                top = db.session.query(func.max(model.points)).filter(game['current']).scalar()
+                rows = db.session.query(model.created_by, func.count(), func.max(model.points), func.max(model.created_at)) \
+                    .filter(model.created_at > since).group_by(model.created_by).all()
+                for user_id, count, best, at in rows:
+                    games_text = plural(count, 'gra', 'gry', 'gier')
+                    if best and top and best >= top:
+                        text, icon = f'1. miejsce w grze {game["name"]} - {best} pkt!', '🏆'
+                    else:
+                        text, icon = f'{game["name"]}: {games_text}, najlepiej {best or 0} pkt', '🎮'
+                    add('game', icon, user_id, text, url_for(game['ranking']), at)
+        if want('news'):
+            for n in News.query.filter(News.created_at > since).all():
+                add('news', '📰', n.created_by, 'nowy news: ' + n.title, url_for('news'), n.created_at)
+        if want('event'):
+            for e in Calendar.query.filter(Calendar.created_at > since).all():
+                add('event', '📅', e.created_by, f'nowe wydarzenie: {e.title} ({e.date.strftime("%d.%m")})',
+                    url_for('event', day=e.date.day, month=e.date.month, year=e.date.year), e.created_at)
+        if want('chat'):
+            for m in Message.query.filter(Message.timestamp > since).order_by(Message.timestamp.desc()).limit(limit).all():
+                text = m.content if len(m.content) <= 100 else m.content[:100] + '…'
+                add('chat', '💬', m.user_id, f'na czacie: „{text}”', url_for('camera'), m.timestamp)
+        if want('photos'):
+            for album_id, user_id, count, at in db.session.query(Images.album_id, Images.created_by, func.count(),
+                                                                 func.max(Images.created_at)) \
+                    .filter(Images.created_at > since).group_by(Images.album_id, Images.created_by).all():
+                album = Albums.query.get(album_id)
+                add('photos', '📷', user_id,
+                    f'+{plural(count, "zdjęcie", "zdjęcia", "zdjęć")} w albumie {album.name if album else ""}',
+                    url_for('album', album_id=album_id) if album else url_for('albums'), at)
+        if want('report'):
+            for r in Report.query.filter(Report.created_at > since).all():
+                add('report', '🛠️', r.user_id, 'nowe zgłoszenie: ' + r.title, url_for('view_report', report_id=r.id), r.created_at)
+            for c in Comment.query.filter(Comment.created_at > since).all():
+                report = Report.query.get(c.report_id)
+                add('report', '💭', c.user_id, 'komentarz do zgłoszenia: ' + (report.title if report else ''),
+                    url_for('view_report', report_id=c.report_id), c.created_at)
+        if want('tm'):
+            for t in TmTime.query.filter(TmTime.created_at > since).all():
+                ev = Calendar.query.get(t.track.event_id)
+                if ev:
+                    add('tm', '🏁', t.user_id, f'Trackmania, trasa {t.track.name}: {format_tm_time(t.time_ms)}',
+                        url_for('event', day=ev.date.day, month=ev.date.month, year=ev.date.year) + '#trackmania', t.created_at)
+        if want('user'):
+            for u in User.query.filter(User.confirmed_on > since).all():
+                add('user', '👋', u.id, 'nowa osoba na Hlywie - witamy!', url_for('profil', user_id=u.id), u.confirmed_on)
+        if want('upgrade'):
+            # kilka ulepszeń dodanych jednego dnia = jeden wpis, żeby nie zasłoniły reszty
+            by_day = {}
+            for u in Upgrade.query.filter(Upgrade.date > since).order_by(Upgrade.date).all():
+                by_day.setdefault(u.date.date(), []).append(u)
+            for ups in by_day.values():
+                text = ('Nowe ulepszenie: ' + ups[0].title if len(ups) == 1 else
+                        f'Nowe ulepszenia ({len(ups)}): ' + ', '.join(u.title for u in ups))
+                add('upgrade', '🚀', None, text, url_for('ostatnie_ulepszenia'), ups[-1].date, system=True)
+        items.sort(key=lambda i: i['at'], reverse=True)
+        return items[:limit]
+
+    def activity_json(item):
+        user = item['user']
+        return {'kind': item['kind'], 'icon': item['icon'], 'text': item['text'], 'url': item['url'],
+                'username': user.username if user else 'hlyw.pl', 'photo': user.photo if user else None,
+                'at': item['at'].isoformat()}
+
+    @app.route('/aktywnosc')
+    @login_required
+    def activity():
+        """Pełna lista ostatnich aktywności (14 dni)."""
+        return render_template('aktywnosc.html',
+                               activity=recent_activity(datetime.utcnow() - timedelta(days=14), limit=100))
+
+    @app.route('/aktywnosc/lista')
+    @login_required
+    def activity_list():
+        """Sam kawałek HTML z listą - strona główna odświeża nim kartę „Co się dzieje” co minutę."""
+        return render_template('_activity.html',
+                               activity=recent_activity(datetime.utcnow() - timedelta(days=3), limit=8))
+
     @app.route('/api/powiadomienia')
     @login_required
     def api_notifications():
@@ -1728,44 +1837,8 @@ def create_app():
         except (KeyError, ValueError):
             return jsonify({'now': now.isoformat(), 'items': []})
         since = max(since, now - timedelta(hours=1))   # po długiej przerwie nie zalewamy starociami
-        me = current_user.id
-        users = {}
-
-        def who(user_id):
-            try:
-                user_id = int(user_id)
-            except (TypeError, ValueError):
-                return None
-            if user_id not in users:
-                users[user_id] = User.query.get(user_id)
-            return users[user_id]
-
-        items = []
-
-        def add(kind, user_id, text, url, at):
-            user = who(user_id)
-            if user and user.id != me:
-                items.append({'kind': kind, 'username': user.username, 'photo': user.photo,
-                              'text': text, 'url': url, 'at': at.isoformat()})
-
-        for n in News.query.filter(News.created_at > since).all():
-            add('news', n.created_by, 'Breaking News: ' + n.title, url_for('news'), n.created_at)
-        for e in Calendar.query.filter(Calendar.created_at > since).all():
-            add('event', e.created_by, f'Nowe wydarzenie: {e.title} ({e.date.strftime("%d.%m")})',
-                url_for('event', day=e.date.day, month=e.date.month, year=e.date.year), e.created_at)
-        for m in Message.query.filter(Message.timestamp > since).order_by(Message.timestamp).all():
-            add('chat', m.user_id, m.content[:120], url_for('camera'), m.timestamp)
-        for album_id, user_id, count, at in db.session.query(Images.album_id, Images.created_by, func.count(),
-                                                             func.max(Images.created_at))                 .filter(Images.created_at > since).group_by(Images.album_id, Images.created_by).all():
-            album = Albums.query.get(album_id)
-            add('photos', user_id, f'Wrzucił {plural(count, "zdjęcie", "zdjęcia", "zdjęć")} do albumu {album.name if album else ""}',
-                url_for('album', album_id=album_id) if album else url_for('albums'), at)
-        for u in Upgrade.query.filter(Upgrade.date > since).all():
-            items.append({'kind': 'upgrade', 'username': 'hlyw.pl', 'photo': None,
-                          'text': 'Nowe ulepszenie: ' + u.title, 'url': url_for('ostatnie_ulepszenia'),
-                          'at': u.date.isoformat()})
-        items.sort(key=lambda i: i['at'])
-        return jsonify({'now': now.isoformat(), 'items': items[-5:]})
+        items = recent_activity(since, limit=5, kinds=NOTIFY_KINDS, exclude_user_id=current_user.id)
+        return jsonify({'now': now.isoformat(), 'items': [activity_json(i) for i in reversed(items)]})
 
     @app.route('/api/kasa')
     @login_required

@@ -1,7 +1,7 @@
 # Wdrożenie zmian z 17.10.2026
 
 Wygląd w stylu GTA, „misja zaliczona” / „wasted”, kasa i gwiazdki poszukiwania, korona TOP 3, powiadomienia jak SMS-y,
-dźwięki, ekran ładowania, turniej Trackmania, logowanie e-mailem, zmniejszanie zdjęć przed wysłaniem, ochrona rankingów.
+dźwięki, ekran ładowania, ostatnia aktywność („Co się dzieje”), turniej Trackmania, logowanie e-mailem, zmniejszanie zdjęć przed wysłaniem, ochrona rankingów.
 
 ## 1. Kopia bazy na serwerze (przed wgraniem!)
 
@@ -27,6 +27,8 @@ Style i skrypty:
 
 Szablony (`app/templates/`):
 - `_trackmania.html` — **nowy**
+- `_activity.html` — **nowy** (lista „Co się dzieje”)
+- `aktywnosc.html` — **nowy** (strona `/aktywnosc`)
 - `error.html` — **nowy**
 - `_ranking_table.html`
 - `base.html`
@@ -61,6 +63,7 @@ Szablony (`app/templates/`):
    (bez biletu) nie zapisze wyniku. Kto ma otwartą grę w czasie wdrożenia, musi odświeżyć stronę.
 4. Sprawdzić:
    - ekran ładowania (pierwsza strona po otwarciu przeglądarki), kasa `$` i gwiazdki w stopce,
+   - karta „Co się dzieje” na stronie głównej i Dodatki → „⚡ Ostatnia aktywność”,
    - jedna gra do końca: „wasted” albo „misja zaliczona!”, wynik zapisany, kasa w menu rośnie,
    - logowanie adresem e-mail,
    - dodanie zdjęcia większego niż 1 MB (pod polem pojawi się „Zdjęcie zmniejszone: …”),

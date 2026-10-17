@@ -1,0 +1,19 @@
+{# Lista ostatnich aktywności - karta „Co się dzieje” na stronie głównej i strona /aktywnosc #}
+<ul class="list-group list-group-flush hl-activity">
+    {% for a in activity %}
+    <li class="list-group-item hl-activity-item" data-key="{{ a.kind }}|{{ a.at.isoformat() }}|{{ a.user.id if a.user }}">
+        <a href="{{ a.url }}" class="hl-activity-link">
+            <span class="hl-activity-icon" aria-hidden="true">{{ a.icon }}</span>
+            {% if a.user %}<img src="{{ a.user.photo|avatar_url }}" class="hl-avatar" width="28" height="28" alt="">{% endif %}
+            <span class="hl-activity-body">
+                <span class="hl-activity-text">
+                    {% if a.user %}<strong>{{ a.user.username }}</strong>{{ crown(a.user.id) }} {% endif %}{{ a.text if activity_full else a.text|truncate(90) }}
+                </span>
+                <span class="hl-activity-time">{{ a.at|when }}</span>
+            </span>
+        </a>
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">Na razie cisza… zagraj w coś albo napisz na czacie!</li>
+    {% endfor %}
+</ul>

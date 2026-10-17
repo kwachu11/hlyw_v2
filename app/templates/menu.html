@@ -26,11 +26,12 @@
             {% call nav_item(url_for('quiz'), '🧠 Quiz', ('/quiz',)) %} <span class="badge badge-danger">LIVE</span>{% endcall %}
             {% endif %}
             <!-- Dodatki -->
-            <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/report', '/users')) }}">
+            <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/report', '/users', '/aktywnosc')) }}">
                 <a class="nav-link dropdown-toggle" href="#" id="extrasDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                     Dodatki
                 </a>
                 <div class="dropdown-menu dropdown-menu-right" aria-labelledby="extrasDropdown">
+                    <a class="dropdown-item" href="{{ url_for('activity') }}">⚡ Ostatnia aktywność</a>
                     <a class="dropdown-item" href="{{ url_for('view_report_list') }}">Zgłoszenia</a>
                     <a class="dropdown-item" href="{{ url_for('users') }}">Użytkownicy</a>
                     {% if current_user.is_authenticated and current_user.is_admin != "0" %}

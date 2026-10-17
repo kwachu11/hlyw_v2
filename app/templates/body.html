@@ -100,6 +100,39 @@
         </div>
 
         <div class="{{ 'col-lg-4' if stats else 'col-12' }} hl-side">
+            {% if activity is defined %}
+            <div class="card mb-3 hl-activity-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong><span class="hl-live-dot" aria-hidden="true"></span> Co się dzieje</strong>
+                    <a href="{{ url_for('activity') }}">Wszystko</a>
+                </div>
+                <div id="hl-activity" data-url="{{ url_for('activity_list') }}">
+                    {% include '_activity.html' %}
+                </div>
+            </div>
+            <script>
+            // karta odświeża się co minutę; nowe wpisy na chwilę się podświetlają
+            (function () {
+                var box = document.getElementById('hl-activity');
+                function keys() { return Array.prototype.map.call(box.querySelectorAll('[data-key]'), function (li) { return li.dataset.key; }); }
+                setInterval(function () {
+                    if (document.hidden) return;
+                    var old = keys();
+                    fetch(box.dataset.url, {credentials: 'same-origin'})
+                        .then(function (r) { return r.ok ? r.text() : null; })
+                        .then(function (html) {
+                            if (!html) return;
+                            box.innerHTML = html;
+                            box.querySelectorAll('[data-key]').forEach(function (li) {
+                                if (old.indexOf(li.dataset.key) === -1) li.classList.add('is-new');
+                            });
+                        })
+                        .catch(function () {});
+                }, 60000);
+            })();
+            </script>
+            {% endif %}
+
             {% if upcoming_events %}
             <div class="card mb-3 {{ '' if stats else 'mt-3' }}">
                 <div class="card-header"><strong>📅 Najbliższe wydarzenia</strong></div>
