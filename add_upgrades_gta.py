@@ -4,6 +4,24 @@
 from app import create_app
 
 UPGRADES = [
+    # dopisane później tego samego dnia - przy ponownym uruchomieniu dodadzą się tylko te
+    ('Co się dzieje ⚡',
+     'Na stronie głównej jest nowa karta „Co się dzieje” - na żywo widać, kto gra, kto bije rekordy, '
+     'kto jest na kamerze, kto wrzucił zdjęcia, zareagował pod newsem albo zapisał się na wydarzenie.\n'
+     'Karta odświeża się sama co minutę, a nowe wpisy podświetlają się na żółto.\n'
+     '📋 Pełna lista z ostatnich 2 tygodni: Dodatki → „⚡ Ostatnia aktywność”.'),
+    ('Jak liczy się kasa? 💵',
+     'Na dole Hall of Fame jest wyjaśnienie, skąd się bierze kasa, wyliczenie dla Twojego konta '
+     'i lista 5 najbogatszych. Wyliczenie widać też w profilu pod kwotą.\n'
+     'Kliknij zieloną kwotę w menu, żeby od razu tam przejść.'),
+    ('Przybliżanie zdjęć 🔍',
+     'W galerii i w newsach zdjęcia można wreszcie przybliżać:\n'
+     '📱 na telefonie - szczypnięcie dwoma palcami albo podwójne stuknięcie\n'
+     '🖱️ na komputerze - kółko myszy, dwuklik albo przycisk z lupą\n'
+     'Przybliżone zdjęcie przesuwasz palcem lub myszą, a do następnego przechodzisz dopiero po oddaleniu.'),
+    ('Ekran ładowania jak w GTA',
+     'Ekran ładowania trwa dłużej i pokazuje kilka wskazówek z paskiem postępu, jak w GTA.\n'
+     'Zdjęcia z galerii widać w całości - już bez ucinania głów. Kliknij albo naciśnij klawisz, żeby pominąć.'),
     ('Hlyw w stylu GTA 🌴',
      'Strona dostała nowy wygląd prosto z Los Santos:\n'
      '🔤 czcionka z logo GTA w nagłówkach, menu i przyciskach\n'

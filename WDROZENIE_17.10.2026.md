@@ -60,7 +60,8 @@ Szablony (`app/templates/`):
 ## 4. Po wgraniu
 
 1. Restart aplikacji (gunicorn), żeby wczytała nowy kod i dodała tabele.
-2. Raz: `python add_upgrades_gta.py` (w venv, w katalogu projektu) — 8 wpisów do „Ostatnich Ulepszeń”. Drugie uruchomienie nic nie robi.
+2. `python add_upgrades_gta.py` (w venv, w katalogu projektu) — 12 wpisów do „Ostatnich Ulepszeń”.
+   Wpisy, które już są w bazie, są pomijane — jeśli skrypt był już raz uruchomiony, doda tylko 4 nowe.
 3. **Ważne:** gry muszą mieć nowe szablony i `game_run.js` jednocześnie z nowym `__init__.py` — stara wersja gry
    (bez biletu) nie zapisze wyniku. Kto ma otwartą grę w czasie wdrożenia, musi odświeżyć stronę.
 4. Sprawdzić:
