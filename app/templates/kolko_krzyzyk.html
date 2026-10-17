@@ -179,7 +179,7 @@ function check(){
     buzz(20);
   } else if (w.who === 'O') {
     title = 'Porażka'; text = series ? 'Koniec serii. Wynik: ' + series : 'Komputer wygrał tę partię.';
-    if (window.gta) (series > best) ? gta.passed('Nowy rekord serii', series) : gta.wasted(series ? 'Seria' : 'Komputer wygrał', series || null);
+    if (window.gta) gta.gameOver(series || null, series > best, series ? 'Seria' : 'Komputer wygrał');
     buzz([60, 40, 100]);
     if (series > 0) finishSeries();
     else resetSeries();

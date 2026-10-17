@@ -261,7 +261,7 @@ function crash(){
 
 function gameOver(){
   state = 'over'; overAt = performance.now();
-  if (window.gta) (score > best && score > 0) ? gta.passed('Nowy rekord', score) : gta.wasted('Wynik', score);
+  if (window.gta) gta.gameOver(score, score > best && score > 0);
   showMsg(`<big>GAME OVER</big>WYNIK ${score}<small id="fm-save">${score > 0 ? 'Zapisywanie…' : ''}</small><small>START — jeszcze raz</small>`);
   if (score > 0) save(score);
 }

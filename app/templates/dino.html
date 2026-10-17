@@ -253,7 +253,7 @@ function die(){
   state = 'over'; diedAt = performance.now(); buzz([70, 50, 120]);
   newRecord = score > best && score > 0;
   if (newRecord) best = score;
-  if (window.gta) newRecord ? gta.passed('Nowy rekord', score) : gta.wasted('Wynik', score);
+  if (window.gta) gta.gameOver(score, newRecord);
   updateScore(); updateButtons(); save(score);
 }
 

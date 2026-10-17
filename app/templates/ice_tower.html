@@ -222,7 +222,7 @@ function die(){
   state = 'over'; overT = 0; finalScore = score();
   newRecord = finalScore > best && finalScore > 0;
   if (newRecord) best = finalScore;
-  if (window.gta) newRecord ? gta.passed('Nowy rekord', finalScore) : gta.wasted('Wynik', finalScore);
+  if (window.gta) gta.gameOver(finalScore, newRecord);
   sfx.over(); shake = 12; updateButtons(); save(finalScore);
 }
 

@@ -184,6 +184,11 @@
             show('wasted', 'wasted', label, value, 1700);
             sound('wasted');
             refreshCash(1500);
+        },
+        // Koniec gry: rozbicie to zawsze WASTED, a "misja zaliczona" pojawia się dopiero po nim i tylko przy rekordzie
+        gameOver: function (score, isRecord, label) {
+            window.gta.wasted(label || 'Wynik', score);
+            if (isRecord) setTimeout(function () { window.gta.passed('Nowy rekord', score); }, 1900);
         }
     };
 })();
