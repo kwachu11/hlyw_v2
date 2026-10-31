@@ -22,6 +22,9 @@
             </div>
             <span class="hl-live">NA ŻYWO</span>
             <span class="hl-clock" id="hl-clock"></span>
+            <button type="button" class="hl-stop" id="camera-stop" title="Zatrzymaj" aria-label="Zatrzymaj" hidden>⏹ Stop</button>
+            <button type="button" class="hl-fs-btn" id="camera-fs" title="Pełny ekran" aria-label="Pełny ekran" hidden>⛶</button>
+            <button type="button" class="hl-play" id="camera-play" hidden>▶ Oglądaj na żywo</button>
         </div>
 
         {% if printer_status_url %}
@@ -251,9 +254,60 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             }).catch(() => { lightBtn.disabled = false; alert('Błąd połączenia 😕'); });
         });
     }
+    // drukarka: tylko obraz na żywo + własne Play/Stop. Stop realnie rozłącza (zamyka websocket, zwalnia bufor/RAM i łącze).
+    let printerUrl = null;
+    const stopBtn = document.getElementById('camera-stop');
+    const playBtn = document.getElementById('camera-play');
+    const fsBtn = document.getElementById('camera-fs');
     function stopVideo() {
-        if (videoEl) { videoEl.remove(); videoEl = null; }  // usunięcie z DOM zamyka websocket (disconnectedCallback)
+        if (videoEl) { videoEl.remove(); videoEl = null; }  // usunięcie z DOM zamyka websocket i zwalnia bufor MSE
     }
+    function startPrinterVideo() {
+        stopVideo();
+        videoEl = document.createElement('video-rtc');
+        videoEl.id = 'camera-video';
+        videoEl.background = false;                    // rozłącz, gdy karta nieaktywna (oszczędza łącze)
+        videoEl.mode = 'mse,mjpeg';                    // bez webrtc (brak UDP przez tunel) i bez hls
+        streamBox.insertBefore(videoEl, offline);
+        if (videoEl.video) {
+            videoEl.video.controls = false;            // bez natywnego suwaka - tylko nasze Play/Stop
+            if (printerUrl && printerUrl.includes('/api/ws')) videoEl.video.poster = printerUrl.replace('/api/ws', '/api/frame.jpeg');
+        }
+        videoEl.src = printerUrl;
+    }
+    function setPrinterPlaying(playing) {
+        streamBox.classList.toggle('is-stopped', !playing);
+        if (stopBtn) stopBtn.hidden = !playing;
+        if (fsBtn) fsBtn.hidden = !playing;
+        if (playBtn) playBtn.hidden = playing;
+        if (playing) startPrinterVideo();
+        else stopVideo();
+    }
+    function hidePrinterControls() {
+        streamBox.classList.remove('is-stopped');
+        if (stopBtn) stopBtn.hidden = true;
+        if (fsBtn) fsBtn.hidden = true;
+        if (playBtn) playBtn.hidden = true;
+    }
+    function goFullscreen() {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {    // już pełny ekran - wyjdź
+            (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+            return;
+        }
+        const v = videoEl && videoEl.video;
+        if (streamBox.requestFullscreen) streamBox.requestFullscreen();          // desktop/Android - cała ramka
+        else if (v && v.webkitEnterFullscreen) { try { v.play(); } catch (e) {} v.webkitEnterFullscreen(); }  // iOS (ma własny przycisk wyjścia)
+        else if (v && v.requestFullscreen) v.requestFullscreen();
+    }
+    document.addEventListener('fullscreenchange', () => {
+        if (!fsBtn) return;
+        const fs = !!document.fullscreenElement;
+        fsBtn.textContent = fs ? '✕' : '⛶';
+        fsBtn.title = fs ? 'Zamknij pełny ekran' : 'Pełny ekran';
+    });
+    if (stopBtn) stopBtn.addEventListener('click', () => setPrinterPlaying(false));
+    if (playBtn) playBtn.addEventListener('click', () => setPrinterPlaying(true));
+    if (fsBtn) fsBtn.addEventListener('click', goFullscreen);
     function showSource(btn) {
         sourceButtons.forEach(b => {
             b.classList.toggle('active', b === btn);
@@ -263,20 +317,16 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         const kind = btn.dataset.kind || 'iframe';
         stopVideo();
         psStop();
+        hidePrinterControls();
         if (!url) {                                    // brak adresu - "brak sygnału"
             frame.src = 'about:blank'; frame.hidden = true;
             offline.hidden = false;
-        } else if (kind === 'video') {                 // natywny strumień drukarki przez odtwarzacz go2rtc (MSE, fallback MJPEG)
+        } else if (kind === 'video') {                 // drukarka - obraz na żywo przez odtwarzacz go2rtc (MSE, fallback MJPEG)
             frame.src = 'about:blank'; frame.hidden = true;   // zatrzymaj iframe kamery
-            videoEl = document.createElement('video-rtc');
-            videoEl.id = 'camera-video';
-            videoEl.background = false;                // rozłącz, gdy karta nieaktywna (oszczędza łącze)
-            videoEl.mode = 'mse,mjpeg';                // bez webrtc (brak UDP przez tunel) i bez hls
-            streamBox.insertBefore(videoEl, offline);
-            if (videoEl.video && url.includes('/api/ws')) videoEl.video.poster = url.replace('/api/ws', '/api/frame.jpeg');
-            videoEl.src = url;
+            printerUrl = url;
             offline.hidden = true;
-            psStart();                                 // pokaż panel statusu drukarki
+            psStart();                                 // panel statusu działa niezależnie od Play/Stop
+            setPrinterPlaying(true);                   // startuje od razu; Stop realnie rozłącza
         } else {                                       // osadzony player (kamera, rtsp.me) - bez zmian, własne sterowanie
             frame.src = url; frame.hidden = false;
             offline.hidden = true;

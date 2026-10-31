@@ -295,6 +295,23 @@ a.hl-stat:hover { color: #ffcc00; text-decoration: none; }
 .hl-stream iframe, .hl-stream video-rtc { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; background: #000; }
 .hl-stream video-rtc video { width: 100%; height: 100%; object-fit: contain; background: #000; }
 .hl-stream iframe[hidden] { display: none; }   /* bije regułę .hl-stream iframe */
+/* drukarka: własne Play/Stop + stan zatrzymany */
+.hl-stream.is-stopped { background: #000; aspect-ratio: 16 / 9; }   /* trzyma wymiar, gdy brak wideo */
+.hl-stream.is-stopped .hl-live, .hl-stream.is-stopped .hl-clock { display: none; }
+.hl-stop { position: absolute; bottom: 10px; left: 10px; z-index: 4; width: auto; border: 0; border-radius: 4px; padding: 7px 12px;
+           background: rgba(0,0,0,.6); color: #fff; font-weight: 700; cursor: pointer; font-family: var(--gta-font-ui, inherit); }
+.hl-stop:hover { background: var(--gta-red, #e74c3c); }
+.hl-play { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 4; width: auto; border: 0; border-radius: 4px;
+           padding: 12px 22px; background: var(--gta-yellow, #f1c40f); color: #111; font-weight: 700; font-size: 1.05rem; cursor: pointer;
+           font-family: var(--gta-font-ui, inherit); letter-spacing: .02em; }
+.hl-play:hover { background: var(--gta-yellow-dark, #d4a90c); }
+.hl-stop[hidden], .hl-play[hidden] { display: none; }
+.hl-fs-btn { position: absolute; bottom: 10px; right: 10px; z-index: 4; width: auto; border: 0; border-radius: 4px; padding: 7px 12px;
+             background: rgba(0,0,0,.6); color: #fff; font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.hl-fs-btn:hover { background: rgba(0,0,0,.85); }
+.hl-fs-btn[hidden] { display: none; }
+.hl-stream:fullscreen { display: flex; align-items: center; justify-content: center; }
+.hl-stream:fullscreen video-rtc, .hl-stream:fullscreen video-rtc video { width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; }
 /* panel statusu drukarki */
 .hl-pstatus { margin-top: 12px; background: var(--gta-panel, rgba(0,0,0,.35)); border: 1px solid var(--gta-border, rgba(255,255,255,.1)); border-radius: 6px; padding: 12px 14px; }
 .hl-pstatus.is-offline { opacity: .5; }
