@@ -1,5 +1,4 @@
-.env
-.env.*
+.env*
 venv/
 __pycache__/
 *.pyc
@@ -21,9 +20,3 @@ hlyw
 pierwszastrona.conf
 screenshot.png
 .idea/
-
-# program pośredniczący do wtyczki Bambu (kompilowany lokalnie)
-bambu_url/*.exe
-bambu_url/*.obj
-bambu_url/bambu_url
-bambu_test.*
