@@ -1205,6 +1205,73 @@ def create_app():
         except Exception as e:
             return jsonify(ok=False, error='pi_unreachable', detail=str(e)[:160]), 502
 
+    _bambu_tasks = {'at': 0.0, 'data': None}   # cache listy zadań z chmury Bambu (60 s)
+
+    def _bambu_tasks_data():
+        # lista ostatnich zadań z chmury Bambu; None gdy brak tokenu lub błąd (UI chowa się wtedy łagodnie)
+        import time as _t, urllib.request as _ur
+        token = os.getenv('BAMBU_TOKEN')
+        if not token:
+            return None
+        now = _t.time()
+        if now - _bambu_tasks['at'] > 60 or not _bambu_tasks['data']:
+            try:
+                req = _ur.Request('https://api.bambulab.com/v1/user-service/my/tasks?limit=20',
+                                  headers={'Authorization': 'Bearer ' + token, 'User-Agent': 'hlyw-camera/1.0'})
+                _bambu_tasks['data'] = json.loads(_ur.urlopen(req, timeout=10).read())
+                _bambu_tasks['at'] = now
+            except Exception:
+                return None
+        return _bambu_tasks['data']
+
+    @app.route('/api/drukarka/okladka')
+    @login_required
+    def drukarka_okladka():
+        # miniatura (okładka) wydruku z chmury Bambu - po id albo nazwie; token zostaje po stronie serwera
+        import urllib.request as _ur
+        data = _bambu_tasks_data()
+        if data is None:
+            abort(404)
+        hits = data.get('hits', []) or []
+        tid = (request.args.get('id') or '').strip()
+        name = (request.args.get('name') or '').strip().lower()
+        cover = None
+        for h in hits:
+            if tid and str(h.get('id')) == tid:
+                cover = h.get('cover'); break
+            if not tid and name and (h.get('title') or '').strip().lower() == name:
+                cover = h.get('cover'); break
+        if not cover and not tid and not name and hits:
+            cover = hits[0].get('cover')          # fallback: najnowsze
+        if not cover:
+            abort(404)
+        try:
+            img = _ur.urlopen(_ur.Request(cover, headers={'User-Agent': 'hlyw-camera/1.0'}), timeout=10).read()
+        except Exception:
+            abort(502)
+        resp = app.response_class(img, content_type='image/png')
+        resp.headers['Cache-Control'] = 'public, max-age=300'
+        return resp
+
+    @app.route('/api/drukarka/wydruki')
+    @login_required
+    def drukarka_wydruki():
+        # ostatnie wydruki z chmury Bambu (lista do sekcji na /camera)
+        data = _bambu_tasks_data()
+        if data is None:
+            return jsonify(wydruki=[])
+        out = []
+        for h in (data.get('hits', []) or [])[:8]:
+            out.append({
+                'id': h.get('id'),
+                'title': h.get('title') or h.get('designTitle') or 'Wydruk',
+                'status': h.get('status'),
+                'start': h.get('startTime'),
+                'cost': h.get('costTime'),
+                'weight': h.get('weight'),
+            })
+        return jsonify(wydruki=out)
+
     @app.route('/user_settings', methods=['GET', 'POST'])
     @login_required
     def user_settings():

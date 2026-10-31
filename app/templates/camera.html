@@ -27,17 +27,27 @@
             <button type="button" class="hl-play" id="camera-play" hidden>▶ Oglądaj na żywo</button>
         </div>
 
+        <div class="d-flex align-items-center mt-3">
+            <strong class="mr-2">Kto teraz patrzy:</strong>
+            <div id="active-users" class="hl-viewers"></div>
+        </div>
+
         {% if printer_status_url %}
         <div class="hl-pstatus" id="printer-status" data-url="{{ printer_status_url }}" hidden>
             <div class="hl-pstatus-alert" id="ps-alert" hidden></div>
-            <div class="hl-pstatus-head">
-                <span class="hl-pstatus-state" id="ps-state">—</span>
-                <span class="hl-pstatus-task" id="ps-task"></span>
-            </div>
-            <div class="hl-pstatus-sub" id="ps-sub" hidden></div>
-            <div class="hl-pstatus-progress" id="ps-progwrap" hidden>
-                <div class="hl-pstatus-bar"><div id="ps-bar"></div></div>
-                <span id="ps-progtext"></span>
+            <div class="hl-pstatus-main">
+                <img class="hl-pstatus-thumb" id="ps-thumb" alt="Podgląd wydruku" hidden>
+                <div class="hl-pstatus-info">
+                    <div class="hl-pstatus-head">
+                        <span class="hl-pstatus-state" id="ps-state">—</span>
+                        <span class="hl-pstatus-task" id="ps-task"></span>
+                    </div>
+                    <div class="hl-pstatus-sub" id="ps-sub" hidden></div>
+                    <div class="hl-pstatus-progress" id="ps-progwrap" hidden>
+                        <div class="hl-pstatus-bar"><div id="ps-bar"></div></div>
+                        <span id="ps-progtext"></span>
+                    </div>
+                </div>
             </div>
             <div class="hl-pstatus-tiles" id="ps-tiles"></div>
             <div class="hl-pstatus-fil" id="ps-filaments"></div>
@@ -47,12 +57,11 @@
             </div>
             {% endif %}
         </div>
-        {% endif %}
-
-        <div class="d-flex align-items-center mt-3">
-            <strong class="mr-2">Kto teraz patrzy:</strong>
-            <div id="active-users" class="hl-viewers"></div>
+        <div class="hl-prints" id="printer-prints" hidden>
+            <h5 class="hl-prints-title">🕒 Ostatnie wydruki</h5>
+            <div class="hl-prints-grid" id="pp-grid"></div>
         </div>
+        {% endif %}
     </div>
 
     <div class="col-lg-4 mb-3">
@@ -118,6 +127,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
                        PAUSE: 'Wstrzymana', SLICING: 'Przetwarzanie', FAILED: 'Błąd' };
     let psTimer = null;
     let lightState = null;
+    let thumbTask = null;
     const psSet = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
     function fmtTemp(cur, tgt) {
         if (cur == null) return '—';
@@ -135,6 +145,20 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         if (!d) return;
         psSet('ps-state', !d.online ? 'offline' : (STATE_PL[d.state] || d.state || '—'));
         psSet('ps-task', d.task || '');
+        // miniatura wydruku (okładka z chmury Bambu) - ładuj tylko gdy zmieni się nazwa wydruku
+        const thumb = document.getElementById('ps-thumb');
+        if (thumb) {
+            if (d.task && d.task !== thumbTask) {
+                const wasSet = thumbTask !== null;
+                thumbTask = d.task;
+                thumb.onload = () => { thumb.hidden = false; };
+                thumb.onerror = () => { thumb.hidden = true; };
+                thumb.src = '/api/drukarka/okladka?name=' + encodeURIComponent(d.task);
+                if (wasSet) loadPrints();              // nowy wydruk - odśwież listę ostatnich
+            } else if (!d.task) {
+                thumbTask = null; thumb.hidden = true; thumb.removeAttribute('src');
+            }
+        }
         psBox.classList.toggle('is-paused', d.state === 'PAUSE');   // wstrzymana - żółty
         const alertEl = document.getElementById('ps-alert');
         if (alertEl) {
@@ -181,12 +205,13 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             (d.filaments || []).forEach(f => {
                 const chip = document.createElement('span');
                 chip.className = 'hl-fil';
+                if (f.external) chip.classList.add('is-external');
                 if (d.tray_now != null && String(f.id) === String(d.tray_now)) chip.classList.add('is-active');
                 const dot = document.createElement('span');
                 dot.className = 'hl-fil-dot';
                 if (f.color) dot.style.background = f.color;
                 const lbl = document.createElement('span');
-                lbl.textContent = f.type + (f.remain != null && f.remain >= 0 ? ' ' + f.remain + '%' : '');
+                lbl.textContent = f.type + (f.remain != null && f.remain >= 0 ? ' ' + f.remain + '%' : '') + (f.external ? ' (zew.)' : '');
                 chip.append(dot, lbl);
                 fb.appendChild(chip);
             });
@@ -211,6 +236,48 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         if (psTimer) { clearInterval(psTimer); psTimer = null; }
         if (psBox) psBox.hidden = true;
     }
+    // sekcja "Ostatnie wydruki" (z chmury Bambu)
+    const printsBox = document.getElementById('printer-prints');
+    const PRINT_STATUS_PL = { 2: 'Zakończono', 4: 'Drukuje' };
+    function fmtDate(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' }) + ', ' +
+               d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+    }
+    function fmtDur(sec) {
+        if (!sec) return '';
+        const m = Math.round(sec / 60);
+        return m < 60 ? (m + ' min') : (Math.floor(m / 60) + ' g ' + (m % 60) + ' min');
+    }
+    function loadPrints() {
+        if (!printsBox) return;
+        fetch('/api/drukarka/wydruki', { cache: 'no-store' }).then(r => r.json()).then(data => {
+            const grid = document.getElementById('pp-grid');
+            const items = (data && data.wydruki) || [];
+            if (!grid || !items.length) { printsBox.hidden = true; return; }
+            grid.innerHTML = '';
+            items.forEach(it => {
+                const card = document.createElement('div'); card.className = 'hl-print';
+                const img = document.createElement('img'); img.className = 'hl-print-thumb'; img.alt = ''; img.loading = 'lazy';
+                img.src = '/api/drukarka/okladka?id=' + encodeURIComponent(it.id);
+                img.onerror = () => { img.style.visibility = 'hidden'; };
+                const name = document.createElement('div'); name.className = 'hl-print-name'; name.title = it.title || ''; name.textContent = it.title || 'Wydruk';
+                const meta = document.createElement('div'); meta.className = 'hl-print-meta';
+                const bits = [];
+                if (PRINT_STATUS_PL[it.status]) bits.push(PRINT_STATUS_PL[it.status]);
+                if (it.start) bits.push(fmtDate(it.start));
+                if (it.cost) bits.push('⏱ ' + fmtDur(it.cost));
+                if (it.weight) bits.push('⚖️ ' + Math.round(it.weight) + ' g');
+                meta.textContent = bits.join(' · ');
+                card.append(img, name, meta);
+                grid.appendChild(card);
+            });
+            printsBox.hidden = false;
+        }).catch(() => { printsBox.hidden = true; });
+    }
+    function hidePrints() { if (printsBox) printsBox.hidden = true; }
     // potwierdzenie w stylu GTA (zamiast systemowego confirm)
     function gtaConfirm() {
         return new Promise(resolve => {
@@ -318,6 +385,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         stopVideo();
         psStop();
         hidePrinterControls();
+        hidePrints();
         if (!url) {                                    // brak adresu - "brak sygnału"
             frame.src = 'about:blank'; frame.hidden = true;
             offline.hidden = false;
@@ -326,6 +394,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             printerUrl = url;
             offline.hidden = true;
             psStart();                                 // panel statusu działa niezależnie od Play/Stop
+            loadPrints();                              // sekcja "Ostatnie wydruki"
             setPrinterPlaying(true);                   // startuje od razu; Stop realnie rozłącza
         } else {                                       // osadzony player (kamera, rtsp.me) - bez zmian, własne sterowanie
             frame.src = url; frame.hidden = false;
