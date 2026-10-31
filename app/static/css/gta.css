@@ -257,6 +257,24 @@ label { font-weight: normal; color: #d6d6da; }
 .badge-light { background: #e6e6ea; color: #000; }
 .badge-secondary { background: #4a4a55; }
 
+/* ---------- przełącznik kamera / drukarka ---------- */
+.hl-source-switch { display: inline-flex; flex-wrap: wrap; background: var(--gta-input); border: 1px solid var(--gta-border); border-radius: 2px; padding: 3px; gap: 3px; }
+.hl-source-switch button {
+    width: auto;   /* globalne button { width: 100% } z custom.css */
+    background: transparent; color: var(--gta-muted); border: 0; border-radius: 2px; padding: 6px 16px;
+    font-family: var(--gta-font-ui); font-size: 1.05rem; letter-spacing: .04em; cursor: pointer; transition: background .15s, color .15s;
+}
+.hl-source-switch button:hover { color: var(--gta-text); background: var(--gta-panel-2); }
+.hl-source-switch button.active { background: var(--gta-yellow); color: #000; }
+.hl-source-switch button:focus-visible { outline: 2px solid var(--gta-yellow); outline-offset: 2px; }
+.hl-stream-offline {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px;
+    background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .03) 0 2px, transparent 2px 4px), #050506; color: var(--gta-muted);
+}
+.hl-stream-offline[hidden] { display: none; }
+.hl-stream-offline:not([hidden]) ~ .hl-live { display: none; }   /* bez sygnału nie ma "na żywo" */
+.hl-stream-offline-title { font-family: var(--gta-font-title); font-size: 2.2rem; color: var(--gta-red); text-shadow: 2px 2px 0 #000; }
+
 /* ---------- elementy strony ---------- */
 .hl-hero h1 { font-size: 3.4rem; }
 .hl-hero .hl-greeting { color: var(--gta-muted); }

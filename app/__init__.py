@@ -119,6 +119,7 @@ TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user', 'camera', 'album', 'match'}
 LOADING_SCREEN_MS = 6000   # jak długo trwa ekran ładowania (klik / klawisz zamyka od razu)
 CAMERA_VISIT_GAP = timedelta(minutes=2)   # dłuższa przerwa w oglądaniu kamery = nowe wejście
+CAMERA_STREAM_URL = 'https://rtsp.me/embed/62bBnQNN'   # drugi obraz (drukarka) - PRINTER_STREAM_URL w .env
 GAME_RUN_MAX_AGE = timedelta(hours=6)   # dłużej nikt nie gra jednej partii
 GAME_RUN_STARTS_PER_MINUTE = 40
 # Ulepszenie jest "nowe" (plakietka w menu i na liście) przez tyle dni
@@ -1146,7 +1147,7 @@ def create_app():
             for p in participants:
                 user = User.query.get(p.user_id)
                 participants_names.append({"username": user.username})
-                if p.user_id == current_user.id:
+                if p.user_id == str(current_user.id):   # Participant.user_id to tekst
                     czy_zapisany = True
 
         return render_template(
@@ -1169,7 +1170,40 @@ def create_app():
     @app.route('/camera')
     @login_required
     def camera():
-        return render_template('camera.html')
+        # źródła obrazu: (klucz, etykieta, adres, typ); typ 'iframe' = osadzony player (kamera),
+        # 'video' = natywny strumień H.264 przez odtwarzacz go2rtc (MSE, fallback MJPEG) - adres websocketu /api/ws.
+        # Przełącznik pojawia się dopiero z PRINTER_STREAM_URL w .env (np. https://drukarka.hlyw.pl/api/ws?src=drukarka).
+        sources = [('kamera', '📷 Kamera HLYW', CAMERA_STREAM_URL, 'iframe')]
+        if os.getenv('PRINTER_STREAM_URL'):
+            sources.append(('drukarka', '🖨️ Kamera Drukarka', os.getenv('PRINTER_STREAM_URL'), 'video'))
+        # panel statusu drukarki (temperatury, filamenty, co się drukuje) - JSON z serwisu na Raspberry; pokazuje się tylko gdy ustawione
+        return render_template('camera.html', sources=sources,
+                               printer_status_url=os.getenv('PRINTER_STATUS_URL'),
+                               printer_light=bool(os.getenv('PRINTER_STATUS_URL') and os.getenv('PRINTER_CONTROL_TOKEN')))
+
+    @app.route('/api/drukarka/swiatlo', methods=['POST'])
+    @login_required
+    def drukarka_swiatlo():
+        # sterowanie światłem komory - token dokładamy serwerowo (nigdy nie trafia do przeglądarki)
+        status_url = os.getenv('PRINTER_STATUS_URL')
+        token = os.getenv('PRINTER_CONTROL_TOKEN')
+        if not status_url or not token:
+            return jsonify(ok=False, error='not_configured'), 503
+        mode = (request.get_json(silent=True) or {}).get('mode', 'toggle')
+        if mode not in ('on', 'off', 'toggle'):
+            return jsonify(ok=False, error='bad_mode'), 400
+        import urllib.request as _ur, urllib.parse as _up, urllib.error as _ue
+        light_url = status_url.replace('/status', '/light') + '?' + _up.urlencode({'mode': mode})
+        try:
+            # User-Agent jawnie - domyślny "Python-urllib" bywa blokowany przez Cloudflare jako bot (403)
+            req = _ur.Request(light_url, data=b'', method='POST',
+                              headers={'X-Control-Token': token, 'User-Agent': 'hlyw-camera/1.0'})
+            with _ur.urlopen(req, timeout=8) as resp:
+                return app.response_class(resp.read(), content_type='application/json')
+        except _ue.HTTPError as e:
+            return jsonify(ok=False, error='pi_http_%d' % e.code), 502
+        except Exception as e:
+            return jsonify(ok=False, error='pi_unreachable', detail=str(e)[:160]), 502
 
     @app.route('/user_settings', methods=['GET', 'POST'])
     @login_required

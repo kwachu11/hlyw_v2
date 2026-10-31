@@ -4,11 +4,47 @@
 <h3 class="mb-3">Co dzieje się na Hlywie</h3>
 <div class="row">
     <div class="col-lg-8 mb-3">
+        {% if sources|length > 1 %}
+        <div class="hl-source-switch mb-2" role="radiogroup" aria-label="Źródło obrazu" id="camera-sources">
+            {% for key, label, url, kind in sources %}
+            <button type="button" role="radio" aria-checked="{{ 'true' if loop.first else 'false' }}"
+                    class="{{ 'active' if loop.first }}" data-source="{{ key }}" data-url="{{ url }}" data-kind="{{ kind }}">{{ label }}</button>
+            {% endfor %}
+        </div>
+        {% endif %}
         <div class="hl-stream">
-            <iframe id="camera-frame" src="https://rtsp.me/embed/62bBnQNN" allowfullscreen></iframe>
+            <iframe id="camera-frame" src="{{ sources[0][2] }}" allowfullscreen></iframe>
+            <div class="hl-stream-offline" id="camera-offline" hidden>
+                <div>
+                    <div class="hl-stream-offline-title">brak sygnału</div>
+                    Podgląd drukarki nie jest jeszcze podłączony.
+                </div>
+            </div>
             <span class="hl-live">NA ŻYWO</span>
             <span class="hl-clock" id="hl-clock"></span>
         </div>
+
+        {% if printer_status_url %}
+        <div class="hl-pstatus" id="printer-status" data-url="{{ printer_status_url }}" hidden>
+            <div class="hl-pstatus-alert" id="ps-alert" hidden></div>
+            <div class="hl-pstatus-head">
+                <span class="hl-pstatus-state" id="ps-state">—</span>
+                <span class="hl-pstatus-task" id="ps-task"></span>
+            </div>
+            <div class="hl-pstatus-sub" id="ps-sub" hidden></div>
+            <div class="hl-pstatus-progress" id="ps-progwrap" hidden>
+                <div class="hl-pstatus-bar"><div id="ps-bar"></div></div>
+                <span id="ps-progtext"></span>
+            </div>
+            <div class="hl-pstatus-tiles" id="ps-tiles"></div>
+            <div class="hl-pstatus-fil" id="ps-filaments"></div>
+            {% if printer_light %}
+            <div class="hl-pstatus-ctrl">
+                <button type="button" id="ps-light" class="hl-light-btn">💡 Światło komory</button>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
 
         <div class="d-flex align-items-center mt-3">
             <strong class="mr-2">Kto teraz patrzy:</strong>
@@ -33,7 +69,27 @@
     </div>
 </div>
 
-<script>
+{% if printer_light %}
+<div class="hl-modal" id="hl-light-modal" hidden>
+    <div class="hl-modal-box">
+        <div class="hl-modal-title">UWAGA</div>
+        <div class="hl-modal-body">
+            Wyłączenie światła komory może pogorszyć wykrywanie spaghetti przez AI.<br><br>
+            Jeśli wydruk się zjebie z Twojej winy — <b>stawiasz prezesowi czteropak tyskacza</b>. 🍺<br><br>
+            <span style="opacity:.75; font-size:.9em;">Na wszelki wypadek światło samo włączy się po 3 minutach.</span>
+        </div>
+        <div class="hl-modal-actions">
+            <button type="button" class="hl-modal-btn hl-modal-no" id="hl-light-cancel">Anuluj</button>
+            <button type="button" class="hl-modal-btn hl-modal-yes" id="hl-light-ok">Lecimy</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script type="module">
+import { VideoRTC } from "{{ url_for('static', filename='js/video-rtc.js') }}";
+if (!customElements.get('video-rtc')) customElements.define('video-rtc', class extends VideoRTC {});
+
 (function () {
     const chat = document.getElementById('chat-messages');
     const input = document.getElementById('chat-message');
@@ -43,6 +99,194 @@
     const clock = document.getElementById('hl-clock');
     function tick() { clock.textContent = new Date().toLocaleTimeString('pl-PL'); }
     tick(); setInterval(tick, 1000);
+
+    // przełącznik kamera / drukarka - przełączenie wyłącza poprzednie źródło; wybór pamiętany w przeglądarce.
+    // kind 'iframe' = osadzony player (kamera, rtsp.me); kind 'video' = natywny strumień H.264 przez odtwarzacz go2rtc (MSE, fallback MJPEG).
+    const frame = document.getElementById('camera-frame');
+    const offline = document.getElementById('camera-offline');
+    const streamBox = document.querySelector('.hl-stream');
+    const sourceButtons = document.querySelectorAll('#camera-sources button');
+    let videoEl = null;
+
+    // panel statusu drukarki (temperatury, filamenty, co się drukuje) - JSON z serwisu na Raspberry
+    const psBox = document.getElementById('printer-status');
+    const PS_URL = psBox ? psBox.dataset.url : '';
+    const STATE_PL = { RUNNING: 'Drukuje', FINISH: 'Zakończono', IDLE: 'Bezczynna', PREPARE: 'Przygotowanie',
+                       PAUSE: 'Wstrzymana', SLICING: 'Przetwarzanie', FAILED: 'Błąd' };
+    let psTimer = null;
+    let lightState = null;
+    const psSet = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    function fmtTemp(cur, tgt) {
+        if (cur == null) return '—';
+        let s = Math.round(cur) + '°';
+        if (tgt && tgt > 0) s += ' / ' + Math.round(tgt) + '°';
+        return s;
+    }
+    function fmtRemaining(min) {
+        if (min == null || min <= 0) return '';
+        return min < 60 ? (min + ' min') : (Math.floor(min / 60) + ' g ' + (min % 60) + ' min');
+    }
+    function renderStatus(d) {
+        if (!psBox) return;
+        psBox.classList.toggle('is-offline', !d || !d.online);
+        if (!d) return;
+        psSet('ps-state', !d.online ? 'offline' : (STATE_PL[d.state] || d.state || '—'));
+        psSet('ps-task', d.task || '');
+        psBox.classList.toggle('is-paused', d.state === 'PAUSE');   // wstrzymana - żółty
+        const alertEl = document.getElementById('ps-alert');
+        if (alertEl) {
+            if (d.error) { alertEl.hidden = false; alertEl.textContent = d.error; }
+            else { alertEl.hidden = true; alertEl.textContent = ''; }
+        }
+        const subEl = document.getElementById('ps-sub');   // pomniejszy etap (czyszczenie dyszy, skanowanie stołu...)
+        if (subEl) {
+            const showSub = d.stage && d.state !== 'PAUSE' && d.state !== 'FAILED';
+            subEl.hidden = !showSub;
+            subEl.textContent = showSub ? d.stage : '';
+        }
+        const pw = document.getElementById('ps-progwrap');
+        const printing = d.state === 'RUNNING' || d.state === 'PAUSE' || d.state === 'FINISH';
+        if (pw && d.percent != null && printing) {
+            pw.hidden = false;
+            document.getElementById('ps-bar').style.width = d.percent + '%';
+            const rem = fmtRemaining(d.remaining_min);
+            psSet('ps-progtext', d.percent + '%' + (rem ? ' · ~' + rem : ''));
+        } else if (pw) { pw.hidden = true; }
+        // kafelki: stół, dysze (1 lub 2), komora, warstwa
+        const tiles = [['🛏️ Stół', fmtTemp(d.bed, d.bed_target)]];
+        const nz = d.nozzles || [];
+        nz.forEach((n, i) => {
+            let val = (n && n.temp != null) ? Math.round(n.temp) + '°' : '—';
+            if (n && n.target > 0) val += ' / ' + Math.round(n.target) + '°';
+            tiles.push([nz.length > 1 ? ('🔥 Dysza ' + (i + 1)) : '🔥 Dysza', val]);
+        });
+        if (d.chamber != null) tiles.push(['🌡️ Komora', Math.round(d.chamber) + '°']);
+        if (d.layer != null && d.total_layers) tiles.push(['🧱 Warstwa', d.layer + ' / ' + d.total_layers]);
+        const tc = document.getElementById('ps-tiles');
+        if (tc) {
+            tc.innerHTML = '';
+            tiles.forEach(([lab, val]) => {
+                const t = document.createElement('div'); t.className = 'hl-ptile';
+                const l = document.createElement('span'); l.className = 'hl-ptile-label'; l.textContent = lab;
+                const v = document.createElement('span'); v.textContent = val;
+                t.append(l, v); tc.appendChild(t);
+            });
+        }
+        const fb = document.getElementById('ps-filaments');
+        if (fb) {
+            fb.innerHTML = '';
+            (d.filaments || []).forEach(f => {
+                const chip = document.createElement('span');
+                chip.className = 'hl-fil';
+                if (d.tray_now != null && String(f.id) === String(d.tray_now)) chip.classList.add('is-active');
+                const dot = document.createElement('span');
+                dot.className = 'hl-fil-dot';
+                if (f.color) dot.style.background = f.color;
+                const lbl = document.createElement('span');
+                lbl.textContent = f.type + (f.remain != null && f.remain >= 0 ? ' ' + f.remain + '%' : '');
+                chip.append(dot, lbl);
+                fb.appendChild(chip);
+            });
+        }
+        lightState = d.light || null;
+        const lb = document.getElementById('ps-light');
+        if (lb) {
+            if (lightState === 'on') lb.innerHTML = '💡 Wyłącz światło komory <span class="hl-ostroznie">(ostrożnie!)</span>';
+            else lb.textContent = lightState === 'off' ? '💡 Włącz światło komory' : '💡 Światło komory';
+        }
+    }
+    function psFetch() {
+        fetch(PS_URL, { cache: 'no-store' }).then(r => r.json()).then(renderStatus).catch(() => {});
+    }
+    function psStart() {
+        if (!psBox || !PS_URL) return;
+        psBox.hidden = false;
+        psFetch();
+        if (!psTimer) psTimer = setInterval(psFetch, 4000);
+    }
+    function psStop() {
+        if (psTimer) { clearInterval(psTimer); psTimer = null; }
+        if (psBox) psBox.hidden = true;
+    }
+    // potwierdzenie w stylu GTA (zamiast systemowego confirm)
+    function gtaConfirm() {
+        return new Promise(resolve => {
+            const modal = document.getElementById('hl-light-modal');
+            if (!modal) { resolve(true); return; }
+            const ok = document.getElementById('hl-light-ok');
+            const cancel = document.getElementById('hl-light-cancel');
+            function finish(val) {
+                modal.hidden = true;
+                ok.removeEventListener('click', onOk);
+                cancel.removeEventListener('click', onCancel);
+                modal.removeEventListener('click', onBackdrop);
+                document.removeEventListener('keydown', onKey);
+                resolve(val);
+            }
+            function onOk() { finish(true); }
+            function onCancel() { finish(false); }
+            function onBackdrop(e) { if (e.target === modal) finish(false); }
+            function onKey(e) { if (e.key === 'Escape') finish(false); }
+            ok.addEventListener('click', onOk);
+            cancel.addEventListener('click', onCancel);
+            modal.addEventListener('click', onBackdrop);
+            document.addEventListener('keydown', onKey);
+            modal.hidden = false;
+        });
+    }
+    const lightBtn = document.getElementById('ps-light');
+    if (lightBtn) {
+        lightBtn.addEventListener('click', async () => {
+            const turningOff = lightState === 'on';   // naciśnięcie zgasi światło
+            if (turningOff && !(await gtaConfirm())) return;
+            lightBtn.disabled = true;
+            fetch('/api/drukarka/swiatlo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'toggle' })
+            }).then(r => r.json()).then(res => {
+                lightBtn.disabled = false;
+                if (!res || !res.ok) { alert('Nie udało się przełączyć światła 😕'); return; }
+                setTimeout(psFetch, 700);   // odśwież stan po chwili
+            }).catch(() => { lightBtn.disabled = false; alert('Błąd połączenia 😕'); });
+        });
+    }
+    function stopVideo() {
+        if (videoEl) { videoEl.remove(); videoEl = null; }  // usunięcie z DOM zamyka websocket (disconnectedCallback)
+    }
+    function showSource(btn) {
+        sourceButtons.forEach(b => {
+            b.classList.toggle('active', b === btn);
+            b.setAttribute('aria-checked', b === btn ? 'true' : 'false');
+        });
+        const url = btn.dataset.url;
+        const kind = btn.dataset.kind || 'iframe';
+        stopVideo();
+        psStop();
+        if (!url) {                                    // brak adresu - "brak sygnału"
+            frame.src = 'about:blank'; frame.hidden = true;
+            offline.hidden = false;
+        } else if (kind === 'video') {                 // natywny strumień drukarki przez odtwarzacz go2rtc (MSE, fallback MJPEG)
+            frame.src = 'about:blank'; frame.hidden = true;   // zatrzymaj iframe kamery
+            videoEl = document.createElement('video-rtc');
+            videoEl.id = 'camera-video';
+            videoEl.background = false;                // rozłącz, gdy karta nieaktywna (oszczędza łącze)
+            videoEl.mode = 'mse,mjpeg';                // bez webrtc (brak UDP przez tunel) i bez hls
+            streamBox.insertBefore(videoEl, offline);
+            if (videoEl.video && url.includes('/api/ws')) videoEl.video.poster = url.replace('/api/ws', '/api/frame.jpeg');
+            videoEl.src = url;
+            offline.hidden = true;
+            psStart();                                 // pokaż panel statusu drukarki
+        } else {                                       // osadzony player (kamera, rtsp.me) - bez zmian, własne sterowanie
+            frame.src = url; frame.hidden = false;
+            offline.hidden = true;
+        }
+        try { localStorage.setItem('hl-camera-source', btn.dataset.source); } catch (e) {}
+    }
+    sourceButtons.forEach(b => b.addEventListener('click', () => showSource(b)));
+    let saved = null;
+    try { saved = localStorage.getItem('hl-camera-source'); } catch (e) {}
+    sourceButtons.forEach(b => { if (b.dataset.source === saved) showSource(b); });
 
     function renderMessages(messages) {
         // przewijamy w dół tylko, gdy użytkownik już był na dole - nie przeszkadzamy w czytaniu starszych

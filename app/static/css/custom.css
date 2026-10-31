@@ -292,7 +292,53 @@ a.hl-stat:hover { color: #ffcc00; text-decoration: none; }
 
 /* kamera */
 .hl-stream { position: relative; border-radius: 8px; overflow: hidden; background: #000; }
-.hl-stream iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.hl-stream iframe, .hl-stream video-rtc { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; background: #000; }
+.hl-stream video-rtc video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.hl-stream iframe[hidden] { display: none; }   /* bije regułę .hl-stream iframe */
+/* panel statusu drukarki */
+.hl-pstatus { margin-top: 12px; background: var(--gta-panel, rgba(0,0,0,.35)); border: 1px solid var(--gta-border, rgba(255,255,255,.1)); border-radius: 6px; padding: 12px 14px; }
+.hl-pstatus.is-offline { opacity: .5; }
+.hl-pstatus-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.hl-pstatus-state { font-family: var(--gta-font-ui, inherit); font-weight: 700; color: var(--gta-green, #7bd88f); text-transform: uppercase; letter-spacing: .05em; }
+.hl-pstatus.is-offline .hl-pstatus-state { color: var(--gta-muted, #999); }
+.hl-pstatus-task { color: var(--gta-text, #ddd); font-weight: 600; }
+.hl-pstatus-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: .9rem; color: var(--gta-muted, #bbb); }
+.hl-pstatus-bar { flex: 1; height: 8px; background: rgba(255,255,255,.12); border-radius: 4px; overflow: hidden; }
+.hl-pstatus-bar > div { height: 100%; width: 0; background: var(--gta-green, #7bd88f); transition: width .5s ease; }
+.hl-pstatus-progress > span { white-space: nowrap; }
+.hl-pstatus-tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.hl-ptile { background: rgba(255,255,255,.06); border-radius: 4px; padding: 6px 12px; min-width: 88px; }
+.hl-ptile-label { display: block; font-size: .72rem; color: var(--gta-muted, #aaa); margin-bottom: 2px; }
+.hl-ptile > span:last-child { font-weight: 700; color: var(--gta-text, #fff); }
+.hl-pstatus-fil { display: flex; gap: 8px; flex-wrap: wrap; }
+.hl-fil { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.06); border-radius: 20px; padding: 4px 12px 4px 4px; font-size: .85rem; color: var(--gta-text, #eee); }
+.hl-fil.is-active { outline: 2px solid var(--gta-green, #7bd88f); }
+.hl-fil-dot { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: #555; flex: none; }
+.hl-pstatus.is-paused .hl-pstatus-state { color: var(--gta-yellow, #f1c40f); }
+.hl-pstatus-alert { margin-bottom: 10px; padding: 8px 12px; border-radius: 4px; font-weight: 700;
+                    background: rgba(241,196,15,.15); border: 1px solid var(--gta-yellow, #f1c40f); color: var(--gta-yellow, #f1c40f); }
+.hl-pstatus-alert[hidden] { display: none; }
+.hl-pstatus-sub { margin: -2px 0 8px; font-size: .85rem; color: var(--gta-muted, #bbb); font-style: italic; }
+.hl-pstatus-sub::before { content: '⏳ '; font-style: normal; }
+.hl-pstatus-sub[hidden] { display: none; }
+.hl-pstatus-ctrl { margin-top: 10px; }
+.hl-light-btn { width: auto; background: rgba(255,255,255,.08); color: var(--gta-text, #eee); border: 1px solid var(--gta-border, rgba(255,255,255,.25));
+                border-radius: 4px; padding: 7px 14px; font-weight: 700; cursor: pointer; font-family: var(--gta-font-ui, inherit); }
+.hl-light-btn:hover { background: var(--gta-yellow, #f1c40f); color: #111; border-color: var(--gta-yellow, #f1c40f); }
+.hl-light-btn:disabled { opacity: .6; cursor: default; }
+.hl-ostroznie { color: var(--gta-red, #e74c3c); }
+/* modal potwierdzenia w stylu GTA */
+.hl-modal { position: fixed; inset: 0; z-index: 1050; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.hl-modal[hidden] { display: none; }
+.hl-modal-box { background: var(--gta-panel, #15181c); border: 2px solid var(--gta-yellow, #f1c40f); border-radius: 4px; width: 100%; max-width: 440px; padding: 22px; box-shadow: 0 14px 50px rgba(0,0,0,.65); }
+.hl-modal-title { font-family: var(--gta-font-title, inherit); font-size: 2.2rem; line-height: 1; color: var(--gta-yellow, #f1c40f); text-shadow: 2px 2px 0 #000; letter-spacing: .03em; margin-bottom: 12px; }
+.hl-modal-body { color: var(--gta-text, #eee); line-height: 1.5; margin-bottom: 20px; }
+.hl-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.hl-modal-btn { width: auto; border: 0; border-radius: 4px; padding: 9px 20px; font-weight: 700; cursor: pointer; font-family: var(--gta-font-ui, inherit); letter-spacing: .03em; text-transform: uppercase; }
+.hl-modal-no { background: rgba(255,255,255,.12); color: var(--gta-text, #eee); }
+.hl-modal-no:hover { background: rgba(255,255,255,.22); }
+.hl-modal-yes { background: var(--gta-yellow, #f1c40f); color: #111; }
+.hl-modal-yes:hover { background: var(--gta-yellow-dark, #d4a90c); }
 .hl-live { position: absolute; top: 10px; left: 10px; background: #e74c3c; color: #fff; font-weight: 700; font-size: .75rem; padding: 3px 8px; border-radius: 4px; pointer-events: none; }
 .hl-live::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #fff; margin-right: 6px; animation: hl-blink 1.2s infinite; }
 @keyframes hl-blink { 50% { opacity: .2; } }
