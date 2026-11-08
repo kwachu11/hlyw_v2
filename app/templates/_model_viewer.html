@@ -1,0 +1,18 @@
+{# Podgląd modelu 3D: mapa importów dla three.js i pole na obraz; logika w static/js/model_viewer.js #}
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<style>
+    .hl-model { margin-bottom: 1rem; }
+    .hl-model-stage { height: 380px; border: 1px solid var(--gta-border, #555); border-radius: 2px; overflow: hidden; touch-action: none; }
+    .hl-model-stage canvas { display: block; }
+    @media (max-width: 575px) { .hl-model-stage { height: 280px; } }
+</style>
+<div class="hl-model" id="hlModel" hidden>
+    <div class="hl-model-stage"></div>
+    <small class="hl-model-stats text-muted d-block mt-1"></small>
+</div>
+<small class="text-muted d-block mb-3" id="hlModelStatus"></small>

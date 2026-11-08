@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .hl-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+    .hl-color input { position: absolute; opacity: 0; }
+    .hl-color span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--gta-border, #555); border-radius: 2px; cursor: pointer; }
+    .hl-color input:checked + span { border-color: #ffcc00; box-shadow: 0 0 0 1px #ffcc00; }
+    .hl-color input:focus-visible + span { outline: 2px solid #fff; }
+    .hl-color i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #777; }
+</style>
+
+<a href="{{ url_for('print_list') }}" class="small">&larr; wszystkie propozycje</a>
+<h2 class="mt-2">Zaproponuj wydruk</h2>
+
+<p class="small text-muted mb-3">
+    Szybciej z komputera: przeciągnij na pasek zakładek
+    <a id="hlBookmarklet" class="btn btn-outline-primary btn-sm w-auto mx-1" href="#">🖨️ Wyślij do druku</a>
+    i kliknij tę zakładkę na stronie modelu (MakerWorld, Printables, Thingiverse...), a link, tytuł i zdjęcie wypełnią się same.
+</p>
+
+<form method="POST" enctype="multipart/form-data">
+    {{ form.hidden_tag() }}
+    {% for errors in form.errors.values() %}{% for e in errors %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}{% endfor %}
+
+    <div class="form-group">
+        {{ form.title.label }}
+        {{ form.title(class="form-control", required=true) }}
+    </div>
+    <div class="form-group">
+        {{ form.file.label }}
+        {{ form.file(class="form-control-file") }}
+        <small class="form-text text-muted" id="print-file-info">STL, 3MF, OBJ lub STEP, do {{ max_mb }} MB.</small>
+    </div>
+    {% include "_model_viewer.html" %}
+    <div class="form-group">
+        {{ form.link.label }}
+        {{ form.link(class="form-control") }}
+    </div>
+    <div class="form-group">
+        {{ form.image_url.label }}
+        {{ form.image_url(class="form-control") }}
+        <img id="print-image-preview" class="mt-2 rounded" style="max-height: 180px; max-width: 100%;" alt="" referrerpolicy="no-referrer" hidden>
+    </div>
+    <div class="form-row">
+        <div class="form-group col-md-5">
+            {{ form.quality.label }}
+            {{ form.quality(class="form-control") }}
+        </div>
+        <div class="form-group col-md-4">
+            {{ form.material.label }}
+            {{ form.material(class="form-control") }}
+        </div>
+        <div class="form-group col-md-3">
+            {{ form.quantity.label }}
+            {{ form.quantity(class="form-control", type="number", min=1, max=20) }}
+        </div>
+    </div>
+    <fieldset class="form-group">
+        <legend class="col-form-label pt-0">{{ form.color.label.text }}</legend>
+        <div class="hl-colors">
+            {% for option in form.color %}
+            <label class="hl-color mb-0">
+                {{ option() }}
+                <span><i style="background: {{ colors[option.data] }}"></i>{{ option.label.text }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </fieldset>
+    <div class="form-group">
+        {{ form.description.label }}
+        {{ form.description(class="form-control") }}
+    </div>
+    {{ form.submit(class="btn btn-primary") }}
+</form>
+
+<script>
+(function () {
+    var input = document.getElementById('file'), info = document.getElementById('print-file-info');
+    var defaultText = info.textContent, maxBytes = {{ max_mb }} * 1024 * 1024;
+    input.addEventListener('change', function () {
+        var tooBig = input.files.length && input.files[0].size > maxBytes;
+        info.textContent = tooBig ? 'Ten plik ma ponad {{ max_mb }} MB - serwer go nie przyjmie.' : defaultText;
+        info.classList.toggle('text-danger', !!tooBig);
+        info.classList.toggle('text-muted', !tooBig);
+        input.setCustomValidity(tooBig ? 'Plik jest za duży' : '');
+    });
+
+    // podgląd wklejonego zdjęcia
+    var imageInput = document.getElementById('image_url'), preview = document.getElementById('print-image-preview');
+    function showPreview() {
+        var url = imageInput.value.trim();
+        preview.hidden = !/^https?:\/\//i.test(url);
+        if (!preview.hidden) { preview.dataset.hlFallback = '1'; preview.src = url; }
+    }
+    imageInput.addEventListener('input', showPreview);
+    preview.addEventListener('error', function () { preview.hidden = true; });
+    showPreview();
+
+    // zakładka: czyta tytuł i og:image z otwartej strony modelu i otwiera ten formularz z wypełnionymi polami
+    var bookmarklet = "(function(){var m=function(p){var e=document.querySelector('meta[property=\"'+p+'\"]');return e?e.content:''};" +
+        "var i=m('og:image');if(!i){var b=0;[].forEach.call(document.images,function(x){var a=x.naturalWidth*x.naturalHeight;if(a>b&&/^http/.test(x.src)){b=a;i=x.src}})}" +
+        "var t=(m('og:title')||document.title).replace(/\\s[-|]\\s(Free 3D.*|MakerWorld.*|Printables.*|Thingiverse.*)$/i,'');" +
+        "location.href=" + JSON.stringify(location.origin + "{{ url_for('print_new') }}") +
+        "+'?link='+encodeURIComponent(location.href.split('#')[0])+'&title='+encodeURIComponent(t)+'&image='+encodeURIComponent(i)})()";
+    var bookmark = document.getElementById('hlBookmarklet');
+    bookmark.href = 'javascript:' + encodeURIComponent(bookmarklet);
+    bookmark.addEventListener('click', function (e) { e.preventDefault(); });
+})();
+</script>
+<script type="module">
+const input = document.getElementById('file'), status = document.getElementById('hlModelStatus');
+const colors = {{ colors|tojson }};
+const quality = document.getElementById('quality'), material = document.getElementById('material'), quantity = document.getElementById('quantity');
+let viewer = null, VIEWABLE = [];
+
+function options() {
+    const color = document.querySelector('input[name="color"]:checked');
+    return { quality: quality.value, material: material.value, quantity: quantity.value, color: colors[color ? color.value : 'Obojętnie'] };
+}
+[quality, material, quantity].forEach(el => el.addEventListener('input', () => viewer && viewer.setOptions(options())));
+document.querySelectorAll('input[name="color"]').forEach(el => el.addEventListener('change', () => viewer && viewer.setOptions(options())));
+
+input.addEventListener('change', async () => {
+    status.textContent = '';
+    if (viewer) viewer.hide();
+    const file = input.files[0];
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    try {
+        status.textContent = 'Ładuję podgląd…';
+        if (!viewer) {
+            const mod = await import("{{ url_for('static', filename='js/model_viewer.js') }}");
+            VIEWABLE = mod.VIEWABLE;
+            viewer = mod.mountViewer(document.getElementById('hlModel'));
+        }
+        if (!VIEWABLE.includes(ext)) { status.textContent = 'Dla tego formatu nie ma podglądu - plik i tak zostanie wysłany.'; return; }
+        viewer.setOptions(options());
+        viewer.load(await file.arrayBuffer(), ext);
+        status.textContent = '';
+    } catch (e) {
+        console.error(e);
+        if (viewer) viewer.hide();
+        status.textContent = 'Nie udało się pokazać podglądu tego pliku - i tak możesz go wysłać.';
+    }
+});
+</script>
+{% endblock %}

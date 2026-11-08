@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 hl-gap">
+    <h2 class="mb-0">Druk 3D</h2>
+    <a href="{{ url_for('print_new') }}" class="btn btn-primary">Zaproponuj wydruk</a>
+</div>
+
+{% set moje = 1 if mine else none %}
+<div class="d-flex flex-wrap mb-3 hl-gap">
+    <a href="{{ url_for('print_list', moje=moje) }}" class="btn btn-sm w-auto {{ 'btn-primary' if not active_status else 'btn-outline-primary' }}">Wszystkie</a>
+    {% for value, (name, _, _) in print_statuses.items() %}
+    <a href="{{ url_for('print_list', status=value, moje=moje) }}" class="btn btn-sm w-auto {{ 'btn-primary' if active_status == value else 'btn-outline-primary' }}">{{ name }} ({{ counts.get(value, 0) }})</a>
+    {% endfor %}
+    <a href="{{ url_for('print_list', status=active_status, moje=none if mine else 1) }}" class="btn btn-sm w-auto {{ 'btn-warning' if mine else 'btn-outline-warning' }}">Tylko moje</a>
+</div>
+
+<div class="list-group">
+    {% for r in requests %}
+    {% set name, badge, _ = print_statuses[r.status] %}
+    <a href="{{ url_for('print_detail', request_id=r.id) }}" class="list-group-item list-group-item-action hl-report-row {{ 'hl-report-closed' if r.status in ('wydrukowana', 'odrzucona') }}">
+        <div class="d-flex hl-gap">
+            {% set picture = r.image_url or (url_for('print_thumbnail', request_id=r.id) if r.thumb_path) %}
+            {% if picture %}
+            <img src="{{ picture }}" alt="" width="64" height="64" class="rounded flex-shrink-0" style="object-fit: cover;" loading="lazy" referrerpolicy="no-referrer">
+            {% endif %}
+            <div class="flex-grow-1" style="min-width: 0;">
+                <div class="d-flex justify-content-between align-items-start hl-gap">
+                    <span class="hl-report-title">{{ r.title }}{% if r.quantity > 1 %} × {{ r.quantity }}{% endif %}</span>
+                    <span class="badge {{ badge }} badge-pill">{{ name }}</span>
+                </div>
+                <small class="text-muted">
+                    {{ r.user.username }}{{ crown(r.user.id) }} · {{ r.created_at|when }} · {{ qualities[r.quality] }} · {{ r.material }} · {{ r.color }}
+                    · {{ '📎 plik' if r.file_path else '🔗 link' }}
+                </small>
+            </div>
+        </div>
+    </a>
+    {% else %}
+    <p class="text-muted">Brak propozycji.</p>
+    {% endfor %}
+</div>
+{% endblock %}

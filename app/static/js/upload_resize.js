@@ -44,7 +44,7 @@
 
     document.addEventListener('change', async function (e) {
         var input = e.target;
-        if (input.tagName !== 'INPUT' || input.type !== 'file' || !input.files.length || input.dataset.hlResized) return;
+        if (input.tagName !== 'INPUT' || input.type !== 'file' || !input.files.length || input.dataset.hlResized || input.dataset.hlNoResize) return;
         if (typeof DataTransfer === 'undefined') return;
         var form = input.form, buttons = form ? form.querySelectorAll('[type=submit]') : [];
         var info = document.createElement('small');

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+{% set name, badge, _ = print_statuses[entry.status] %}
+<a href="{{ url_for('print_list') }}" class="small">&larr; wszystkie propozycje</a>
+<div class="d-flex flex-wrap align-items-center hl-gap mt-2">
+    <h2 class="mb-0">{{ entry.title }}</h2>
+    <span class="badge {{ badge }} badge-pill">{{ name }}</span>
+</div>
+<p class="text-muted small">{{ entry.user.username }}{{ crown(entry.user.id) }} · {{ entry.created_at|when }}</p>
+
+{% if entry.admin_note %}
+<div class="alert alert-info" style="white-space: pre-line;"><b>Odpowiedź:</b> {{ entry.admin_note }}</div>
+{% endif %}
+
+{% set picture = entry.image_url or (url_for('print_thumbnail', request_id=entry.id) if entry.thumb_path) %}
+{% if picture %}
+<img src="{{ picture }}" alt="" class="rounded mb-3" style="max-height: 320px; max-width: 100%;" referrerpolicy="no-referrer">
+{% endif %}
+
+<dl class="row">
+    <dt class="col-sm-3">Jakość</dt><dd class="col-sm-9">{{ qualities[entry.quality] }}</dd>
+    <dt class="col-sm-3">Filament</dt><dd class="col-sm-9">{{ entry.material }}</dd>
+    <dt class="col-sm-3">Kolor</dt>
+    <dd class="col-sm-9">
+        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; border:1px solid #777; background: {{ colors.get(entry.color, 'transparent') }}"></span>
+        {{ entry.color }}
+    </dd>
+    <dt class="col-sm-3">Liczba sztuk</dt><dd class="col-sm-9">{{ entry.quantity }}</dd>
+    {% if entry.file_path %}
+    <dt class="col-sm-3">Plik</dt><dd class="col-sm-9"><a href="{{ url_for('print_download', request_id=entry.id) }}">📎 {{ entry.file_name }}</a></dd>
+    {% endif %}
+    {% if entry.link %}
+    <dt class="col-sm-3">Link</dt><dd class="col-sm-9" style="overflow-wrap: anywhere;"><a href="{{ entry.link }}" target="_blank" rel="noopener noreferrer">🔗 {{ entry.link }}</a></dd>
+    {% endif %}
+    {% if entry.description %}
+    <dt class="col-sm-3">Uwagi</dt><dd class="col-sm-9" style="white-space: pre-line;">{{ entry.description }}</dd>
+    {% endif %}
+</dl>
+
+{% if file_size %}
+{% include "_model_viewer.html" %}
+<button type="button" class="btn btn-outline-primary btn-sm w-auto mb-3" id="hlModelLoad" hidden>Pokaż model 3D ({{ (file_size / 1048576)|round(1) }} MB)</button>
+<script type="module">
+const ext = {{ (entry.file_name or '').rsplit('.', 1)[-1].lower()|tojson }};
+const status = document.getElementById('hlModelStatus'), button = document.getElementById('hlModelLoad');
+const options = { quality: {{ entry.quality|tojson }}, material: {{ entry.material|tojson }}, quantity: {{ entry.quantity }},
+                  color: {{ colors.get(entry.color, 'transparent')|tojson }} };
+async function show() {
+    button.hidden = true;
+    status.textContent = 'Ładuję podgląd…';
+    try {
+        const { mountViewer } = await import("{{ url_for('static', filename='js/model_viewer.js') }}");
+        const response = await fetch("{{ url_for('print_download', request_id=entry.id) }}");
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const viewer = mountViewer(document.getElementById('hlModel'));
+        viewer.setOptions(options);
+        viewer.load(await response.arrayBuffer(), ext);
+        status.textContent = '';
+    } catch (e) {
+        console.error(e);
+        status.textContent = 'Nie udało się pokazać podglądu tego pliku.';
+    }
+}
+if (['stl', '3mf', 'obj'].includes(ext)) {
+    // duże pliki dopiero na żądanie, żeby wejście na stronę nie pobierało kilkudziesięciu MB
+    if ({{ file_size }} <= 15 * 1048576) show();
+    else { button.hidden = false; button.addEventListener('click', show); }
+}
+</script>
+{% endif %}
+
+{% if current_user.is_admin != "0" %}
+<form action="{{ url_for('print_set_status', request_id=entry.id) }}" method="POST" class="mb-3">
+    {{ status_form.hidden_tag() }}
+    <div class="form-row">
+        <div class="form-group col-md-4">
+            {{ status_form.status.label }}
+            {{ status_form.status(class="form-control") }}
+        </div>
+        <div class="form-group col-md-8">
+            {{ status_form.admin_note.label }}
+            {{ status_form.admin_note(class="form-control") }}
+        </div>
+    </div>
+    {{ status_form.submit(class="btn btn-primary btn-sm w-auto") }}
+</form>
+{% endif %}
+
+{% if can_delete %}
+<form action="{{ url_for('print_delete', request_id=entry.id) }}" method="POST" onsubmit="return confirm('Na pewno usunąć tę propozycję?');">
+    {{ delete_form.hidden_tag() }}
+    {{ delete_form.submit(class="btn btn-outline-danger btn-sm w-auto") }}
+</form>
+{% endif %}
+{% endblock %}

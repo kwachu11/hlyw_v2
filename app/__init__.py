@@ -11,6 +11,9 @@ from sqlalchemy import func, true
 import re
 import unicodedata
 import uuid
+import io
+import zipfile
+from urllib.parse import urlparse
 from sqlalchemy.exc import OperationalError
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
@@ -23,7 +26,8 @@ from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
 
 from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail, \
-    ForgotPasswordForm, ResetPasswordForm, ChangePasswordForm, UpgradeForm
+    ForgotPasswordForm, ResetPasswordForm, ChangePasswordForm, UpgradeForm, PrintRequestForm, PrintStatusForm, \
+    PrintDeleteForm, PRINT_EXTENSIONS, PRINT_MAX_MB, PRINT_QUALITIES, PRINT_COLORS, PRINT_STATUSES
 
 from datetime import datetime, timedelta
 import calendar as callendar
@@ -79,6 +83,7 @@ PREVIOUS_EDITION_END = datetime(2026, 10, 9)
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 'heic'}
 ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
 THUMBNAIL_SIZE = 480  # dłuższy bok miniatury w galerii (px)
+PRINT_THUMB_MAX_BYTES = 10 * 1024 * 1024  # większego obrazka z pliku 3MF nie rozpakowujemy
 
 NEWS_REACTIONS = ['👍', '😂', '🔥', '😮', '💀']
 
@@ -118,7 +123,7 @@ LOADING_TIPS = [
 # Turniej Trackmania (wydarzenie z "trackmania" w tytule): punkty za miejsce na każdej trasie, jak w F1
 TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 # Rodzaje aktywności, o których przychodzą powiadomienia (gry pomijamy - byłoby ich za dużo)
-NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user', 'camera', 'album', 'match'}
+NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user', 'camera', 'album', 'match', 'print'}
 LOADING_SCREEN_MS = 6000   # jak długo trwa ekran ładowania (klik / klawisz zamyka od razu)
 CAMERA_VISIT_GAP = timedelta(minutes=2)   # dłuższa przerwa w oglądaniu kamery = nowe wejście
 CAMERA_STREAM_URL = 'https://rtsp.me/embed/62bBnQNN'   # drugi obraz (drukarka) - PRINTER_STREAM_URL w .env
@@ -532,6 +537,29 @@ def create_app():
         # Relacja odwrotna
         user = db.relationship('User', backref='reports', lazy=True)
 
+    class PrintRequest(db.Model):
+        """Propozycja do druku 3D: plik w instance/druk3d i/lub link do modelu."""
+        __tablename__ = 'print_request'
+        id = db.Column(db.Integer, primary_key=True)
+        title = db.Column(db.String(150), nullable=False)
+        description = db.Column(db.Text)
+        file_path = db.Column(db.String(100))     # losowa nazwa na dysku
+        file_name = db.Column(db.String(200))     # oryginalna nazwa do pobrania
+        link = db.Column(db.String(500))
+        image_url = db.Column(db.String(1000))    # zdjęcie osadzane bezpośrednio z serwisu z modelem
+        thumb_path = db.Column(db.String(100))    # miniatura wyciągnięta z pliku 3MF (instance/druk3d)
+        quality = db.Column(db.String(20), nullable=False)
+        material = db.Column(db.String(30), nullable=False)
+        color = db.Column(db.String(40), nullable=False)
+        quantity = db.Column(db.Integer, nullable=False, default=1)
+        status = db.Column(db.String(20), nullable=False, default='nowa')
+        admin_note = db.Column(db.String(500))
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        status_at = db.Column(db.DateTime)        # ostatnia zmiana statusu (do aktywności)
+        status_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        user = db.relationship('User', foreign_keys=[user_id], lazy=True)
+
     class Comment(db.Model):
         id = db.Column(db.Integer, primary_key=True)
         content = db.Column(db.Text, nullable=False)
@@ -716,6 +744,8 @@ def create_app():
             ('fifa_participant', 'created_at', "DATETIME"),
             ('news_reaction', 'created_at', "DATETIME"),
             ('tournament_match', 'score_at', "DATETIME"),
+            ('print_request', 'image_url', "VARCHAR(1000)"),
+            ('print_request', 'thumb_path', "VARCHAR(100)"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -947,6 +977,24 @@ def create_app():
         images = Images.query.filter_by(album_id=album.id).order_by(Images.created_at).all()
         return render_template('album.html', album=album, images=images)
 
+    def save_jpeg_thumbnail(source, thumb_path):
+        """Zapisuje miniaturę JPEG obrazka (ścieżka albo plik w pamięci); przy błędzie rzuca wyjątek."""
+        # zapis przez plik tymczasowy - kilka workerów może generować tę samą miniaturę naraz
+        tmp_path = thumb_path + '.' + uuid.uuid4().hex + '.tmp'
+        try:
+            from PIL import Image, ImageOps
+            with Image.open(source) as original:
+                picture = ImageOps.exif_transpose(original).convert('RGBA')
+            picture.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+            # JPEG nie ma przezroczystości - podkładamy tło
+            background = Image.new('RGB', picture.size, (52, 58, 64))
+            background.paste(picture, mask=picture.getchannel('A'))
+            background.save(tmp_path, 'JPEG', quality=78, optimize=True)
+            os.replace(tmp_path, thumb_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
     @app.route('/miniatura/<int:image_id>')
     @login_required
     def thumbnail(image_id):
@@ -957,22 +1005,10 @@ def create_app():
         if not os.path.exists(thumb_path):
             source = os.path.join(app.root_path, image.file_path.replace('\\', '/').lstrip('/'))
             create_directory_if_not_exists(os.path.dirname(thumb_path))
-            # zapis przez plik tymczasowy - kilka workerów może generować tę samą miniaturę naraz
-            tmp_path = thumb_path + '.' + uuid.uuid4().hex + '.tmp'
             try:
-                from PIL import Image, ImageOps
-                with Image.open(source) as original:
-                    picture = ImageOps.exif_transpose(original).convert('RGBA')
-                picture.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
-                # JPEG nie ma przezroczystości - podkładamy tło
-                background = Image.new('RGB', picture.size, (52, 58, 64))
-                background.paste(picture, mask=picture.getchannel('A'))
-                background.save(tmp_path, 'JPEG', quality=78, optimize=True)
-                os.replace(tmp_path, thumb_path)
+                save_jpeg_thumbnail(source, thumb_path)
             except Exception as e:
                 app.logger.warning('Nie udało się utworzyć miniatury zdjęcia %s: %s', image.id, e)
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
                 return redirect(media_url(image.file_path))
         return send_file(thumb_path, mimetype='image/jpeg', max_age=30 * 24 * 3600)
 
@@ -1511,6 +1547,173 @@ def create_app():
         flash('Komentarz został dodany!', 'success')
         return redirect(url_for('view_report', report_id=report.id))
 
+    # ===================== Propozycje do druku 3D =====================
+
+    def print_file_path(name):
+        # poza static: plik da się pobrać tylko przez trasę dla zalogowanych, zawsze jako załącznik
+        return os.path.join(app.instance_path, 'druk3d', name)
+
+    def clean_print_link(link):
+        """Adres http(s) z formularza; None, gdy to nie jest poprawny link (np. javascript:)."""
+        link = link.strip()
+        if '://' not in link and ':' not in link.split('/')[0]:
+            link = 'https://' + link
+        parsed = urlparse(link)
+        if parsed.scheme not in ('http', 'https') or '.' not in parsed.netloc or re.search(r'\s', link):
+            return None
+        return link
+
+    def extract_3mf_thumbnail(stored):
+        """Wyciąga obrazek zapisany w pliku 3MF i zwraca nazwę miniatury; None, gdy go nie ma lub plik jest uszkodzony."""
+        def rank(name):
+            # plate_1.png = widok modelu z Bambu Studio; pick_* to mapy kolorów, a nie obrazki do pokazania
+            lower = name.lower().replace('\\', '/')
+            base = lower.rsplit('/', 1)[-1]
+            if not base.endswith(('.png', '.jpg', '.jpeg')) or not lower.startswith(('metadata/', 'thumbnails/', '/metadata/')):
+                return None
+            if base.startswith('pick') or 'no_light' in base or base.endswith('_small.png'):
+                return None
+            return 0 if base == 'plate_1.png' else 1 if base.startswith('plate_') else 2 if 'thumbnail' in lower else 3
+        thumb = stored + '.jpg'
+        try:
+            with zipfile.ZipFile(print_file_path(stored)) as archive:
+                candidates = [(rank(i.filename), i) for i in archive.infolist()
+                              if rank(i.filename) is not None and i.file_size <= PRINT_THUMB_MAX_BYTES]
+                if not candidates:
+                    return None
+                with archive.open(min(candidates, key=lambda c: c[0])[1]) as image:
+                    save_jpeg_thumbnail(io.BytesIO(image.read()), print_file_path(thumb))
+            return thumb
+        except Exception as e:
+            app.logger.warning('Nie udało się wyciągnąć miniatury z 3MF %s: %s', stored, e)
+            return None
+
+    @app.route('/druk3d/<int:request_id>/miniatura')
+    @login_required
+    def print_thumbnail(request_id):
+        entry = PrintRequest.query.get_or_404(request_id)
+        if not entry.thumb_path or not os.path.exists(print_file_path(entry.thumb_path)):
+            abort(404)
+        return send_file(print_file_path(entry.thumb_path), mimetype='image/jpeg', max_age=24 * 3600)
+
+    @app.route('/druk3d')
+    @login_required
+    def print_list():
+        status = request.args.get('status')
+        mine = request.args.get('moje') == '1'
+        query = PrintRequest.query
+        if status in PRINT_STATUSES:
+            query = query.filter_by(status=status)
+        else:
+            status = None
+        if mine:
+            query = query.filter_by(user_id=current_user.id)
+        counts = dict(db.session.query(PrintRequest.status, func.count()).group_by(PrintRequest.status).all())
+        return render_template('druk3d.html', requests=query.order_by(PrintRequest.created_at.desc()).all(), counts=counts,
+                               active_status=status, mine=mine, print_statuses=PRINT_STATUSES, qualities=PRINT_QUALITIES,
+                               colors=PRINT_COLORS)
+
+    @app.route('/druk3d/nowa', methods=['GET', 'POST'])
+    @login_required
+    def print_new():
+        limit_bytes = PRINT_MAX_MB * 1024 * 1024
+        if request.method == 'POST' and (request.content_length or 0) > limit_bytes + 1024 * 1024:
+            flash(f'Plik jest za duży - limit to {PRINT_MAX_MB} MB.', 'danger')
+            return redirect(url_for('print_new'))
+        form = PrintRequestForm()
+        if request.method == 'GET':
+            # dane z zakładki „Wyślij do druku” - tylko wypełniają formularz, zapisuje dopiero użytkownik
+            form.title.data = request.args.get('title', '')[:150]
+            form.link.data = request.args.get('link', '')[:500]
+            form.image_url.data = request.args.get('image', '')[:1000]
+        if form.validate_on_submit():
+            image_url = clean_print_link(form.image_url.data) if (form.image_url.data or '').strip() else None
+            upload = form.file.data if form.file.data and form.file.data.filename else None
+            ext = upload.filename.rsplit('.', 1)[-1].lower() if upload and '.' in upload.filename else ''
+            link = clean_print_link(form.link.data) if (form.link.data or '').strip() else None
+            if not upload and not (form.link.data or '').strip():
+                flash('Dodaj plik z modelem albo link do niego.', 'danger')
+            elif upload and ext not in PRINT_EXTENSIONS:
+                flash('Niedozwolony typ pliku. Dozwolone: ' + ', '.join(sorted(PRINT_EXTENSIONS)), 'danger')
+            elif (form.link.data or '').strip() and not link:
+                flash('To nie wygląda na poprawny link - wklej pełny adres strony z modelem.', 'danger')
+            elif (form.image_url.data or '').strip() and not image_url:
+                flash('To nie wygląda na poprawny link do zdjęcia.', 'danger')
+            else:
+                stored = None
+                if upload:
+                    stored = uuid.uuid4().hex + '.' + ext
+                    create_directory_if_not_exists(os.path.dirname(print_file_path(stored)))
+                    upload.save(print_file_path(stored))
+                thumb = extract_3mf_thumbnail(stored) if ext == '3mf' else None
+                entry = PrintRequest(thumb_path=thumb,title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
+                                     file_path=stored, link=link, image_url=image_url, quality=form.quality.data, material=form.material.data,
+                                     file_name=upload.filename.replace('\\', '/').rsplit('/', 1)[-1][:200] if upload else None,
+                                     color=form.color.data, quantity=form.quantity.data, user_id=current_user.id)
+                db.session.add(entry)
+                db.session.commit()
+                flash('Propozycja wysłana! Status zobaczysz na tej stronie.', 'success')
+                return redirect(url_for('print_detail', request_id=entry.id))
+        return render_template('druk3d_nowa.html', form=form, colors=PRINT_COLORS, max_mb=PRINT_MAX_MB)
+
+    @app.route('/druk3d/<int:request_id>')
+    @login_required
+    def print_detail(request_id):
+        entry = PrintRequest.query.get_or_404(request_id)
+        can_delete = current_user.is_admin != "0" or (entry.user_id == current_user.id and entry.status == 'nowa')
+        file_size = None
+        if entry.file_path and os.path.exists(print_file_path(entry.file_path)):
+            file_size = os.path.getsize(print_file_path(entry.file_path))
+        return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, file_size=file_size, print_statuses=PRINT_STATUSES,
+                               qualities=PRINT_QUALITIES, colors=PRINT_COLORS, delete_form=PrintDeleteForm(),
+                               status_form=PrintStatusForm(status=entry.status, admin_note=entry.admin_note))
+
+    @app.route('/druk3d/<int:request_id>/plik')
+    @login_required
+    def print_download(request_id):
+        entry = PrintRequest.query.get_or_404(request_id)
+        if not entry.file_path or not os.path.exists(print_file_path(entry.file_path)):
+            abort(404)
+        return send_file(print_file_path(entry.file_path), as_attachment=True, download_name=entry.file_name,
+                         mimetype='application/octet-stream')
+
+    @app.route('/druk3d/<int:request_id>/status', methods=['POST'])
+    @login_required
+    def print_set_status(request_id):
+        entry = PrintRequest.query.get_or_404(request_id)
+        form = PrintStatusForm()
+        if current_user.is_admin == "0":
+            flash('Tylko admin może zmieniać status propozycji.', 'danger')
+        elif not form.validate_on_submit():
+            flash('Nie udało się zapisać - odśwież stronę i spróbuj ponownie.', 'danger')
+        else:
+            if form.status.data != entry.status:
+                entry.status = form.status.data
+                entry.status_at = datetime.utcnow()
+                entry.status_by = current_user.id
+            entry.admin_note = (form.admin_note.data or '').strip() or None
+            db.session.commit()
+            flash(f'Zapisano. Status: {PRINT_STATUSES[entry.status][0]}.', 'success')
+        return redirect(url_for('print_detail', request_id=entry.id))
+
+    @app.route('/druk3d/<int:request_id>/usun', methods=['POST'])
+    @login_required
+    def print_delete(request_id):
+        entry = PrintRequest.query.get_or_404(request_id)
+        if not PrintDeleteForm().validate_on_submit():
+            flash('Nie udało się usunąć - odśwież stronę i spróbuj ponownie.', 'danger')
+        elif current_user.is_admin == "0" and not (entry.user_id == current_user.id and entry.status == 'nowa'):
+            flash('Możesz usunąć tylko własną propozycję, dopóki ma status „Nowa”.', 'danger')
+        else:
+            for name in (entry.file_path, entry.thumb_path):
+                if name and os.path.exists(print_file_path(name)):
+                    os.remove(print_file_path(name))
+            db.session.delete(entry)
+            db.session.commit()
+            flash('Propozycja usunięta.', 'success')
+            return redirect(url_for('print_list'))
+        return redirect(url_for('print_detail', request_id=entry.id))
+
     @app.route('/users')
     @login_required
     def users():
@@ -1956,6 +2159,12 @@ def create_app():
                 report = Report.query.get(c.report_id)
                 add('report', '💭', c.user_id, 'komentarz do zgłoszenia: ' + (report.title if report else ''),
                     url_for('view_report', report_id=c.report_id), c.created_at)
+        if want('print'):
+            for p in PrintRequest.query.filter(PrintRequest.created_at > since).all():
+                add('print', '🖨️', p.user_id, 'propozycja do druku 3D: ' + p.title, url_for('print_detail', request_id=p.id), p.created_at)
+            for p in PrintRequest.query.filter(PrintRequest.status_at > since).all():
+                name, _, icon = PRINT_STATUSES[p.status]
+                add('print', icon, p.status_by, f'druk 3D „{p.title}”: {name}', url_for('print_detail', request_id=p.id), p.status_at)
         if want('tm'):
             for t in TmTime.query.filter(TmTime.created_at > since).all():
                 ev = Calendar.query.get(t.track.event_id)
