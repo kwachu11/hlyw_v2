@@ -4,6 +4,6 @@
     <video src="{{ src }}#t=0.5" preload="metadata" muted playsinline></video>
     <span class="hl-play">&#9654;</span>
     {% else %}
-    <img src="{{ src }}" alt="" loading="lazy">
+    <img src="{{ url_for('thumbnail', image_id=image.id) }}" alt="" loading="lazy" decoding="async">
     {% endif %}
 </a>

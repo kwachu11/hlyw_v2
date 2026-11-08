@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  @font-face{font-family:'Pricedown';src:url("{{ url_for('static', filename='css/fonts/pricedown.otf') }}") format('opentype');font-display:swap}
+  .gk-wrap{max-width:860px;margin:0 auto;padding:10px 8px 28px;text-align:center}
+  .gk-title{font-family:'Pricedown',Impact,sans-serif;font-size:2.6rem;letter-spacing:1px;margin:4px 0 10px;text-shadow:2px 2px 4px rgba(0,0,0,.35)}
+  #gkCanvas{display:block;margin:0 auto;width:min(100%,820px);aspect-ratio:20/9;border-radius:4px;background:#8fd3ff;
+    box-shadow:0 0 0 6px #ffcc00,0 14px 40px rgba(0,0,0,.45);touch-action:none;outline:none;user-select:none;-webkit-user-select:none}
+  .gk-bar{display:flex;gap:8px;justify-content:center;align-items:center;margin:16px 0 0;flex-wrap:wrap}
+  .gk-bar .gk-score{font-family:'Pricedown',Impact,sans-serif;font-size:1.8rem;color:#b59a00;margin-right:6px;-webkit-text-stroke:1px #000}
+  .gk-bar .gk-best{font-weight:800;margin-right:6px}
+  .gk-bar button,.gk-bar a{touch-action:manipulation}
+  .gk-pedals{display:none;gap:14px;justify-content:center;margin:14px 0 0}
+  .touch .gk-pedals{display:flex}
+  .gk-pedals button{flex:1;max-width:220px;border:0;border-radius:14px;padding:20px 0;font-size:1.15rem;font-weight:800;color:#fff;
+    font-family:'Pricedown',Impact,sans-serif;letter-spacing:1px;touch-action:none;user-select:none;box-shadow:0 5px 0 rgba(0,0,0,.35)}
+  .gk-brake{background:#d9534f}.gk-gas{background:#4caf50}
+  .gk-pedals button:active{transform:translateY(3px);box-shadow:0 2px 0 rgba(0,0,0,.35)}
+  .gk-help{font-size:.82rem;color:#6c7a89;margin-top:12px;line-height:1.7}
+  .gk-help kbd{background:#1d1d1d;color:#ffcc00;border-radius:4px;padding:1px 6px;font-size:.75rem}
+  .gk-touchhelp{display:none}.touch .gk-touchhelp{display:inline}.touch .gk-keys{display:none}
+  html.gk-playing,html.gk-playing body{overscroll-behavior:none}
+  .gk-playing .gk-wrap{touch-action:none;user-select:none;-webkit-user-select:none}
+  @media (orientation:landscape) and (max-height:520px){.gk-title{display:none}#gkCanvas{width:min(100%,calc(80vh * 20 / 9))}}
+  .gk-again{margin-top:30px}
+</style>
+
+<div class="gk-wrap">
+  <h1 class="gk-title">Pod Górkę</h1>
+
+  <canvas id="gkCanvas" width="800" height="360" tabindex="0" aria-label="Gra Pod Górkę"></canvas>
+
+  <div class="gk-bar">
+    <span class="gk-score" id="gk-score">Dystans: 0 m</span>
+    <span class="gk-best" id="gk-best">Twój rekord: {{ best|default(0)|int }} m</span>
+  </div>
+
+  <div class="gk-pedals">
+    <button type="button" id="gk-brakeBtn" class="gk-brake">HAMULEC</button>
+    <button type="button" id="gk-gasBtn" class="gk-gas">GAZ</button>
+  </div>
+
+  <div class="gk-bar">
+    <button id="gk-pause" class="btn btn-secondary btn-sm" disabled>Pauza</button>
+    <a href="{{ url_for('ranking_gorka') }}" class="btn btn-outline-primary btn-sm">Ranking</a>
+  </div>
+
+  <div class="gk-help">
+    <span class="gk-keys"><kbd>→</kbd> / <kbd>D</kbd> / <kbd>Spacja</kbd> gaz &nbsp;•&nbsp; <kbd>←</kbd> / <kbd>A</kbd> hamulec/wstecz
+    &nbsp;•&nbsp; <kbd>Enter</kbd> start &nbsp;•&nbsp; <kbd>P</kbd> pauza<br></span>
+    <span class="gk-touchhelp">Trzymaj <b>GAZ</b> (prawy) i <b>HAMULEC</b> (lewy). Dotknij planszy, żeby zacząć.<br></span>
+    Jedź jak najdalej po górkach. W powietrzu gazem/hamulcem obracasz auto — <b>ląduj na kołach!</b> Pilnuj paliwa 🛢️
+  </div>
+
+  <div class="gk-bar gk-again">
+    <button id="gk-start" class="btn btn-primary">Rozpocznij grę</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const SAVE_URL = "{{ url_for('save_score_gorka') }}";
+let best = {{ best|default(0)|int }};
+
+const cv = document.getElementById('gkCanvas'), ctx = cv.getContext('2d');
+const scoreEl = document.getElementById('gk-score'), bestEl = document.getElementById('gk-best');
+const startBtn = document.getElementById('gk-start'), pauseBtn = document.getElementById('gk-pause');
+const gasBtn = document.getElementById('gk-gasBtn'), brakeBtn = document.getElementById('gk-brakeBtn');
+const wrapEl = document.querySelector('.gk-wrap');
+
+// --- stałe ---------------------------------------------------------------
+const W = 800, H = 360;
+const PX = W * 0.32;                 // auto na ekranie
+const SCALE_M = 25;                  // px na metr (wynik)
+const START_X = 120;
+const GRAV = 1500;
+const ENGINE = 740, BRAKEF = 640, VMAX = 540, VREV = -170, FRIC = 0.85, AIR_DRAG = 0.12;
+const ROT = 7.5, AVMAX = 7, RIDE = 14, WB = 17, WHEEL_R = 9;
+const LAND_TOL = 0.75;               // tolerancja kąta lądowania (rad)
+const STEP = 1 / 120;
+const FUEL_MAX = 100, FUEL_GAS = 5.2, FUEL_IDLE = 2.3, FUEL_CAN = 38;
+const IS_TOUCH = matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
+const FONT = "'Pricedown',Impact,sans-serif";
+
+// --- teren (proceduralny, z losowym ziarnem na partię) -------------------
+let seed = 0;
+function terr(x){
+  const e = Math.min(1, Math.max(0, (x - 40) / 700));   // płaski start
+  return 300 - (Math.sin(x*0.0019 + seed)*80 + Math.sin(x*0.0047 + seed*1.7)*42 + Math.sin(x*0.0113 + seed*2.3)*18) * e;
+}
+function slope(x){ return (terr(x+3) - terr(x-3)) / 6; }
+function gAngle(x){ return Math.atan2(terr(x+WB) - terr(x-WB), 2*WB); }
+
+// --- stan ----------------------------------------------------------------
+let state = 'idle';     // idle | run | pause | over
+let cx, v, cy, vy, ang, av, onGround, fuel, dist, score, cans, nextCanX, wheel, saveState, newRecord, diedAt = 0, overMsg = '', fuelFx = 0;
+let flipT = 0, flips = 0;
+const input = {gas:false, brake:false};
+let last = performance.now(), acc = 0;
+
+function reset(){
+  seed = Math.random() * 1000;
+  cx = START_X; v = 0; cy = terr(cx) - RIDE; vy = 0; ang = gAngle(cx); av = 0; onGround = true;
+  fuel = FUEL_MAX; dist = cx; score = 0; wheel = 0;
+  cans = []; nextCanX = START_X + 700;
+  while (cans.length < 4){ cans.push(nextCanX); nextCanX += 850 + Math.random()*950; }
+  saveState = null; newRecord = false; overMsg = ''; fuelFx = 0; flipT = 0; flips = 0;
+  input.gas = input.brake = false;
+  updateHud();
+}
+
+function fit(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const css = cv.getBoundingClientRect().width || W;
+  cv.width = Math.round(css * dpr); cv.height = Math.round(css * dpr * H / W);
+  ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+  render();
+}
+
+function buzz(v){ if (IS_TOUCH && navigator.vibrate) try { navigator.vibrate(v); } catch (e) {} }
+
+// --- fizyka --------------------------------------------------------------
+function physics(dt){
+  const gas = input.gas, brake = input.brake;
+  fuel -= (gas ? FUEL_GAS : FUEL_IDLE) * dt;
+  if (fuel <= 0){ fuel = 0; return die('Skończyło się paliwo!'); }
+
+  if (onGround){
+    const a = gAngle(cx);
+    if (gas)   v += ENGINE * dt;
+    if (brake) v -= BRAKEF * dt;
+    v += GRAV * Math.sin(a) * dt;      // zjazd w dół (a>0) przyspiesza
+    v -= FRIC * v * dt;
+    v = Math.max(VREV, Math.min(VMAX, v));
+    cx += v * dt;
+    const gY = terr(cx) - RIDE, sl = slope(cx), newVy = v * sl;
+    if (v > 120 && (newVy - vy) > GRAV * dt){   // grunt opada szybciej niż grawitacja → wyskok
+      onGround = false; av = 0;                 // vy zostaje (ciągłość, balistyka)
+    } else {
+      vy = newVy; cy = gY; ang = gAngle(cx);
+    }
+  } else {
+    vy += GRAV * dt; cy += vy * dt;
+    v *= (1 - AIR_DRAG * dt); cx += v * dt;
+    if (gas)   av += ROT * dt;      // nos w górę (backflip)
+    if (brake) av -= ROT * dt;      // nos w dół
+    av = Math.max(-AVMAX, Math.min(AVMAX, av)) * (1 - 0.25 * dt);
+    ang += av * dt;
+    flipT += av * dt;
+    const gY = terr(cx) - RIDE;
+    if (cy >= gY){
+      const ga = gAngle(cx);
+      let d = ang - ga; while (d > Math.PI) d -= 2*Math.PI; while (d < -Math.PI) d += 2*Math.PI;
+      if (Math.abs(d) > LAND_TOL) return die('Rozbiłeś się!');
+      if (Math.abs(flipT) > Math.PI * 1.5){ flips++; v += 60; }   // udana fikołka = mały bonus prędkości
+      onGround = true; cy = gY; ang = ga; vy = 0; av = 0; flipT = 0;
+    }
+  }
+
+  // kanistry z paliwem
+  for (let i = cans.length - 1; i >= 0; i--){
+    if (Math.abs(cans[i] - cx) < 24){ fuel = Math.min(FUEL_MAX, fuel + FUEL_CAN); cans.splice(i, 1); fuelFx = 0.7; buzz(12); }
+  }
+  while (cans.length < 4){ cans.push(nextCanX); nextCanX += 850 + Math.random()*950; }
+
+  wheel += (v / WHEEL_R) * dt;
+  dist = Math.max(dist, cx);
+  score = Math.max(0, Math.floor((dist - START_X) / SCALE_M));
+  updateHud();
+}
+
+function die(msg){
+  if (state !== 'run') return;
+  state = 'over'; diedAt = performance.now(); overMsg = msg; buzz([70,50,120]);
+  newRecord = score > best && score > 0;
+  if (newRecord) best = score;
+  if (window.gta) { try { gta.gameOver(score, newRecord); } catch(e){} }
+  updateHud(); updateButtons(); save(score);
+}
+
+function save(s){
+  saveState = 'saving';
+  hlRun.send(SAVE_URL, s)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => { saveState = 'ok'; if (d && d.best != null) best = Math.max(best, d.best); updateHud(); })
+    .catch(() => { saveState = 'err'; })
+    .finally(render);
+}
+
+function updateHud(){
+  scoreEl.textContent = 'Dystans: ' + score + ' m';
+  bestEl.textContent = 'Twój rekord: ' + best + ' m';
+}
+function updateButtons(){
+  const playing = state === 'run' || state === 'pause';
+  document.documentElement.classList.toggle('gk-playing', playing);
+  startBtn.textContent = state === 'idle' ? 'Rozpocznij grę' : 'Zagraj ponownie';
+  startBtn.disabled = state === 'run';
+  pauseBtn.disabled = !playing;
+  pauseBtn.textContent = state === 'pause' ? 'Wznów' : 'Pauza';
+}
+
+function start(){
+  reset(); state = 'run'; last = performance.now(); acc = 0; hlRun.start('gorka');
+  updateButtons(); cv.focus({preventScroll:true});
+  if (IS_TOUCH){ const r = cv.getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) cv.scrollIntoView({block:'center', behavior:'smooth'}); }
+}
+function togglePause(){
+  if (state === 'run') state = 'pause';
+  else if (state === 'pause'){ state = 'run'; last = performance.now(); }
+  else return;
+  input.gas = input.brake = false;
+  updateButtons(); render();
+}
+
+// --- pętla ---------------------------------------------------------------
+function loop(now){
+  const dt = Math.min(now - last, 100) / 1000; last = now;
+  if (state === 'run'){ acc += dt; while (acc >= STEP && state === 'run'){ acc -= STEP; physics(STEP); } }
+  if (fuelFx > 0) fuelFx = Math.max(0, fuelFx - dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// --- rysowanie -----------------------------------------------------------
+function render(){
+  if (cx == null) return;
+  const camX = cx - PX, camY = cy - H * 0.52;
+  ctx.clearRect(0, 0, W, H);
+
+  // niebo
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#5bb8ef'); sky.addColorStop(1, '#bfe9ff');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  // słońce
+  ctx.fillStyle = '#ffd24a'; ctx.beginPath(); ctx.arc(W - 90, 70, 26, 0, Math.PI*2); ctx.fill();
+
+  // dalekie wzgórza (paralaksa)
+  for (let layer = 0; layer < 2; layer++){
+    const par = layer === 0 ? 0.25 : 0.45, base = 250 + layer * 20, amp = 50 - layer * 16;
+    ctx.fillStyle = layer === 0 ? '#9ec6a0' : '#79b07e';
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let sx = 0; sx <= W; sx += 16){
+      const wx = (camX * par + sx);
+      ctx.lineTo(sx, base - camY*par*0 + Math.sin(wx*0.004 + layer*2)*amp + Math.sin(wx*0.0017)*amp*0.6 - camY*0 );
+    }
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+  }
+
+  // teren (trawa + ziemia)
+  ctx.beginPath(); ctx.moveTo(-10, H);
+  const x0 = camX - 20, x1 = camX + W + 20;
+  ctx.lineTo(x0 - camX, terr(x0) - camY);
+  for (let wx = x0; wx <= x1; wx += 7) ctx.lineTo(wx - camX, terr(wx) - camY);
+  ctx.lineTo(x1 - camX, H); ctx.closePath();
+  ctx.fillStyle = '#7a5230'; ctx.fill();            // ziemia
+  // pas trawy na wierzchu
+  ctx.beginPath();
+  ctx.moveTo(x0 - camX, terr(x0) - camY);
+  for (let wx = x0; wx <= x1; wx += 7) ctx.lineTo(wx - camX, terr(wx) - camY);
+  ctx.lineWidth = 10; ctx.strokeStyle = '#4caf50'; ctx.lineJoin = 'round'; ctx.stroke();
+
+  // kanistry z paliwem
+  for (const c of cans){
+    if (c < x0 - 30 || c > x1 + 30) continue;
+    drawCan(c - camX, terr(c) - camY - 16);
+  }
+
+  // auto
+  drawCar(PX, cy - camY, ang);
+
+  // HUD
+  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.font = `30px ${FONT}`; ctx.lineWidth = 4; ctx.strokeStyle = '#000';
+  ctx.strokeText(score + ' m', 14, 10); ctx.fillStyle = '#ffcc00'; ctx.fillText(score + ' m', 14, 10);
+  // pasek paliwa
+  const fw = 150, fx = 14, fy = 48;
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(fx-2, fy-2, fw+4, 16);
+  const fr = fuel / FUEL_MAX;
+  ctx.fillStyle = fuelFx > 0 && Math.floor(fuelFx*12)%2 ? '#fff' : (fr < .25 ? '#e23b3b' : '#4caf50');
+  ctx.fillRect(fx, fy, fw * fr, 12);
+  ctx.font = `700 12px system-ui,sans-serif`; ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+  ctx.fillText('🛢️ PALIWO', fx + 4, fy + 6);
+
+  if (state === 'idle'){ overlay(.25); big('POD GÓRKĘ', H*0.4, 64); small(IS_TOUCH ? 'Dotknij planszy, aby zagrać' : 'Naciśnij Enter, aby zagrać', H*0.4 + 46); }
+  else if (state === 'pause'){ overlay(.55); big('PAUZA', H*0.42, 58); small(IS_TOUCH ? 'Dotknij, aby wznowić' : 'Naciśnij P, aby wznowić', H*0.42 + 44); }
+  else if (state === 'over'){
+    overlay(.6);
+    big('ROZBITY!', H*0.3, 56);
+    small(overMsg, H*0.3 + 42, '#ffd24a', 20);
+    small('Dystans: ' + score + ' m' + (flips ? '  •  fikołki: ' + flips : ''), H*0.3 + 72, '#fff', 20);
+    if (newRecord) small('Nowy rekord!', H*0.3 + 98, '#7CFC00', 19);
+    const msg = {saving:'Zapisywanie wyniku…', ok:'Wynik zapisany ✓', err:'Nie udało się zapisać wyniku'}[saveState] || '';
+    small(msg, H*0.3 + 122, saveState === 'err' ? '#ff6b6b' : '#ccc', 14);
+    small(IS_TOUCH ? 'Dotknij planszy, aby zagrać ponownie' : 'Enter — zagraj ponownie', H*0.3 + 150, '#ffcc00', 16);
+  }
+}
+
+function drawCar(x, y, a){
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  // cień
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(0, 15, 26, 5, 0, 0, Math.PI*2); ctx.fill();
+  // koła
+  for (const wx of [-15, 15]){
+    ctx.save(); ctx.translate(wx, 8); ctx.rotate(wheel);
+    ctx.fillStyle = '#1b1b1b'; ctx.beginPath(); ctx.arc(0, 0, WHEEL_R, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#9a9a9a'; ctx.beginPath(); ctx.arc(0, 0, 3.2, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1.4;
+    for (let i = 0; i < 4; i++){ ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(i*Math.PI/2)*WHEEL_R*0.8, Math.sin(i*Math.PI/2)*WHEEL_R*0.8); ctx.stroke(); }
+    ctx.restore();
+  }
+  // nadwozie
+  ctx.fillStyle = '#e23b3b';
+  roundRect(-22, -2, 44, 12, 4); ctx.fill();
+  // kabina
+  ctx.beginPath(); ctx.moveTo(-11, -2); ctx.lineTo(-6, -14); ctx.lineTo(9, -14); ctx.lineTo(14, -2); ctx.closePath();
+  ctx.fillStyle = '#c0302f'; ctx.fill();
+  // szyba
+  ctx.fillStyle = '#bfe6ff'; ctx.beginPath(); ctx.moveTo(-5, -4); ctx.lineTo(-2, -12); ctx.lineTo(8, -12); ctx.lineTo(11, -4); ctx.closePath(); ctx.fill();
+  // reflektor
+  ctx.fillStyle = '#ffe9a8'; ctx.beginPath(); ctx.arc(21, 4, 2.3, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawCan(x, y){
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = '#d33'; roundRect(-9, -11, 18, 22, 3); ctx.fill();
+  ctx.fillStyle = '#b02020'; ctx.fillRect(-5, -14, 10, 4);
+  ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.font = '700 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('⛽', 0, 1);
+  ctx.restore();
+}
+function roundRect(x, y, w, h, r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function overlay(a){ ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, W, H); }
+function big(t, y, s){ ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${s}px ${FONT}`; ctx.lineWidth=5; ctx.strokeStyle='#000'; ctx.strokeText(t, W/2, y); ctx.fillStyle='#ffcc00'; ctx.fillText(t, W/2, y); }
+function small(t, y, c, s){ if (!t) return; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`700 ${s||16}px system-ui,sans-serif`; ctx.fillStyle=c||'#fff'; ctx.fillText(t, W/2, y); }
+
+// --- sterowanie ----------------------------------------------------------
+const canRestart = () => state === 'idle' || (state === 'over' && performance.now() - diedAt > 800);
+const GAS_KEYS = new Set([' ', 'ArrowRight', 'd', 'D', 'w', 'W']);
+const BRAKE_KEYS = new Set(['ArrowLeft', 'a', 'A', 's', 'S', 'ArrowDown']);
+
+document.addEventListener('keydown', e => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  const k = e.key;
+  if (GAS_KEYS.has(k)){
+    if (k === ' ' && (state === 'idle' || state === 'over')){ e.preventDefault(); if (canRestart()) start(); return; }
+    if (state === 'run'){ e.preventDefault(); input.gas = true; }
+  } else if (BRAKE_KEYS.has(k)){
+    if (state === 'run'){ e.preventDefault(); input.brake = true; }
+  } else if (k === 'p' || k === 'P' || k === 'Escape'){
+    if (state === 'run' || state === 'pause'){ e.preventDefault(); togglePause(); }
+  } else if (k === 'Enter' && canRestart()){ e.preventDefault(); start(); }
+});
+document.addEventListener('keyup', e => {
+  if (GAS_KEYS.has(e.key)) input.gas = false;
+  if (BRAKE_KEYS.has(e.key)) input.brake = false;
+});
+
+// pedały dotykowe (hold)
+function pedal(btn, key){
+  const on = e => { e.preventDefault(); if (state === 'run') input[key] = true; };
+  const off = e => { e.preventDefault(); input[key] = false; };
+  btn.addEventListener('touchstart', on, {passive:false}); btn.addEventListener('touchend', off, {passive:false});
+  btn.addEventListener('touchcancel', off); btn.addEventListener('mousedown', on); addEventListener('mouseup', () => input[key] = false);
+}
+pedal(gasBtn, 'gas'); pedal(brakeBtn, 'brake');
+
+// dotyk/klik planszy: start, a w trakcie - prawa połowa gaz, lewa hamulec
+function canvasPress(clientX){
+  if (state === 'run'){ const r = cv.getBoundingClientRect(); if (clientX - r.left > r.width/2) input.gas = true; else input.brake = true; }
+  else if (canRestart()) start();
+}
+cv.addEventListener('touchstart', e => { e.preventDefault(); if (e.touches[0]) canvasPress(e.touches[0].clientX); }, {passive:false});
+cv.addEventListener('touchend', e => { e.preventDefault(); input.gas = input.brake = false; }, {passive:false});
+cv.addEventListener('mousedown', e => { if (e.button === 0) canvasPress(e.clientX); });
+addEventListener('mouseup', () => { if (state === 'run') { /* pedały mają własne mouseup */ } });
+
+startBtn.addEventListener('click', start);
+pauseBtn.addEventListener('click', togglePause);
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'run') togglePause(); });
+addEventListener('resize', fit);
+addEventListener('orientationchange', () => setTimeout(fit, 250));
+if (document.fonts) document.fonts.load(`20px ${FONT}`).then(render, () => {});
+if (IS_TOUCH) wrapEl.classList.add('touch');
+
+reset(); fit(); updateButtons();
+requestAnimationFrame(loop);
+})();
+</script>
+{% endblock %}

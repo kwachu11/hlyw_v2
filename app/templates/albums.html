@@ -15,7 +15,7 @@
     <div class="col-6 col-md-4 col-lg-3 mb-4">
         <a href="{{ url_for('album', album_id=album.id) }}" class="hl-album-card">
             {% if cover and not cover.file_path|is_video %}
-            <img src="{{ cover.file_path|media_url }}" class="hl-album-cover" alt="{{ album.name }}" loading="lazy">
+            <img src="{{ url_for('thumbnail', image_id=cover.id) }}" class="hl-album-cover" alt="{{ album.name }}" loading="lazy" decoding="async">
             {% else %}
             <div class="hl-album-empty">📷</div>
             {% endif %}

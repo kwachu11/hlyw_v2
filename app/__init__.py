@@ -16,7 +16,7 @@ from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort, send_file
 from markupsafe import Markup
 from flask_login import login_user, logout_user, login_required, current_user, LoginManager, UserMixin
 from .forms import LoginForm, RegistrationForm
@@ -78,6 +78,7 @@ PREVIOUS_EDITION_END = datetime(2026, 10, 9)
 
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 'heic'}
 ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
+THUMBNAIL_SIZE = 480  # dłuższy bok miniatury w galerii (px)
 
 NEWS_REACTIONS = ['👍', '😂', '🔥', '😮', '💀']
 
@@ -92,6 +93,7 @@ GAME_SCORE_LIMITS = {          # gra: (zapas, punktów na sekundę)
     'ice_tower': (1000, 1500), # piętra + kombo (kwadrat długości)
     'kolko_krzyzyk': (5, 3),   # maks. 5 pkt za wygraną partię na trudnym
     'formula': (10, 20),
+    'gorka': (50, 25),         # wynik = dystans w metrach; maks. prędkość ~18 m/s
 }
 # Kasa w stylu GTA (pasek w menu): za punkt w rankingu ogólnym Hall of Fame i za każdą rozegraną grę
 CASH_PER_HOF_POINT = 1000
@@ -580,6 +582,12 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
+    class Gorka(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+
     class GameRun(db.Model):
         """Jednorazowy bilet na jedną partię gry - patrz GAME_SCORE_LIMITS."""
         id = db.Column(db.String(32), primary_key=True)
@@ -857,7 +865,7 @@ def create_app():
             if not user:
                 flash('Niepoprawna nazwa użytkownika / e-mail lub hasło', 'danger')
             else:
-                login_user(user)
+                login_user(user, remember=True)  # ciasteczko "remember" - logowanie trzyma 365 dni, też po zamknięciu przeglądarki
                 next_page = request.args.get('next') or request.form.get('next')
                 # Tylko ścieżki lokalne (np. /calendar), żeby nie dało się przekierować na obcą domenę
                 if next_page and next_page.startswith('/') and not next_page.startswith('//') \
@@ -938,6 +946,35 @@ def create_app():
         album = Albums.query.get_or_404(album_id)
         images = Images.query.filter_by(album_id=album.id).order_by(Images.created_at).all()
         return render_template('album.html', album=album, images=images)
+
+    @app.route('/miniatura/<int:image_id>')
+    @login_required
+    def thumbnail(image_id):
+        """Miniatura zdjęcia do siatki galerii. Generowana przy pierwszym wyświetleniu i trzymana na dysku,
+        więc obejmuje też stare zdjęcia. Gdy się nie uda (np. HEIC, brak Pillow) - przekierowanie na oryginał."""
+        image = Images.query.get_or_404(image_id)
+        thumb_path = os.path.join(app.static_folder, 'images', 'thumbs', str(image.id) + '.jpg')
+        if not os.path.exists(thumb_path):
+            source = os.path.join(app.root_path, image.file_path.replace('\\', '/').lstrip('/'))
+            create_directory_if_not_exists(os.path.dirname(thumb_path))
+            # zapis przez plik tymczasowy - kilka workerów może generować tę samą miniaturę naraz
+            tmp_path = thumb_path + '.' + uuid.uuid4().hex + '.tmp'
+            try:
+                from PIL import Image, ImageOps
+                with Image.open(source) as original:
+                    picture = ImageOps.exif_transpose(original).convert('RGBA')
+                picture.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+                # JPEG nie ma przezroczystości - podkładamy tło
+                background = Image.new('RGB', picture.size, (52, 58, 64))
+                background.paste(picture, mask=picture.getchannel('A'))
+                background.save(tmp_path, 'JPEG', quality=78, optimize=True)
+                os.replace(tmp_path, thumb_path)
+            except Exception as e:
+                app.logger.warning('Nie udało się utworzyć miniatury zdjęcia %s: %s', image.id, e)
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                return redirect(media_url(image.file_path))
+        return send_file(thumb_path, mimetype='image/jpeg', max_age=30 * 24 * 3600)
 
     @app.route('/add_album', methods=['GET', 'POST'])
     @login_required
@@ -1586,6 +1623,9 @@ def create_app():
         user5 = User.query.filter_by(id=kk_leader.created_by).first() if kk_leader else None
         formula_leader = Formula.query.order_by(Formula.points.desc()).first()
         user6 = User.query.filter_by(id=formula_leader.created_by).first() if formula_leader else None
+        # Pod Górkę ukryta - dostępna tylko z bezpośredniego adresu /gorka
+        # gorka_leader = Gorka.query.order_by(Gorka.points.desc()).first()
+        # user7 = User.query.filter_by(id=gorka_leader.created_by).first() if gorka_leader else None
         # Rekordziści poprzedniej edycji - wyniki zapisane do 8.10.2026 włącznie
         def previous_record(model):
             leader = model.query.filter(model.created_at < PREVIOUS_EDITION_END).order_by(model.points.desc()).first()
@@ -1598,6 +1638,7 @@ def create_app():
         games.append(['Ice Tower', 'static/images/ice_tower.svg', ice_tower_leader, user4, 'ice_tower', 'ranking_ice_tower'])
         games.append(['Kółko i krzyżyk', 'static/images/kolko_krzyzyk.svg', kk_leader, user5, 'kolko_krzyzyk', 'ranking_kolko_krzyzyk'])
         games.append(['Formuła', 'static/images/formula.svg', formula_leader, user6, 'formula', 'ranking_formula'])
+        # games.append(['Pod Górkę', 'static/images/gorka.svg', gorka_leader, user7, 'gorka', 'ranking_gorka'])
         return render_template('games.html', games=games)
 
     @app.route('/tetris', methods=['GET', 'POST'])
@@ -1692,6 +1733,7 @@ def create_app():
             ('Ice Tower', IceTower, 'ice_tower', False),
             ('Kółko i krzyżyk', KolkoKrzyzyk, 'kolko_krzyzyk', False),
             ('Formuła', Formula, 'formula', False),
+            # ('Pod Górkę', Gorka, 'gorka', False),  # ukryta
         ]:
             current, previous = edition(model) if has_editions else (true(), None)
             games.append({'name': name, 'model': model, 'slug': slug, 'ranking': 'ranking_' + slug,
@@ -2697,5 +2739,37 @@ def create_app():
     def ranking_formula():
         ranking_data, rozegranych_gier = game_ranking(Formula, true())
         return render_template('ranking_formula.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+
+    @app.route('/gorka', methods=['GET', 'POST'])
+    @login_required
+    def gorka():
+        best = db.session.query(func.max(Gorka.points)).filter(Gorka.created_by == str(current_user.id)).scalar() or 0
+        return render_template('gorka.html', best=best)
+
+    @app.route('/gorka/save_score', methods=['POST'])
+    @login_required
+    def save_score_gorka():
+        data = request.get_json(silent=True, force=True) or {}
+        try:
+            score = max(0, int(data.get('score', 0)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
+
+        error = check_game_run('gorka', score, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+
+        new_game = Gorka(points=score, created_by=current_user.id)
+        db.session.add(new_game)
+        db.session.commit()
+
+        best = db.session.query(func.max(Gorka.points)).filter(Gorka.created_by == str(current_user.id)).scalar() or 0
+        return jsonify({'ok': True, 'best': best})
+
+    @app.route('/ranking_gorka', methods=['GET', 'POST'])
+    @login_required
+    def ranking_gorka():
+        ranking_data, rozegranych_gier = game_ranking(Gorka, true())
+        return render_template('ranking_gorka.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
 
     return app
