@@ -84,6 +84,9 @@ ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 
 ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
 THUMBNAIL_SIZE = 480  # dłuższy bok miniatury w galerii (px)
 PRINT_THUMB_MAX_BYTES = 10 * 1024 * 1024  # większego obrazka z pliku 3MF nie rozpakowujemy
+# galeria zdjęć ze strony modelu: serwis na Raspberry Pi (headless Chromium), domyślnie obok PRINTER_STATUS_URL
+# (Printables i Cults3D pokazują automatom stronę ochrony przed botami, Creality Cloud się nie doładowuje - pominięte)
+MODEL_IMAGES_SITES = ('makerworld.com', 'thingiverse.com', 'thangs.com', 'myminifactory.com', 'grabcad.com')
 
 NEWS_REACTIONS = ['👍', '😂', '🔥', '😮', '💀']
 
@@ -548,6 +551,7 @@ def create_app():
         link = db.Column(db.String(500))
         image_url = db.Column(db.String(1000))    # zdjęcie osadzane bezpośrednio z serwisu z modelem
         thumb_path = db.Column(db.String(100))    # miniatura wyciągnięta z pliku 3MF (instance/druk3d)
+        gallery = db.Column(db.Text)              # JSON z adresami zdjęć ze strony modelu (pobrane przez Pi)
         quality = db.Column(db.String(20), nullable=False)
         material = db.Column(db.String(30), nullable=False)
         color = db.Column(db.String(40), nullable=False)
@@ -746,6 +750,7 @@ def create_app():
             ('tournament_match', 'score_at', "DATETIME"),
             ('print_request', 'image_url', "VARCHAR(1000)"),
             ('print_request', 'thumb_path', "VARCHAR(100)"),
+            ('print_request', 'gallery', "TEXT"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -1588,6 +1593,71 @@ def create_app():
             app.logger.warning('Nie udało się wyciągnąć miniatury z 3MF %s: %s', stored, e)
             return None
 
+    def model_images_supported(link):
+        host = (urlparse(link or '').hostname or '').lower()
+        return any(host == d or host.endswith('.' + d) for d in MODEL_IMAGES_SITES)
+
+    def fetch_model_images(link):
+        """Same zdjęcia ze strony z modelem - stronę otwiera headless Chromium na Pi. Zwraca (lista, błąd, tytuł strony)."""
+        import urllib.request as _ur, urllib.parse as _up, urllib.error as _ue
+        base = os.getenv('MODEL_IMAGES_URL') or (os.getenv('PRINTER_STATUS_URL') or '').replace('/status', '/zdjecia')
+        token = os.getenv('PRINTER_CONTROL_TOKEN')
+        if not base or not token:
+            return None, 'not_configured', None
+        if not model_images_supported(link):
+            return None, 'site_not_allowed', None
+        try:
+            # User-Agent jawnie - domyślny "Python-urllib" Cloudflare blokuje jako bota (403)
+            req = _ur.Request(base + '?' + _up.urlencode({'url': link}),
+                              headers={'X-Control-Token': token, 'User-Agent': 'hlyw-druk3d/1.0'})
+            with _ur.urlopen(req, timeout=90) as resp:
+                data = json.loads(resp.read())
+        except _ue.HTTPError as e:
+            try:
+                return None, json.loads(e.read()).get('error') or 'pi_http_%d' % e.code, None
+            except Exception:
+                return None, 'pi_http_%d' % e.code, None
+        except Exception as e:
+            app.logger.warning('Pobieranie zdjęć modelu %s nie powiodło się: %s', link, e)
+            return None, 'pi_unreachable', None
+        images = [u for u in data.get('images') or [] if isinstance(u, str) and clean_print_link(u)]
+        title = ' '.join(str(data.get('title') or '').split())[:150] or None
+        return images, (None if images else data.get('error') or 'no_images'), title
+
+    def print_gallery(entry):
+        try:
+            return json.loads(entry.gallery) if entry.gallery else None
+        except ValueError:
+            return None
+
+    @app.route('/druk3d/zdjecia')
+    @login_required
+    def print_images_preview():
+        # podgląd w formularzu: wklejony link -> zdjęcia do wyboru głównego
+        link = clean_print_link(request.args.get('url', '')) if request.args.get('url', '').strip() else None
+        if not link:
+            return jsonify(ok=False, error='bad_url'), 400
+        images, error, title = fetch_model_images(link)
+        return jsonify(ok=bool(images), images=images or [], error=error, title=title)
+
+    @app.route('/druk3d/<int:request_id>/zdjecia')
+    @login_required
+    def print_images(request_id):
+        # galeria wpisu: pobierana raz i zapamiętywana w bazie; admin może odświeżyć (?odswiez=1)
+        entry = PrintRequest.query.get_or_404(request_id)
+        images = print_gallery(entry)
+        if images is None or (request.args.get('odswiez') == '1' and current_user.is_admin != "0"):
+            if not entry.link:
+                return jsonify(ok=False, images=[], error='no_link')
+            images, error, _ = fetch_model_images(entry.link)
+            if not images:
+                return jsonify(ok=False, images=[], error=error)
+            entry.gallery = json.dumps(images)
+            if not entry.image_url and not entry.thumb_path:
+                entry.image_url = images[0][:1000]     # miniatura na liście propozycji
+            db.session.commit()
+        return jsonify(ok=True, images=images)
+
     @app.route('/druk3d/<int:request_id>/miniatura')
     @login_required
     def print_thumbnail(request_id):
@@ -1626,13 +1696,21 @@ def create_app():
             form.title.data = request.args.get('title', '')[:150]
             form.link.data = request.args.get('link', '')[:500]
             form.image_url.data = request.args.get('image', '')[:1000]
+        # plik albo link (przełącznik w formularzu); pola drugiej opcji przeglądarka i tak nie wysyła
+        source = request.form.get('source')
+        if source not in ('plik', 'link'):
+            source = 'link'
         if form.validate_on_submit():
+            if source == 'plik':
+                form.link.data = form.image_url.data = None
+            else:
+                form.file.data = None
             image_url = clean_print_link(form.image_url.data) if (form.image_url.data or '').strip() else None
             upload = form.file.data if form.file.data and form.file.data.filename else None
             ext = upload.filename.rsplit('.', 1)[-1].lower() if upload and '.' in upload.filename else ''
             link = clean_print_link(form.link.data) if (form.link.data or '').strip() else None
             if not upload and not (form.link.data or '').strip():
-                flash('Dodaj plik z modelem albo link do niego.', 'danger')
+                flash('Wybierz plik z modelem.' if source == 'plik' else 'Wklej link do strony z modelem.', 'danger')
             elif upload and ext not in PRINT_EXTENSIONS:
                 flash('Niedozwolony typ pliku. Dozwolone: ' + ', '.join(sorted(PRINT_EXTENSIONS)), 'danger')
             elif (form.link.data or '').strip() and not link:
@@ -1646,7 +1724,18 @@ def create_app():
                     create_directory_if_not_exists(os.path.dirname(print_file_path(stored)))
                     upload.save(print_file_path(stored))
                 thumb = extract_3mf_thumbnail(stored) if ext == '3mf' else None
-                entry = PrintRequest(thumb_path=thumb,title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
+                # galeria pobrana już w formularzu - strona propozycji nie musi jej ściągać drugi raz
+                gallery = None
+                if link:
+                    try:
+                        sent = json.loads(request.form.get('gallery') or 'null')
+                    except ValueError:
+                        sent = None
+                    if isinstance(sent, list):
+                        gallery = [u[:1000] for u in sent[:40] if isinstance(u, str) and clean_print_link(u)] or None
+                if gallery and not image_url:
+                    image_url = gallery[0]
+                entry = PrintRequest(thumb_path=thumb, gallery=json.dumps(gallery) if gallery else None, title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
                                      file_path=stored, link=link, image_url=image_url, quality=form.quality.data, material=form.material.data,
                                      file_name=upload.filename.replace('\\', '/').rsplit('/', 1)[-1][:200] if upload else None,
                                      color=form.color.data, quantity=form.quantity.data, user_id=current_user.id)
@@ -1654,7 +1743,7 @@ def create_app():
                 db.session.commit()
                 flash('Propozycja wysłana! Status zobaczysz na tej stronie.', 'success')
                 return redirect(url_for('print_detail', request_id=entry.id))
-        return render_template('druk3d_nowa.html', form=form, colors=PRINT_COLORS, max_mb=PRINT_MAX_MB)
+        return render_template('druk3d_nowa.html', form=form, colors=PRINT_COLORS, max_mb=PRINT_MAX_MB, source=source)
 
     @app.route('/druk3d/<int:request_id>')
     @login_required
@@ -1665,6 +1754,7 @@ def create_app():
         if entry.file_path and os.path.exists(print_file_path(entry.file_path)):
             file_size = os.path.getsize(print_file_path(entry.file_path))
         return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, file_size=file_size, print_statuses=PRINT_STATUSES,
+                               gallery=print_gallery(entry), gallery_possible=bool(entry.link and model_images_supported(entry.link)),
                                qualities=PRINT_QUALITIES, colors=PRINT_COLORS, delete_form=PrintDeleteForm(),
                                status_form=PrintStatusForm(status=entry.status, admin_note=entry.admin_note))
 

@@ -106,8 +106,8 @@ class PrintRequestForm(FlaskForm):
     title = StringField('Co wydrukować?', validators=[DataRequired(), Length(max=150)])
     file = FileField('Plik z modelem', render_kw={'accept': ','.join('.' + e for e in sorted(PRINT_EXTENSIONS)),
                                                   'data-hl-no-resize': '1'})
-    link = StringField('albo link do modelu', validators=[Optional(), Length(max=500)],
-                       render_kw={'placeholder': 'https://makerworld.com/... / printables.com/... / thingiverse.com/...'})
+    link = StringField('Link do strony z modelem', validators=[Optional(), Length(max=500)],
+                       render_kw={'placeholder': 'https://makerworld.com/... / thingiverse.com/... / printables.com/...'})
     image_url = StringField('Link do zdjęcia modelu', validators=[Optional(), Length(max=1000)],
                             render_kw={'placeholder': 'Prawy klik na zdjęciu → „Kopiuj adres obrazu”'})
     quality = SelectField('Jakość wydruku', choices=list(PRINT_QUALITIES.items()), default='obojetnie')

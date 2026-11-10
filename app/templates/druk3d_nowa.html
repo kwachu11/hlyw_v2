@@ -13,9 +13,10 @@
 <h2 class="mt-2">Zaproponuj wydruk</h2>
 
 <p class="small text-muted mb-3">
-    Szybciej z komputera: przeciągnij na pasek zakładek
+    Wklej link, a tytuł i zdjęcia pobiorą się same.
+    Na stronach, z których nie pobieramy zdjęć (np. Printables, Cults3D), użyj zakładki
     <a id="hlBookmarklet" class="btn btn-outline-primary btn-sm w-auto mx-1" href="#">🖨️ Wyślij do druku</a>
-    i kliknij tę zakładkę na stronie modelu (MakerWorld, Printables, Thingiverse...), a link, tytuł i zdjęcie wypełnią się same.
+    - przeciągnij ją na pasek zakładek i kliknij na stronie modelu.
 </p>
 
 <form method="POST" enctype="multipart/form-data">
@@ -27,19 +28,40 @@
         {{ form.title(class="form-control", required=true) }}
     </div>
     <div class="form-group">
-        {{ form.file.label }}
-        {{ form.file(class="form-control-file") }}
-        <small class="form-text text-muted" id="print-file-info">STL, 3MF, OBJ lub STEP, do {{ max_mb }} MB.</small>
+        <label class="d-block">Skąd jest model?</label>
+        <input type="hidden" name="source" id="print-source" value="{{ source }}">
+        <div class="hl-source-switch" role="radiogroup" aria-label="Skąd jest model">
+            <button type="button" role="radio" data-source="link">🔗 Link ze strony</button>
+            <button type="button" role="radio" data-source="plik">📎 Mam plik</button>
+        </div>
     </div>
-    {% include "_model_viewer.html" %}
-    <div class="form-group">
-        {{ form.link.label }}
-        {{ form.link(class="form-control") }}
+
+    <div id="print-part-plik" data-part="plik">
+        <div class="form-group">
+            {{ form.file.label }}
+            {{ form.file(class="form-control-file") }}
+            <small class="form-text text-muted" id="print-file-info">STL, 3MF, OBJ lub STEP, do {{ max_mb }} MB. Z pliku 3MF pokażemy też jego miniaturę.</small>
+        </div>
+        {% include "_model_viewer.html" %}
     </div>
-    <div class="form-group">
-        {{ form.image_url.label }}
-        {{ form.image_url(class="form-control") }}
-        <img id="print-image-preview" class="mt-2 rounded" style="max-height: 180px; max-width: 100%;" alt="" referrerpolicy="no-referrer" hidden>
+
+    <div id="print-part-link" data-part="link">
+        <div class="form-group">
+            {{ form.link.label }}
+            {{ form.link(class="form-control") }}
+            <small class="form-text text-muted">Zdjęcia pobierzemy same z: MakerWorld, Thingiverse, Thangs, MyMiniFactory, GrabCAD.</small>
+            <button type="button" class="btn btn-outline-primary btn-sm w-auto mt-2" id="hlFetchImages">📷 Pobierz zdjęcia ze strony</button>
+            <small class="text-muted ml-2" id="hlFetchStatus"></small>
+            <div class="hl-gallery-thumbs" id="hlFetchThumbs"></div>
+        </div>
+        <div class="form-group">
+            {{ form.image_url(type="hidden") }}
+            <input type="hidden" name="gallery" id="print-gallery">
+            <figure id="print-image-box" class="mb-0" hidden>
+                <figcaption class="small text-muted mb-1">⭐ Zdjęcie główne - widać je na liście propozycji</figcaption>
+                <img id="print-image-preview" class="rounded" style="max-height: 180px; max-width: 100%;" alt="Zdjęcie główne" referrerpolicy="no-referrer">
+            </figure>
+        </div>
     </div>
     <div class="form-row">
         <div class="form-group col-md-5">
@@ -75,6 +97,27 @@
 
 <script>
 (function () {
+    // plik albo link: widać tylko wybraną część, a pola z ukrytej są wyłączone i nie lecą na serwer
+    var sourceInput = document.getElementById('print-source');
+    var switchButtons = document.querySelectorAll('.hl-source-switch button');
+    function setSource(source) {
+        sourceInput.value = source;
+        [].forEach.call(switchButtons, function (b) {
+            var on = b.dataset.source === source;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-checked', on);
+        });
+        [].forEach.call(document.querySelectorAll('[data-part]'), function (part) {
+            part.hidden = part.dataset.part !== source;
+            [].forEach.call(part.querySelectorAll('input'), function (i) { i.disabled = part.hidden; });
+        });
+        document.getElementById('file').required = source === 'plik';
+        document.getElementById('link').required = source === 'link';
+    }
+    [].forEach.call(switchButtons, function (b) { b.addEventListener('click', function () { setSource(b.dataset.source); }); });
+    setSource(sourceInput.value);
+})();
+(function () {
     var input = document.getElementById('file'), info = document.getElementById('print-file-info');
     var defaultText = info.textContent, maxBytes = {{ max_mb }} * 1024 * 1024;
     input.addEventListener('change', function () {
@@ -87,14 +130,111 @@
 
     // podgląd wklejonego zdjęcia
     var imageInput = document.getElementById('image_url'), preview = document.getElementById('print-image-preview');
+    var previewBox = document.getElementById('print-image-box');
     function showPreview() {
         var url = imageInput.value.trim();
-        preview.hidden = !/^https?:\/\//i.test(url);
-        if (!preview.hidden) { preview.dataset.hlFallback = '1'; preview.src = url; }
+        previewBox.hidden = !/^https?:\/\//i.test(url);
+        if (!previewBox.hidden) { preview.dataset.hlFallback = '1'; preview.src = url; }
     }
     imageInput.addEventListener('input', showPreview);
-    preview.addEventListener('error', function () { preview.hidden = true; });
+    preview.addEventListener('error', function () { previewBox.hidden = true; });
     showPreview();
+
+    // zdjęcia ze strony modelu (Raspberry Pi otwiera ją w Chromium) - klik w miniaturę ustawia zdjęcie główne
+    var fetchButton = document.getElementById('hlFetchImages'), fetchStatus = document.getElementById('hlFetchStatus');
+    var fetchThumbs = document.getElementById('hlFetchThumbs'), linkInput = document.getElementById('link');
+    var FETCH_ERRORS = { blocked: 'ten serwis blokuje automatyczne pobieranie', site_not_allowed: 'z tego serwisu nie pobieramy zdjęć',
+                         pi_unreachable: 'malinka nie odpowiada', timeout: 'strona ładowała się za długo', bad_url: 'to nie jest poprawny link' };
+    function sized(url, w) {
+        // CDN MakerWorld sam zmniejsza obrazki - miniatury nie ciągną wielomegabajtowych PNG
+        return /^https:\/\/makerworld\.bblmw\.com\/[^?]*$/.test(url) ? url + '?x-oss-process=image/resize,w_' + w + '/format,webp' : url;
+    }
+    function pick(url) {
+        imageInput.value = sized(url, 1000);
+        showPreview();
+        [].forEach.call(fetchThumbs.children, function (t) { t.classList.toggle('active', t.dataset.url === url); });
+    }
+    // Po wklejeniu linku z obsługiwanego serwisu formularz czeka na zdjęcia: przycisk wysyłania jest zablokowany,
+    // a kliknięty wcześniej - wysyła formularz sam, gdy zdjęcia dojdą. Pobrana galeria leci razem z propozycją.
+    var form = fetchButton.form, submit = document.getElementById('submit'), submitText = submit.value;
+    var galleryInput = document.getElementById('print-gallery');
+    var SUPPORTED = /^(https?:\/\/)?([\w-]+\.)*(makerworld|thingiverse|thangs|myminifactory|grabcad)\.com\//i;
+    var loading = null, loadedFor = null, sendWhenReady = false;
+    var titleInput = document.getElementById('title'), autoTitle = null;
+    // zdjęcie z zakładki „Wyślij do druku” - wraca, gdy z jej linku nie uda się pobrać galerii
+    var bookmarkLink = linkInput.value.trim(), bookmarkImage = imageInput.value.trim();
+    function waiting(on) {
+        // przycisk zostaje klikalny: kliknięcie w trakcie = „wyślij, gdy zdjęcia dojdą”
+        submit.value = !on ? submitText : sendWhenReady ? '⏳ Wyślę, gdy dojdą zdjęcia…' : '⏳ Czekam na zdjęcia ze strony…';
+    }
+    function restoreBookmark(link) {
+        if (link === bookmarkLink && bookmarkImage) { imageInput.value = bookmarkImage; showPreview(); }
+    }
+    function loadImages() {
+        var link = linkInput.value.trim();
+        if (!link) { fetchStatus.textContent = 'Najpierw wklej link do modelu.'; return Promise.resolve(); }
+        if (loading && loading.link === link) return loading.promise;
+        fetchButton.disabled = true;
+        fetchThumbs.innerHTML = '';
+        galleryInput.value = '';
+        imageInput.value = '';                 // zdjęcie główne poprzedniego linku już nie pasuje
+        showPreview();
+        fetchStatus.textContent = '⏳ Pobieram zdjęcia… (do pół minuty)';
+        waiting(true);
+        var promise = fetch("{{ url_for('print_images_preview') }}?url=" + encodeURIComponent(link))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (linkInput.value.trim() !== link) return;       // w międzyczasie wklejono inny link
+                loadedFor = link;
+                // tytuł ze strony modelu - tylko gdy pole jest puste albo ma tytuł wpisany przez poprzedni link
+                if (d.title && (!titleInput.value.trim() || titleInput.value === autoTitle)) titleInput.value = autoTitle = d.title;
+                if (!d.ok) { fetchStatus.textContent = 'Brak zdjęć: ' + (FETCH_ERRORS[d.error] || 'nic nie znalazłem'); restoreBookmark(link); return; }
+                galleryInput.value = JSON.stringify(d.images);
+                fetchStatus.textContent = d.images.length + ' zdj. - kliknij miniaturę, żeby wybrać zdjęcie główne (⭐)';
+                d.images.forEach(function (url) {
+                    var b = document.createElement('button'), img = document.createElement('img');
+                    b.type = 'button'; b.dataset.url = url;
+                    img.src = sized(url, 200); img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+                    img.addEventListener('error', function () { b.remove(); });
+                    b.appendChild(img);
+                    b.addEventListener('click', function () { pick(url); });
+                    fetchThumbs.appendChild(b);
+                });
+                if (d.images.length) pick(d.images[0]);
+            })
+            .catch(function () { loadedFor = link; fetchStatus.textContent = 'Nie udało się pobrać zdjęć.'; restoreBookmark(link); })
+            .then(function () {
+                if (!loading || loading.link !== link) return;
+                loading = null;
+                fetchButton.disabled = false;
+                waiting(false);
+                // bez zdjęć też wysyłamy - galerię dociągnie potem strona propozycji
+                // (form.submit zasłania pole o nazwie „submit”, stąd wywołanie z prototypu)
+                if (sendWhenReady) { sendWhenReady = false; form.requestSubmit ? form.requestSubmit(submit) : HTMLFormElement.prototype.submit.call(form); }
+            });
+        loading = { link: link, promise: promise };
+        return promise;
+    }
+    linkInput.addEventListener('change', function () {
+        if (SUPPORTED.test(linkInput.value.trim())) return loadImages();
+        // link spoza obsługiwanych serwisów: zdjęcia poprzedniego linku znikają
+        fetchThumbs.innerHTML = '';
+        galleryInput.value = '';
+        imageInput.value = '';
+        fetchStatus.textContent = '';
+        showPreview();
+        restoreBookmark(linkInput.value.trim());
+    });
+    fetchButton.addEventListener('click', loadImages);
+    form.addEventListener('submit', function (e) {
+        var link = linkInput.value.trim();
+        if (linkInput.disabled || !SUPPORTED.test(link) || loadedFor === link) return;
+        e.preventDefault();                    // zdjęcia jeszcze się nie pobrały - poczekaj i wyślij sam
+        sendWhenReady = true;
+        loadImages();
+        waiting(true);
+    });
+    if (SUPPORTED.test(linkInput.value.trim())) loadImages();   // link z zakładki „Wyślij do druku”
 
     // zakładka: czyta tytuł i og:image z otwartej strony modelu i otwiera ten formularz z wypełnionymi polami
     var bookmarklet = "(function(){var m=function(p){var e=document.querySelector('meta[property=\"'+p+'\"]');return e?e.content:''};" +

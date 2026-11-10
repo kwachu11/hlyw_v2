@@ -590,3 +590,13 @@ button.hl-quiz-option:hover { border-color: #007bff; background: #e7f1ff; }
 .hl-timer label { font-size: .85rem; margin-bottom: .2rem; }
 .hl-timer-summary { display: flex; flex-wrap: wrap; gap: 12px 32px; margin-bottom: 10px; }
 .hl-timer-big { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+
+/* Zdjęcia ze strony modelu 3D: galeria /druk3d/<id> (siatka .hl-grid jak w albumach) i wybór zdjęcia w formularzu */
+.hl-print-gallery { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.hl-print-gallery .hl-thumb:first-child { grid-column: span 2; grid-row: span 2; }   /* główne zdjęcie większe */
+.hl-gallery-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.hl-gallery-thumbs button { width: auto; padding: 0; border: 2px solid transparent; border-radius: 6px; background: none; cursor: pointer; }   /* globalne button { width: 100% } */
+.hl-gallery-thumbs button { position: relative; }
+.hl-gallery-thumbs button.active { border-color: #f5c518; }
+.hl-gallery-thumbs button.active::after { content: '⭐'; position: absolute; top: 2px; right: 3px; font-size: 14px; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+.hl-gallery-thumbs img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 4px; }

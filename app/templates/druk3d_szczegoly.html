@@ -12,9 +12,48 @@
 <div class="alert alert-info" style="white-space: pre-line;"><b>Odpowiedź:</b> {{ entry.admin_note }}</div>
 {% endif %}
 
+{% macro sized(url, w) -%}
+{#- CDN MakerWorld sam zmniejsza obrazki - miniatury nie ciągną wielomegabajtowych PNG -#}
+{{ url ~ '?x-oss-process=image/resize,w_' ~ w ~ '/format,webp' if url.startswith('https://makerworld.bblmw.com/') and '?' not in url else url }}
+{%- endmacro %}
 {% set picture = entry.image_url or (url_for('print_thumbnail', request_id=entry.id) if entry.thumb_path) %}
-{% if picture %}
-<img src="{{ picture }}" alt="" class="rounded mb-3" style="max-height: 320px; max-width: 100%;" referrerpolicy="no-referrer">
+{% set images = gallery or ([picture] if picture else []) %}
+{% if images or gallery_possible %}
+<div class="hl-grid hl-print-gallery mb-2">
+    {% for url in images %}
+    <a href="{{ url }}" class="hl-thumb" data-src="{{ sized(url, 1600) }}">
+        <img src="{{ sized(url, 400) }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()">
+    </a>
+    {% endfor %}
+</div>
+<p class="small text-muted mb-3">
+    <span id="hlGalleryStatus">{% if gallery %}{{ gallery|length }} zdj. ze strony modelu{% endif %}</span>
+    {% if current_user.is_admin != "0" and gallery_possible %}<a href="#" id="hlGalleryRefresh" class="ml-2">↻ odśwież zdjęcia</a>{% endif %}
+</p>
+{% include "_lightbox.html" %}
+{% if gallery_possible %}
+<script>
+(function () {
+    var status = document.getElementById('hlGalleryStatus'), again = document.getElementById('hlGalleryRefresh');
+    var ERRORS = { blocked: 'Ten serwis blokuje automatyczne pobieranie - zdjęcia zobaczysz pod linkiem.',
+                   site_not_allowed: 'Z tego serwisu nie pobieramy zdjęć.', not_configured: 'Pobieranie zdjęć nie jest skonfigurowane.',
+                   pi_unreachable: 'Malinka nie odpowiada - spróbuj później.', timeout: 'Strona modelu ładowała się za długo - spróbuj później.' };
+    function load(refresh) {
+        status.textContent = '⏳ Pobieram zdjęcia ze strony modelu… (do pół minuty)';
+        fetch("{{ url_for('print_images', request_id=entry.id) }}" + (refresh ? '?odswiez=1' : ''))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                // galeria jest już w bazie - przeładowanie rysuje ją po stronie serwera razem z przeglądarką zdjęć
+                if (d.ok) location.reload();
+                else status.textContent = ERRORS[d.error] || 'Nie znalazłem zdjęć na stronie modelu.';
+            })
+            .catch(function () { status.textContent = 'Nie udało się pobrać zdjęć.'; });
+    }
+    if (again) again.addEventListener('click', function (e) { e.preventDefault(); load(true); });
+    {% if not gallery %}load(false);{% endif %}
+})();
+</script>
+{% endif %}
 {% endif %}
 
 <dl class="row">
