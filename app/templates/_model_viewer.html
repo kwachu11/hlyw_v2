@@ -10,6 +10,14 @@
     .hl-model-stage { height: 380px; border: 1px solid var(--gta-border, #555); border-radius: 2px; overflow: hidden; touch-action: none; }
     .hl-model-stage canvas { display: block; }
     @media (max-width: 575px) { .hl-model-stage { height: 280px; } }
+    .hl-model-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; }
+    .hl-model-tools button { width: auto; padding: 3px 10px; background: var(--gta-panel-2, #2a2d31); color: inherit;
+                             border: 1px solid var(--gta-border, #555); border-radius: 2px; cursor: pointer; }
+    .hl-model-tools button:hover { border-color: #ffcc00; }
+    .hl-model-tools-label { font-size: .85rem; opacity: .8; margin-left: 4px; }
+    .hl-axis-x { color: #e5484d; } .hl-axis-y { color: #46a758; } .hl-axis-z { color: #3e8ed0; }
+    .hl-model-tools input { width: 64px; padding: 1px 4px; background: transparent; color: inherit;
+                            border: 1px solid var(--gta-border, #555); border-radius: 2px; }
 </style>
 <div class="hl-model" id="hlModel" hidden>
     <div class="hl-model-stage"></div>

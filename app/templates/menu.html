@@ -28,11 +28,11 @@
             <!-- Dodatki -->
             <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/report', '/users', '/aktywnosc', '/druk3d')) }}">
                 <a class="nav-link dropdown-toggle" href="#" id="extrasDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    Dodatki
+                    Dodatki{% if print_promo %} <span class="badge badge-danger">NOWE</span>{% endif %}
                 </a>
                 <div class="dropdown-menu dropdown-menu-right" aria-labelledby="extrasDropdown">
                     <a class="dropdown-item" href="{{ url_for('activity') }}">⚡ Ostatnia aktywność</a>
-                    <a class="dropdown-item" href="{{ url_for('print_list') }}">🖨️ Druk 3D</a>
+                    <a class="dropdown-item" href="{{ url_for('print_list') }}">🖨️ Druk 3D{% if print_promo %} <span class="badge badge-danger">NOWE</span>{% endif %}</a>
                     <a class="dropdown-item" href="{{ url_for('view_report_list') }}">Zgłoszenia</a>
                     <a class="dropdown-item" href="{{ url_for('users') }}">Użytkownicy</a>
                     {% if current_user.is_authenticated and current_user.is_admin != "0" %}

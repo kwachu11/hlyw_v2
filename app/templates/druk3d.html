@@ -31,6 +31,8 @@
                 <small class="text-muted">
                     {{ r.user.username }}{{ crown(r.user.id) }} · {{ r.created_at|when }} · {{ qualities[r.quality] }} · {{ r.material }} · {{ r.color }}
                     · {{ '📎 plik' if r.file_path else '🔗 link' }}
+                    {% set prof = profile_of(r) %}
+                    {% if prof %}· ⏱ {{ (prof.seconds * r.quantity)|print_time }} · 🧵 {{ (prof.grams * r.quantity)|round|int }} g{% endif %}
                 </small>
             </div>
         </div>

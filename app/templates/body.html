@@ -23,6 +23,31 @@
         {% endif %}
     </div>
 
+    {% if print_promo and current_user.is_authenticated %}
+    <div class="hl-promo mb-3" id="hl-promo-druk3d" hidden>
+        <button type="button" class="close hl-promo-close" aria-label="Ukryj">&times;</button>
+        <div class="hl-promo-icon">🖨️</div>
+        <div class="hl-promo-body">
+            <div class="hl-promo-title">Nowość: Druk 3D</div>
+            <p class="mb-2">Masz pomysł, co wydrukować na drukarce HLYW? Wklej link do modelu albo wrzuć plik STL -
+               zdjęcia, czas druku i zużycie filamentu policzą się same, a admin da znać, kiedy będzie gotowe.</p>
+            <a href="{{ url_for('print_new') }}" class="btn btn-primary btn-sm w-auto mr-2 mb-1">Zaproponuj wydruk</a>
+            <a href="{{ url_for('print_list') }}" class="btn btn-outline-primary btn-sm w-auto mb-1">Zobacz propozycje</a>
+        </div>
+    </div>
+    <script>
+    (function () {
+        // krzyżyk chowa baner na stałe w tej przeglądarce
+        var box = document.getElementById('hl-promo-druk3d'), KEY = 'hl-promo-druk3d';
+        try { if (localStorage.getItem(KEY)) return; } catch (e) {}
+        box.hidden = false;
+        box.querySelector('.hl-promo-close').addEventListener('click', function () {
+            box.hidden = true;
+            try { localStorage.setItem(KEY, '1'); } catch (e) {}
+        });
+    })();
+    </script>
+    {% endif %}
     {% if stats %}
     <div class="row">
         <div class="col-6 col-md-3 mb-3">

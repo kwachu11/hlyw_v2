@@ -43,13 +43,27 @@
             <small class="form-text text-muted" id="print-file-info">STL, 3MF, OBJ lub STEP, do {{ max_mb }} MB. Z pliku 3MF pokażemy też jego miniaturę.</small>
         </div>
         {% include "_model_viewer.html" %}
+        <input type="hidden" name="transform" id="print-transform">
+        <small class="form-text text-muted mt-n2 mb-3" id="print-transform-info" hidden>
+            Ustaw model tak, jak ma leżeć na stole - przyciski pod podglądem. Strzałki w rogu stołu pokazują osie:
+            <b class="hl-axis-x">X</b> w prawo, <b class="hl-axis-y">Y</b> do tyłu, <b class="hl-axis-z">Z</b> do góry. Ustawienie zapisze się z propozycją.
+        </small>
     </div>
 
     <div id="print-part-link" data-part="link">
         <div class="form-group">
             {{ form.link.label }}
             {{ form.link(class="form-control") }}
-            <small class="form-text text-muted">Zdjęcia pobierzemy same z: MakerWorld, Thingiverse, Thangs, MyMiniFactory, GrabCAD.</small>
+            <small class="form-text text-muted hl-sites">
+                Gdzie szukać modeli:
+                <a href="https://makerworld.com/pl" target="_blank" rel="noopener">MakerWorld</a> (zdjęcia + czas druku i filament),
+                <a href="https://www.thingiverse.com" target="_blank" rel="noopener">Thingiverse</a>,
+                <a href="https://thangs.com" target="_blank" rel="noopener">Thangs</a>,
+                <a href="https://www.myminifactory.com" target="_blank" rel="noopener">MyMiniFactory</a>,
+                <a href="https://grabcad.com/library" target="_blank" rel="noopener">GrabCAD</a> (zdjęcia),
+                <a href="https://www.printables.com" target="_blank" rel="noopener">Printables</a>,
+                <a href="https://cults3d.com/pl" target="_blank" rel="noopener">Cults3D</a> (przez zakładkę).
+            </small>
             <button type="button" class="btn btn-outline-primary btn-sm w-auto mt-2" id="hlFetchImages">📷 Pobierz zdjęcia ze strony</button>
             <small class="text-muted ml-2" id="hlFetchStatus"></small>
             <div class="hl-gallery-thumbs" id="hlFetchThumbs"></div>
@@ -62,6 +76,12 @@
                 <img id="print-image-preview" class="rounded" style="max-height: 180px; max-width: 100%;" alt="Zdjęcie główne" referrerpolicy="no-referrer">
             </figure>
         </div>
+        <fieldset class="form-group" id="print-profiles-box" hidden>
+            <legend class="col-form-label pt-0">Profil druku - czas i filament</legend>
+            <input type="hidden" name="profile" id="print-profile">
+            <div class="hl-profiles" id="print-profiles" role="radiogroup"></div>
+            <small class="form-text text-muted">Policzone przez autora profilu w Bambu Studio dla jego drukarki - na naszej może wyjść trochę inaczej. Czas i gramy są na 1 sztukę.</small>
+        </fieldset>
     </div>
     <div class="form-row">
         <div class="form-group col-md-5">
@@ -120,12 +140,23 @@
 (function () {
     var input = document.getElementById('file'), info = document.getElementById('print-file-info');
     var defaultText = info.textContent, maxBytes = {{ max_mb }} * 1024 * 1024;
+    var allowed = (input.getAttribute('accept') || '').split(',').map(function (e) { return e.trim().toLowerCase(); });
+    // iOS nie zna typów STL/3MF/STEP i przy filtrze „accept” wyszarza te pliki w aplikacji Pliki -
+    // tam filtr zdejmujemy, a rozszerzenie sprawdzamy sami (serwer i tak sprawdza je jeszcze raz)
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+        input.removeAttribute('accept');
+    }
     input.addEventListener('change', function () {
-        var tooBig = input.files.length && input.files[0].size > maxBytes;
-        info.textContent = tooBig ? 'Ten plik ma ponad {{ max_mb }} MB - serwer go nie przyjmie.' : defaultText;
-        info.classList.toggle('text-danger', !!tooBig);
-        info.classList.toggle('text-muted', !tooBig);
-        input.setCustomValidity(tooBig ? 'Plik jest za duży' : '');
+        var file = input.files[0], problem = '';
+        if (file && allowed.length && allowed.indexOf('.' + file.name.split('.').pop().toLowerCase()) < 0) {
+            problem = 'To nie jest plik z modelem - wybierz STL, 3MF, OBJ albo STEP.';
+        } else if (file && file.size > maxBytes) {
+            problem = 'Ten plik ma ponad {{ max_mb }} MB - serwer go nie przyjmie.';
+        }
+        info.textContent = problem || defaultText;
+        info.classList.toggle('text-danger', !!problem);
+        info.classList.toggle('text-muted', !problem);
+        input.setCustomValidity(problem);
     });
 
     // podgląd wklejonego zdjęcia
@@ -167,6 +198,43 @@
         // przycisk zostaje klikalny: kliknięcie w trakcie = „wyślij, gdy zdjęcia dojdą”
         submit.value = !on ? submitText : sendWhenReady ? '⏳ Wyślę, gdy dojdą zdjęcia…' : '⏳ Czekam na zdjęcia ze strony…';
     }
+    // profile druku z MakerWorld - wybrany leci z formularzem (pole „profile”)
+    var profilesBox = document.getElementById('print-profiles-box'), profilesList = document.getElementById('print-profiles');
+    var profileInput = document.getElementById('print-profile');
+    function duration(seconds) {
+        var minutes = Math.max(1, Math.round(seconds / 60));
+        return minutes < 60 ? minutes + ' min' : Math.floor(minutes / 60) + ' h ' + (minutes % 60) + ' min';
+    }
+    function clearProfiles() { profilesList.innerHTML = ''; profileInput.value = ''; profilesBox.hidden = true; }
+    function showProfiles(profiles) {
+        clearProfiles();
+        (profiles || []).forEach(function (p, i) {
+            var label = document.createElement('label'), radio = document.createElement('input'), box = document.createElement('span');
+            label.className = 'hl-profile';
+            radio.type = 'radio'; radio.name = 'profile_choice';
+            radio.addEventListener('change', function () { profileInput.value = JSON.stringify(p); });
+            var head = document.createElement('b');
+            head.textContent = '⏱ ' + duration(p.seconds) + ' · 🧵 ' + Math.round(p.grams) + ' g';
+            var name = document.createElement('div');
+            name.className = 'small';
+            name.textContent = p.title + (p.printer ? ' (' + p.printer + ')' : '');
+            var colors = document.createElement('div');
+            colors.className = 'small text-muted';
+            p.filaments.forEach(function (f) {
+                var dot = document.createElement('span');
+                dot.className = 'hl-swatch mr-1';
+                dot.style.background = f.color || 'transparent';
+                colors.appendChild(dot);
+                colors.appendChild(document.createTextNode(f.type + ' ' + Math.round(f.grams) + ' g   '));
+            });
+            if (p.ams) colors.appendChild(document.createTextNode('· wymaga AMS'));
+            box.appendChild(head); box.appendChild(name); box.appendChild(colors);
+            label.appendChild(radio); label.appendChild(box);
+            profilesList.appendChild(label);
+            if (i === 0) { radio.checked = true; profileInput.value = JSON.stringify(p); }
+        });
+        profilesBox.hidden = !profilesList.children.length;
+    }
     function restoreBookmark(link) {
         if (link === bookmarkLink && bookmarkImage) { imageInput.value = bookmarkImage; showPreview(); }
     }
@@ -179,6 +247,7 @@
         galleryInput.value = '';
         imageInput.value = '';                 // zdjęcie główne poprzedniego linku już nie pasuje
         showPreview();
+        clearProfiles();
         fetchStatus.textContent = '⏳ Pobieram zdjęcia… (do pół minuty)';
         waiting(true);
         var promise = fetch("{{ url_for('print_images_preview') }}?url=" + encodeURIComponent(link))
@@ -190,6 +259,7 @@
                 if (d.title && (!titleInput.value.trim() || titleInput.value === autoTitle)) titleInput.value = autoTitle = d.title;
                 if (!d.ok) { fetchStatus.textContent = 'Brak zdjęć: ' + (FETCH_ERRORS[d.error] || 'nic nie znalazłem'); restoreBookmark(link); return; }
                 galleryInput.value = JSON.stringify(d.images);
+                showProfiles(d.profiles);
                 fetchStatus.textContent = d.images.length + ' zdj. - kliknij miniaturę, żeby wybrać zdjęcie główne (⭐)';
                 d.images.forEach(function (url) {
                     var b = document.createElement('button'), img = document.createElement('img');
@@ -223,6 +293,7 @@
         imageInput.value = '';
         fetchStatus.textContent = '';
         showPreview();
+        clearProfiles();
         restoreBookmark(linkInput.value.trim());
     });
     fetchButton.addEventListener('click', loadImages);
@@ -252,6 +323,8 @@ const input = document.getElementById('file'), status = document.getElementById(
 const colors = {{ colors|tojson }};
 const quality = document.getElementById('quality'), material = document.getElementById('material'), quantity = document.getElementById('quantity');
 let viewer = null, VIEWABLE = [];
+const transformInput = document.getElementById('print-transform'), transformInfo = document.getElementById('print-transform-info');
+const transformDefault = transformInfo.innerHTML;
 
 function options() {
     const color = document.querySelector('input[name="color"]:checked');
@@ -262,7 +335,9 @@ document.querySelectorAll('input[name="color"]').forEach(el => el.addEventListen
 
 input.addEventListener('change', async () => {
     status.textContent = '';
-    if (viewer) viewer.hide();
+    if (viewer) { viewer.hide(); viewer.setTransform(null); }
+    transformInput.value = '';
+    transformInfo.hidden = true;
     const file = input.files[0];
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();
@@ -271,12 +346,21 @@ input.addEventListener('change', async () => {
         if (!viewer) {
             const mod = await import("{{ url_for('static', filename='js/model_viewer.js') }}");
             VIEWABLE = mod.VIEWABLE;
-            viewer = mod.mountViewer(document.getElementById('hlModel'));
+            viewer = mod.mountViewer(document.getElementById('hlModel'), {
+                editable: true,
+                onTransform: t => {
+                    const changed = t.ops.length || t.scale !== 100;
+                    transformInput.value = changed ? JSON.stringify(t) : '';
+                    if (changed) transformInfo.textContent = 'Ustawienie: ' + mod.describeTransform(t) + '.';
+                    else transformInfo.innerHTML = transformDefault;
+                },
+            });
         }
         if (!VIEWABLE.includes(ext)) { status.textContent = 'Dla tego formatu nie ma podglądu - plik i tak zostanie wysłany.'; return; }
         viewer.setOptions(options());
         viewer.load(await file.arrayBuffer(), ext);
         status.textContent = '';
+        transformInfo.hidden = false;
     } catch (e) {
         console.error(e);
         if (viewer) viewer.hide();

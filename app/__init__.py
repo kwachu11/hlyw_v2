@@ -84,6 +84,7 @@ ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 
 ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
 THUMBNAIL_SIZE = 480  # dłuższy bok miniatury w galerii (px)
 PRINT_THUMB_MAX_BYTES = 10 * 1024 * 1024  # większego obrazka z pliku 3MF nie rozpakowujemy
+PRINT_PROMO_UNTIL = datetime(2026, 12, 1)  # do tej daty: baner „Druk 3D” na stronie głównej i plakietki NOWE w menu
 # galeria zdjęć ze strony modelu: serwis na Raspberry Pi (headless Chromium), domyślnie obok PRINTER_STATUS_URL
 # (Printables i Cults3D pokazują automatom stronę ochrony przed botami, Creality Cloud się nie doładowuje - pominięte)
 MODEL_IMAGES_SITES = ('makerworld.com', 'thingiverse.com', 'thangs.com', 'myminifactory.com', 'grabcad.com')
@@ -552,6 +553,8 @@ def create_app():
         image_url = db.Column(db.String(1000))    # zdjęcie osadzane bezpośrednio z serwisu z modelem
         thumb_path = db.Column(db.String(100))    # miniatura wyciągnięta z pliku 3MF (instance/druk3d)
         gallery = db.Column(db.Text)              # JSON z adresami zdjęć ze strony modelu (pobrane przez Pi)
+        print_profile = db.Column(db.Text)        # JSON: wybrany profil druku z MakerWorld (czas, gramy, filamenty)
+        print_transform = db.Column(db.Text)      # JSON {ops, scale}: ustawienie modelu z podglądu (obroty, odbicia, skala)
         quality = db.Column(db.String(20), nullable=False)
         material = db.Column(db.String(30), nullable=False)
         color = db.Column(db.String(40), nullable=False)
@@ -751,6 +754,8 @@ def create_app():
             ('print_request', 'image_url', "VARCHAR(1000)"),
             ('print_request', 'thumb_path', "VARCHAR(100)"),
             ('print_request', 'gallery', "TEXT"),
+            ('print_request', 'print_profile', "TEXT"),
+            ('print_request', 'print_transform', "TEXT"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -800,7 +805,14 @@ def create_app():
         latest = db.session.query(func.max(Upgrade.date)).scalar()
         return {'has_new_upgrade': bool(latest and latest >= datetime.utcnow() - timedelta(days=UPGRADE_NEW_DAYS)),
                 'current_year': datetime.now().year,
+                'print_promo': datetime.utcnow() < PRINT_PROMO_UNTIL,
                 'report_statuses': REPORT_STATUSES}
+
+    @app.template_filter('print_time')
+    def print_time_filter(seconds):
+        # 5244 -> "1 h 27 min"
+        minutes = max(1, round((seconds or 0) / 60))
+        return f'{minutes} min' if minutes < 60 else f'{minutes // 60} h {minutes % 60} min'
 
     @app.template_filter('is_video')
     def is_video(path):
@@ -1598,14 +1610,14 @@ def create_app():
         return any(host == d or host.endswith('.' + d) for d in MODEL_IMAGES_SITES)
 
     def fetch_model_images(link):
-        """Same zdjęcia ze strony z modelem - stronę otwiera headless Chromium na Pi. Zwraca (lista, błąd, tytuł strony)."""
+        """Same zdjęcia ze strony z modelem - stronę otwiera headless Chromium na Pi. Zwraca (zdjęcia, błąd, tytuł strony, profile druku z MakerWorld)."""
         import urllib.request as _ur, urllib.parse as _up, urllib.error as _ue
         base = os.getenv('MODEL_IMAGES_URL') or (os.getenv('PRINTER_STATUS_URL') or '').replace('/status', '/zdjecia')
         token = os.getenv('PRINTER_CONTROL_TOKEN')
         if not base or not token:
-            return None, 'not_configured', None
+            return None, 'not_configured', None, []
         if not model_images_supported(link):
-            return None, 'site_not_allowed', None
+            return None, 'site_not_allowed', None, []
         try:
             # User-Agent jawnie - domyślny "Python-urllib" Cloudflare blokuje jako bota (403)
             req = _ur.Request(base + '?' + _up.urlencode({'url': link}),
@@ -1614,15 +1626,89 @@ def create_app():
                 data = json.loads(resp.read())
         except _ue.HTTPError as e:
             try:
-                return None, json.loads(e.read()).get('error') or 'pi_http_%d' % e.code, None
+                return None, json.loads(e.read()).get('error') or 'pi_http_%d' % e.code, None, []
             except Exception:
-                return None, 'pi_http_%d' % e.code, None
+                return None, 'pi_http_%d' % e.code, None, []
         except Exception as e:
             app.logger.warning('Pobieranie zdjęć modelu %s nie powiodło się: %s', link, e)
-            return None, 'pi_unreachable', None
+            return None, 'pi_unreachable', None, []
         images = [u for u in data.get('images') or [] if isinstance(u, str) and clean_print_link(u)]
         title = ' '.join(str(data.get('title') or '').split())[:150] or None
-        return images, (None if images else data.get('error') or 'no_images'), title
+        return images, (None if images else data.get('error') or 'no_images'), title, clean_profiles(data.get('profiles'))
+
+    def clean_profiles(raw):
+        """Profile druku (MakerWorld) z Pi albo z formularza - tylko znane pola o rozsądnych wartościach."""
+        profiles = []
+        for p in raw if isinstance(raw, list) else []:
+            if not isinstance(p, dict):
+                continue
+            try:
+                seconds, grams = int(p.get('seconds') or 0), float(p.get('grams') or 0)
+            except (TypeError, ValueError):
+                continue
+            if not 0 < seconds < 30 * 24 * 3600 or not 0 <= grams < 100000:
+                continue
+            filaments = []
+            for f in p.get('filaments') or []:
+                if isinstance(f, dict):
+                    color = str(f.get('color') or '')
+                    try:
+                        used = round(float(f.get('grams') or 0), 1)
+                    except (TypeError, ValueError):
+                        used = 0
+                    filaments.append({'type': str(f.get('type') or '')[:20],
+                                      'color': color if re.fullmatch(r'#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?', color) else '',
+                                      'grams': used})
+            profiles.append({'title': ' '.join(str(p.get('title') or '').split())[:150], 'seconds': seconds,
+                             'grams': round(grams, 1), 'filaments': filaments[:16], 'ams': bool(p.get('ams')),
+                             'printer': str(p.get('printer') or '')[:30]})
+        return profiles[:20]
+
+    PRINT_TRANSFORM_OPS = ('rx', 'ry', 'rz', 'mx', 'my', 'mz')
+
+    def clean_print_transform(raw):
+        """Ustawienie modelu z podglądu 3D: lista operacji (obrót o 90° / odbicie w osi) + skala w %; None = bez zmian."""
+        if not isinstance(raw, dict):
+            return None
+        ops = [op for op in raw.get('ops') or [] if op in PRINT_TRANSFORM_OPS][:60]
+        try:
+            scale = min(500, max(10, int(round(float(raw.get('scale') or 100)))))
+        except (TypeError, ValueError):
+            scale = 100
+        return {'ops': ops, 'scale': scale} if ops or scale != 100 else None
+
+    def describe_print_transform(t):
+        """„obrót X 90° → Z 180°, odbicie X, skala 120%” - to samo co describeTransform w model_viewer.js."""
+        if not t:
+            return ''
+        steps = []
+        for op in t['ops']:
+            if steps and steps[-1][0] == op:
+                steps[-1][1] += 1
+            else:
+                steps.append([op, 1])
+        rotations = [f'{op[1].upper()} {(n % 4) * 90}°' for op, n in steps if op[0] == 'r' and n % 4]
+        mirrors = [op[1].upper() for op, n in steps if op[0] == 'm' and n % 2]
+        parts = []
+        if rotations:
+            parts.append('obrót ' + ' → '.join(rotations))
+        if mirrors:
+            parts.append('odbicie ' + ', '.join(mirrors))
+        if t['scale'] != 100:
+            parts.append(f"skala {t['scale']}%")
+        return ', '.join(parts)
+
+    def print_transform(entry):
+        try:
+            return clean_print_transform(json.loads(entry.print_transform)) if entry.print_transform else None
+        except ValueError:
+            return None
+
+    def print_profile(entry):
+        try:
+            return json.loads(entry.print_profile) if entry.print_profile else None
+        except ValueError:
+            return None
 
     def print_gallery(entry):
         try:
@@ -1637,8 +1723,8 @@ def create_app():
         link = clean_print_link(request.args.get('url', '')) if request.args.get('url', '').strip() else None
         if not link:
             return jsonify(ok=False, error='bad_url'), 400
-        images, error, title = fetch_model_images(link)
-        return jsonify(ok=bool(images), images=images or [], error=error, title=title)
+        images, error, title, profiles = fetch_model_images(link)
+        return jsonify(ok=bool(images), images=images or [], error=error, title=title, profiles=profiles)
 
     @app.route('/druk3d/<int:request_id>/zdjecia')
     @login_required
@@ -1649,10 +1735,12 @@ def create_app():
         if images is None or (request.args.get('odswiez') == '1' and current_user.is_admin != "0"):
             if not entry.link:
                 return jsonify(ok=False, images=[], error='no_link')
-            images, error, _ = fetch_model_images(entry.link)
+            images, error, _, profiles = fetch_model_images(entry.link)
             if not images:
                 return jsonify(ok=False, images=[], error=error)
             entry.gallery = json.dumps(images)
+            if profiles and not entry.print_profile:
+                entry.print_profile = json.dumps(profiles[0])   # domyślny profil autora
             if not entry.image_url and not entry.thumb_path:
                 entry.image_url = images[0][:1000]     # miniatura na liście propozycji
             db.session.commit()
@@ -1680,6 +1768,7 @@ def create_app():
             query = query.filter_by(user_id=current_user.id)
         counts = dict(db.session.query(PrintRequest.status, func.count()).group_by(PrintRequest.status).all())
         return render_template('druk3d.html', requests=query.order_by(PrintRequest.created_at.desc()).all(), counts=counts,
+                               profile_of=print_profile,
                                active_status=status, mine=mine, print_statuses=PRINT_STATUSES, qualities=PRINT_QUALITIES,
                                colors=PRINT_COLORS)
 
@@ -1735,7 +1824,23 @@ def create_app():
                         gallery = [u[:1000] for u in sent[:40] if isinstance(u, str) and clean_print_link(u)] or None
                 if gallery and not image_url:
                     image_url = gallery[0]
-                entry = PrintRequest(thumb_path=thumb, gallery=json.dumps(gallery) if gallery else None, title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
+                # ustawienie modelu z podglądu 3D (tylko dla wgranego pliku)
+                transform = None
+                if upload:
+                    try:
+                        transform = clean_print_transform(json.loads(request.form.get('transform') or 'null'))
+                    except ValueError:
+                        transform = None
+                # wybrany w formularzu profil druku z MakerWorld (czas i filament)
+                profile = None
+                if link:
+                    try:
+                        profile = (clean_profiles([json.loads(request.form.get('profile') or 'null')]) or [None])[0]
+                    except ValueError:
+                        profile = None
+                entry = PrintRequest(thumb_path=thumb, gallery=json.dumps(gallery) if gallery else None,
+                                     print_profile=json.dumps(profile) if profile else None,
+                                     print_transform=json.dumps(transform) if transform else None, title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
                                      file_path=stored, link=link, image_url=image_url, quality=form.quality.data, material=form.material.data,
                                      file_name=upload.filename.replace('\\', '/').rsplit('/', 1)[-1][:200] if upload else None,
                                      color=form.color.data, quantity=form.quantity.data, user_id=current_user.id)
@@ -1754,7 +1859,9 @@ def create_app():
         if entry.file_path and os.path.exists(print_file_path(entry.file_path)):
             file_size = os.path.getsize(print_file_path(entry.file_path))
         return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, file_size=file_size, print_statuses=PRINT_STATUSES,
-                               gallery=print_gallery(entry), gallery_possible=bool(entry.link and model_images_supported(entry.link)),
+                               gallery=print_gallery(entry), profile=print_profile(entry),
+                               transform=print_transform(entry), transform_text=describe_print_transform(print_transform(entry)),
+                               gallery_possible=bool(entry.link and model_images_supported(entry.link)),
                                qualities=PRINT_QUALITIES, colors=PRINT_COLORS, delete_form=PrintDeleteForm(),
                                status_form=PrintStatusForm(status=entry.status, admin_note=entry.admin_note))
 

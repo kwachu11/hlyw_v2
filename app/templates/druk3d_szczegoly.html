@@ -65,6 +65,22 @@
         {{ entry.color }}
     </dd>
     <dt class="col-sm-3">Liczba sztuk</dt><dd class="col-sm-9">{{ entry.quantity }}</dd>
+    {% if profile %}
+    <dt class="col-sm-3">Czas i filament</dt>
+    <dd class="col-sm-9">
+        ⏱ {{ (profile.seconds * entry.quantity)|print_time }} · 🧵 {{ (profile.grams * entry.quantity)|round|int }} g
+        {% if entry.quantity > 1 %}<span class="text-muted">(razem {{ entry.quantity }} szt.)</span>{% endif %}
+        {% for f in profile.filaments %}
+        <span class="text-nowrap ml-2"><span class="hl-swatch" style="background: {{ f.color or 'transparent' }}"></span> {{ f.type }} {{ (f.grams * entry.quantity)|round|int }} g</span>
+        {% endfor %}
+        {% if profile.ams %}<span class="badge badge-warning ml-1">AMS</span>{% endif %}
+        <div class="small text-muted">Profil „{{ profile.title }}” z MakerWorld{% if profile.printer %} - policzony dla {{ profile.printer }}{% endif %}.</div>
+    </dd>
+    {% endif %}
+    {% if transform_text %}
+    <dt class="col-sm-3">Ustawienie</dt>
+    <dd class="col-sm-9">{{ transform_text }} <span class="small text-muted d-block">w osiach stołu, w tej kolejności (tak jak w podglądzie poniżej)</span></dd>
+    {% endif %}
     {% if entry.file_path %}
     <dt class="col-sm-3">Plik</dt><dd class="col-sm-9"><a href="{{ url_for('print_download', request_id=entry.id) }}">📎 {{ entry.file_name }}</a></dd>
     {% endif %}
@@ -78,6 +94,9 @@
 
 {% if file_size %}
 {% include "_model_viewer.html" %}
+{% if transform and current_user.is_admin != "0" %}
+<button type="button" class="btn btn-outline-primary btn-sm w-auto mb-3 mr-2" id="hlModelExport" hidden>⬇ Pobierz STL z tym ustawieniem</button>
+{% endif %}
 <button type="button" class="btn btn-outline-primary btn-sm w-auto mb-3" id="hlModelLoad" hidden>Pokaż model 3D ({{ (file_size / 1048576)|round(1) }} MB)</button>
 <script type="module">
 const ext = {{ (entry.file_name or '').rsplit('.', 1)[-1].lower()|tojson }};
@@ -93,7 +112,20 @@ async function show() {
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const viewer = mountViewer(document.getElementById('hlModel'));
         viewer.setOptions(options);
+        viewer.setTransform({{ transform|tojson }});
         viewer.load(await response.arrayBuffer(), ext);
+        const exportButton = document.getElementById('hlModelExport');
+        if (exportButton) {
+            exportButton.hidden = false;
+            exportButton.addEventListener('click', () => {
+                // gotowy STL po obrotach / odbiciach / skali - do wrzucenia prosto do slicera
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(viewer.exportStl());
+                link.download = {{ ((entry.file_name or 'model').rsplit('.', 1)[0] ~ '_ustawiony.stl')|tojson }};
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+            });
+        }
         status.textContent = '';
     } catch (e) {
         console.error(e);
