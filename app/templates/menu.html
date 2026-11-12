@@ -38,6 +38,7 @@
                     {% if current_user.is_authenticated and current_user.is_admin != "0" %}
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item" href="{{ url_for('control_panel') }}">⚙️ Panel sterowania</a>
+                    <a class="dropdown-item" href="{{ url_for('print_filaments') }}">🧵 Filamenty do druku 3D</a>
                     <a class="dropdown-item" href="{{ url_for('quiz_admin') }}">🧠 Quiz — prowadzenie</a>
                     {% endif %}
                     <!-- Można tutaj dodać kolejne strony w przyszłości -->

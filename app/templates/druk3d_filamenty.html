@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .hl-fil-swatch { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #777; vertical-align: middle; }
+    .hl-fil-row { display: grid; grid-template-columns: 34px minmax(110px, 1fr) minmax(110px, 1fr) 52px minmax(150px, 1fr) auto; gap: 6px; align-items: center; }
+    .hl-fil-row input[type=color] { width: 44px; height: 34px; padding: 2px; }
+    .hl-fil-row .btn { width: auto; }
+    @media (max-width: 767px) {
+        .hl-fil-row { grid-template-columns: 34px 1fr 1fr; }
+        .hl-fil-row .hl-fil-actions { grid-column: 1 / -1; }
+        .hl-fil-head { display: none; }
+    }
+    .hl-fil-head { font-size: .8rem; color: var(--gta-muted, #9c9ca6); }
+    .hl-ams-bar { height: 4px; background: var(--gta-border, #333); border-radius: 2px; overflow: hidden; width: 80px; display: inline-block; vertical-align: middle; }
+    .hl-ams-bar span { display: block; height: 100%; background: var(--gta-yellow, #ffcc00); }
+</style>
+
+<a href="{{ url_for('print_list') }}" class="small">&larr; propozycje druku 3D</a>
+<div class="d-flex flex-wrap justify-content-between align-items-center hl-gap mt-2 mb-3">
+    <h2 class="mb-0">🧵 Filamenty</h2>
+    <a href="{{ url_for('control_panel') }}" class="btn btn-outline-secondary btn-sm w-auto">⚙️ Panel sterowania</a>
+</div>
+<p class="text-muted small">
+    Ta lista to wybór „Filament i kolor” w propozycjach druku. <b>Dostępne od ręki</b> - masz na stanie,
+    <b>Na życzenie</b> - można dokupić (wydruk potrwa dłużej), <b>Ukryte</b> - nie pokazują się w formularzu.
+</p>
+
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center hl-gap">
+        <strong>🖨️ Teraz w drukarce (AMS)</strong>
+        {% if trays %}
+        <form method="POST" class="mb-0">
+            <input type="hidden" name="action" value="ams">
+            <button type="submit" class="btn btn-primary btn-sm w-auto">Wczytaj z AMS</button>
+        </form>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if trays is none %}
+        <p class="text-muted mb-0">Nie udało się odczytać AMS - drukarka albo malinka nie odpowiada. Filamenty możesz dodać ręcznie poniżej.</p>
+        {% elif not trays %}
+        <p class="text-muted mb-0">W drukarce nie ma teraz żadnej szpuli z rozpoznanym filamentem.</p>
+        {% else %}
+        <ul class="list-unstyled mb-2">
+            {% for t in trays %}
+            <li class="d-flex flex-wrap align-items-center hl-gap mb-2">
+                <span class="hl-fil-swatch" style="background: {{ t.hex }}" title="{{ t.hex }}"></span>
+                <b>{{ t.material }}</b>
+                <span class="text-muted small">{{ t.slot }}</span>
+                {% if t.remain is not none %}
+                <span class="small"><span class="hl-ams-bar"><span style="width: {{ t.remain }}%"></span></span> {{ t.remain }}%</span>
+                {% endif %}
+                {% if t.filament %}
+                <span class="small">→ na liście jako <b>{{ t.filament.material }} · {{ t.filament.name }}</b>
+                    {% if t.filament.status != 'dostepny' %}<span class="badge badge-warning">{{ statuses[t.filament.status] }}</span>{% endif %}</span>
+                {% else %}
+                <span class="small text-warning">→ nie ma na liście (dopisze się jako {{ t.material }} · {{ t.suggested_name }})</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        <small class="text-muted">„Wczytaj z AMS” dopisuje brakujące szpule jako dostępne i przestawia na „Dostępne od ręki” te, które już są na liście. Nazwę koloru możesz potem zmienić.</small>
+        {% endif %}
+    </div>
+</div>
+
+<datalist id="hl-materials">{% for m in materials %}<option value="{{ m }}">{% endfor %}</datalist>
+
+{% macro status_select(current) -%}
+<select name="status" class="form-control form-control-sm">
+    {% for key, label in statuses.items() %}<option value="{{ key }}" {{ 'selected' if key == current }}>{{ label }}</option>{% endfor %}
+</select>
+{%- endmacro %}
+
+{% for status, label in statuses.items() %}
+<div class="card mb-3">
+    <div class="card-header"><strong>{{ label }}</strong> <span class="text-muted">({{ groups[status]|length }})</span></div>
+    <div class="card-body">
+        {% if groups[status] %}
+        <div class="hl-fil-row hl-fil-head mb-1"><span></span><span>Materiał</span><span>Nazwa koloru</span><span>Kolor</span><span>Status</span><span></span></div>
+        {% endif %}
+        {% for f in groups[status] %}
+        <form method="POST" class="hl-fil-row mb-2">
+            <input type="hidden" name="id" value="{{ f.id }}">
+            <span class="hl-fil-swatch" style="background: {{ f.hex }}"></span>
+            <input type="text" name="material" value="{{ f.material }}" list="hl-materials" class="form-control form-control-sm" maxlength="30" required aria-label="Materiał">
+            <input type="text" name="name" value="{{ f.name }}" class="form-control form-control-sm" maxlength="40" required aria-label="Nazwa koloru">
+            <input type="color" name="hex" value="{{ f.hex|lower }}" class="form-control form-control-sm" aria-label="Kolor">
+            {{ status_select(f.status) }}
+            <div class="hl-fil-actions d-flex hl-gap">
+                <button type="submit" name="action" value="save" class="btn btn-sm btn-outline-primary">Zapisz</button>
+                <button type="submit" name="action" value="delete" class="btn btn-sm btn-outline-danger" formnovalidate
+                        onclick="return confirm('Usunąć {{ f.material }} · {{ f.name }} z listy?')">Usuń</button>
+            </div>
+        </form>
+        {% else %}
+        <p class="text-muted mb-0">Brak.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+
+<div class="card mb-4">
+    <div class="card-header"><strong>+ Dodaj filament</strong></div>
+    <div class="card-body">
+        <form method="POST" class="hl-fil-row">
+            <input type="hidden" name="action" value="add">
+            <span class="hl-fil-swatch" id="hl-fil-new-swatch" style="background: #ffffff"></span>
+            <input type="text" name="material" value="PLA" list="hl-materials" class="form-control form-control-sm" maxlength="30" required placeholder="Materiał" aria-label="Materiał">
+            <input type="text" name="name" class="form-control form-control-sm" maxlength="40" required placeholder="Nazwa koloru, np. Srebrny" aria-label="Nazwa koloru">
+            <input type="color" name="hex" value="#ffffff" class="form-control form-control-sm" aria-label="Kolor"
+                   oninput="document.getElementById('hl-fil-new-swatch').style.background = this.value">
+            {{ status_select('na_zyczenie') }}
+            <div class="hl-fil-actions"><button type="submit" class="btn btn-sm btn-primary">Dodaj</button></div>
+        </form>
+    </div>
+</div>
+
+<script>
+// kółko obok wiersza od razu pokazuje wybrany kolor
+document.querySelectorAll('form.hl-fil-row input[type=color]').forEach(function (input) {
+    input.addEventListener('input', function () { input.form.querySelector('.hl-fil-swatch').style.background = input.value; });
+});
+</script>
+{% endblock %}

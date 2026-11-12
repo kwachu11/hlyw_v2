@@ -124,7 +124,13 @@ SITE_SETTINGS = [
 ]
 # zdjęcia, które karuzela miała w kodzie - przy pierwszym starcie trafiają do tabeli carousel_image
 CAROUSEL_DEFAULT_IMAGES = ['static/images/hlyw_1.png'] + [f'static/images/hlyw_{i}.jpg' for i in range(2, 24)]
-SITE_SETTINGS_CACHE_SECONDS = 10   # każdy worker gunicorna trzyma ustawienia tyle sekund
+SITE_SETTINGS_CACHE_SECONDS = 10
+
+# Druk 3D: filamenty do wyboru w propozycji (tabela filament, zarządza admin w /druk3d/filamenty)
+OUR_PRINTER = 'H2C'   # nasza drukarka - profil MakerWorld z nią zgodny dostaje znaczek
+FILAMENT_STATUSES = {'dostepny': 'Dostępne od ręki', 'na_zyczenie': 'Na życzenie', 'ukryty': 'Ukryte'}
+FILAMENT_MATERIALS = ['PLA', 'PLA Matte', 'PLA Silk', 'PLA-CF', 'PETG', 'PETG-CF', 'TPU', 'ABS', 'ASA', 'PC', 'PA']  # podpowiedzi
+FILAMENT_ANY, FILAMENT_OTHER, FILAMENT_KEEP = 'obojetnie', 'inny', 'obecny'   # specjalne wartości wyboru w formularzu   # każdy worker gunicorna trzyma ustawienia tyle sekund
 # galeria zdjęć ze strony modelu: serwis na Raspberry Pi (headless Chromium), domyślnie obok PRINTER_STATUS_URL
 # (Printables i Cults3D pokazują automatom stronę ochrony przed botami, Creality Cloud się nie doładowuje - pominięte)
 MODEL_IMAGES_SITES = ('makerworld.com', 'thingiverse.com', 'thangs.com', 'myminifactory.com', 'grabcad.com')
@@ -550,6 +556,15 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         __table_args__ = (db.UniqueConstraint('image_id', 'user_id'),)
 
+    class Filament(db.Model):
+        """Filament (materiał + kolor) do wyboru w propozycji druku 3D."""
+        id = db.Column(db.Integer, primary_key=True)
+        material = db.Column(db.String(30), nullable=False)
+        name = db.Column(db.String(40), nullable=False)        # nazwa koloru, np. Czerwony
+        hex = db.Column(db.String(7), nullable=False)          # #RRGGBB
+        status = db.Column(db.String(20), nullable=False, default='dostepny')
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
     class CarouselImage(db.Model):
         """Zdjęcie w karuzeli na stronie głównej (kolejność: position)."""
         id = db.Column(db.Integer, primary_key=True)
@@ -620,6 +635,8 @@ def create_app():
         quality = db.Column(db.String(20), nullable=False)
         material = db.Column(db.String(30), nullable=False)
         color = db.Column(db.String(40), nullable=False)
+        model_info = db.Column(db.Text)             # JSON z MakerWorld: opis autora, tagi, licencja
+        color_hex = db.Column(db.String(9))         # kolor wybranego filamentu (starsze: z PRINT_COLORS po nazwie)
         quantity = db.Column(db.Integer, nullable=False, default=1)
         status = db.Column(db.String(20), nullable=False, default='nowa')
         admin_note = db.Column(db.String(500))
@@ -818,6 +835,8 @@ def create_app():
             ('print_request', 'gallery', "TEXT"),
             ('print_request', 'print_profile', "TEXT"),
             ('print_request', 'print_transform', "TEXT"),
+            ('print_request', 'color_hex', "VARCHAR(9)"),
+            ('print_request', 'model_info', "TEXT"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -828,6 +847,15 @@ def create_app():
                     db.session.rollback()
                     if 'duplicate column' not in str(e):
                         raise
+
+        if not db.session.get(SiteSetting, 'filaments_seeded'):
+            try:
+                db.session.add(SiteSetting(key='filaments_seeded', value='1'))
+                db.session.add_all(Filament(material='PLA', name=name, hex=hex_, status='na_zyczenie')
+                                   for name, hex_ in PRINT_COLORS.items() if hex_.startswith('#'))
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
 
         # Karuzela była wpisana na sztywno w kodzie - raz przenosimy te zdjęcia do bazy.
         # Flaga w site_setting (klucz główny) pilnuje, żeby zrobił to tylko jeden worker i tylko raz,
@@ -1903,19 +1931,49 @@ def create_app():
             app.logger.warning('Nie udało się wyciągnąć miniatury z 3MF %s: %s', stored, e)
             return None
 
+    PRINT_SNAPSHOT_SUFFIX = '.view.jpg'   # miniatura zrobiona z podglądu 3D (a nie wyciągnięta z 3MF)
+
+    def save_print_snapshot(stored, data_url):
+        """Zapisuje zdjęcie podglądu 3D (data URL z formularza) jako miniaturę propozycji; zwraca jej nazwę albo None.
+        Nazwa jest za każdym razem nowa, więc po edycji przeglądarka nie pokaże starej miniatury z pamięci."""
+        match = re.fullmatch(r'data:image/(?:jpeg|png);base64,([A-Za-z0-9+/=]+)', (data_url or '').strip())
+        if not stored or not match or len(match.group(1)) > 4 * 1024 * 1024:
+            return None
+        thumb = stored + '.' + uuid.uuid4().hex[:8] + PRINT_SNAPSHOT_SUFFIX
+        try:
+            save_jpeg_thumbnail(io.BytesIO(base64.b64decode(match.group(1))), print_file_path(thumb), size=640, quality=82)
+        except Exception as e:
+            app.logger.warning('Nie udało się zapisać miniatury z podglądu dla %s: %s', stored, e)
+            return None
+        return thumb
+
+    def remove_print_file(name):
+        if name and os.path.exists(print_file_path(name)):
+            os.remove(print_file_path(name))
+
+    app.jinja_env.globals['our_printer'] = OUR_PRINTER   # znaczek „✓ H2C” przy zgodnych profilach MakerWorld
+
+    @app.template_global('print_thumb_url')
+    def print_thumb_url(entry):
+        """Adres miniatury z pliku; ?v= zmienia się razem z miniaturą (np. po edycji), więc nie wisi stara z pamięci."""
+        if not entry.thumb_path:
+            return None
+        return url_for('print_thumbnail', request_id=entry.id, v=hashlib.md5(entry.thumb_path.encode()).hexdigest()[:8])
+
     def model_images_supported(link):
         host = (urlparse(link or '').hostname or '').lower()
         return any(host == d or host.endswith('.' + d) for d in MODEL_IMAGES_SITES)
 
     def fetch_model_images(link):
-        """Same zdjęcia ze strony z modelem - stronę otwiera headless Chromium na Pi. Zwraca (zdjęcia, błąd, tytuł strony, profile druku z MakerWorld)."""
+        """Same zdjęcia ze strony z modelem - stronę otwiera headless Chromium na Pi.
+        Zwraca (zdjęcia, błąd, tytuł strony, profile druku z MakerWorld, informacje o modelu z MakerWorld)."""
         import urllib.request as _ur, urllib.parse as _up, urllib.error as _ue
         base = os.getenv('MODEL_IMAGES_URL') or (os.getenv('PRINTER_STATUS_URL') or '').replace('/status', '/zdjecia')
         token = os.getenv('PRINTER_CONTROL_TOKEN')
         if not base or not token:
-            return None, 'not_configured', None, []
+            return None, 'not_configured', None, [], None
         if not model_images_supported(link):
-            return None, 'site_not_allowed', None, []
+            return None, 'site_not_allowed', None, [], None
         try:
             # User-Agent jawnie - domyślny "Python-urllib" Cloudflare blokuje jako bota (403)
             req = _ur.Request(base + '?' + _up.urlencode({'url': link}),
@@ -1924,15 +1982,51 @@ def create_app():
                 data = json.loads(resp.read())
         except _ue.HTTPError as e:
             try:
-                return None, json.loads(e.read()).get('error') or 'pi_http_%d' % e.code, None, []
+                return None, json.loads(e.read()).get('error') or 'pi_http_%d' % e.code, None, [], None
             except Exception:
-                return None, 'pi_http_%d' % e.code, None, []
+                return None, 'pi_http_%d' % e.code, None, [], None
         except Exception as e:
             app.logger.warning('Pobieranie zdjęć modelu %s nie powiodło się: %s', link, e)
-            return None, 'pi_unreachable', None, []
+            return None, 'pi_unreachable', None, [], None
         images = [u for u in data.get('images') or [] if isinstance(u, str) and clean_print_link(u)]
         title = ' '.join(str(data.get('title') or '').split())[:150] or None
-        return images, (None if images else data.get('error') or 'no_images'), title, clean_profiles(data.get('profiles'))
+        return images, (None if images else data.get('error') or 'no_images'), title, clean_profiles(data.get('profiles')), \
+            clean_model_info(data.get('info'))
+
+    def clean_model_info(raw):
+        """Opis modelu od autora, tagi i licencja z MakerWorld; None, gdy nic z tego nie ma."""
+        if not isinstance(raw, dict):
+            return None
+        description = raw.get('description') if isinstance(raw.get('description'), str) else ''
+        description = '\n'.join(' '.join(line.split()) for line in description.split('\n') if line.strip())[:2000]
+        tags = raw.get('tags') if isinstance(raw.get('tags'), list) else []
+        tags = [' '.join(t.split())[:30] for t in tags if isinstance(t, str) and t.strip()][:15]
+        info = {'description': description, 'tags': tags, 'license': ' '.join(str(raw.get('license') or '').split())[:20]}
+        return info if any(info.values()) else None
+
+    def to_number(value, kind=float):
+        try:
+            return kind(float(value or 0))
+        except (TypeError, ValueError):
+            return kind(0)
+
+    def describe_print_settings(settings, nozzle):
+        """Ustawienia profilu MakerWorld po ludzku: [„warstwa 0,2 mm”, „3 ścianki”, „wypełnienie 20%”, „dysza 0,4 mm”]."""
+        def number(v):
+            return ('%g' % to_number(v)).replace('.', ',')
+        parts = []
+        if to_number(settings.get('layerHeight')):
+            parts.append(f"warstwa {number(settings['layerHeight'])} mm")
+        if to_number(settings.get('wallLoops'), int):
+            walls = to_number(settings['wallLoops'], int)
+            parts.append(plural(walls, 'ścianka', 'ścianki', 'ścianek'))
+        if settings.get('sparseInfillDensity'):
+            parts.append('wypełnienie ' + settings['sparseInfillDensity'].replace(' ', ''))
+        if str(settings.get('enableSupport', '')).lower() in ('1', 'true'):
+            parts.append('z podporami')
+        if nozzle:
+            parts.append(f'dysza {number(nozzle)} mm')
+        return parts
 
     def clean_profiles(raw):
         """Profile druku (MakerWorld) z Pi albo z formularza - tylko znane pola o rozsądnych wartościach."""
@@ -1957,9 +2051,26 @@ def create_app():
                     filaments.append({'type': str(f.get('type') or '')[:20],
                                       'color': color if re.fullmatch(r'#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?', color) else '',
                                       'grams': used})
+            settings = {str(k)[:30]: str(v)[:30] for k, v in list((p.get('settings') or {}).items())[:12]} \
+                if isinstance(p.get('settings'), dict) else {}
+            nozzle = to_number(p.get('nozzle')) or None
+            printer = str(p.get('printer') or '')[:30]
+            printers = [str(x)[:30] for x in p.get('printers') or [] if isinstance(x, str)][:25]
+            plates = []
+            for pl in p.get('plates') or []:
+                if isinstance(pl, dict):
+                    image = clean_print_link(str(pl.get('image') or '')) if pl.get('image') else None
+                    plates.append({'seconds': max(0, to_number(pl.get('seconds'), int)),
+                                   'grams': round(max(0.0, to_number(pl.get('grams'))), 1), 'image': (image or '')[:500]})
+            ratings = max(0, to_number(p.get('ratings'), int))
             profiles.append({'title': ' '.join(str(p.get('title') or '').split())[:150], 'seconds': seconds,
                              'grams': round(grams, 1), 'filaments': filaments[:16], 'ams': bool(p.get('ams')),
-                             'printer': str(p.get('printer') or '')[:30]})
+                             'printer': printer, 'settings': settings, 'nozzle': nozzle,
+                             'settings_text': describe_print_settings(settings, nozzle),
+                             'fits_ours': OUR_PRINTER in [printer] + printers,
+                             'plates': plates[:20], 'prints': max(0, to_number(p.get('prints'), int)),
+                             'ratings': ratings, 'rating': min(5.0, max(0.0, round(to_number(p.get('rating')), 1))) if ratings else 0,
+                             'summary': '\n'.join(' '.join(l.split()) for l in str(p.get('summary') or '').split('\n') if l.strip())[:400]})
         return profiles[:20]
 
     PRINT_TRANSFORM_OPS = ('rx', 'ry', 'rz', 'mx', 'my', 'mz')
@@ -2008,6 +2119,12 @@ def create_app():
         except ValueError:
             return None
 
+    def print_model_info(entry):
+        try:
+            return clean_model_info(json.loads(entry.model_info)) if entry.model_info else None
+        except ValueError:
+            return None
+
     def print_gallery(entry):
         try:
             return json.loads(entry.gallery) if entry.gallery else None
@@ -2021,8 +2138,8 @@ def create_app():
         link = clean_print_link(request.args.get('url', '')) if request.args.get('url', '').strip() else None
         if not link:
             return jsonify(ok=False, error='bad_url'), 400
-        images, error, title, profiles = fetch_model_images(link)
-        return jsonify(ok=bool(images), images=images or [], error=error, title=title, profiles=profiles)
+        images, error, title, profiles, info = fetch_model_images(link)
+        return jsonify(ok=bool(images), images=images or [], error=error, title=title, profiles=profiles, info=info)
 
     @app.route('/druk3d/<int:request_id>/zdjecia')
     @login_required
@@ -2033,12 +2150,20 @@ def create_app():
         if images is None or (request.args.get('odswiez') == '1' and current_user.is_admin != "0"):
             if not entry.link:
                 return jsonify(ok=False, images=[], error='no_link')
-            images, error, _, profiles = fetch_model_images(entry.link)
+            images, error, _, profiles, info = fetch_model_images(entry.link)
             if not images:
                 return jsonify(ok=False, images=[], error=error)
             entry.gallery = json.dumps(images)
+            if info:
+                entry.model_info = json.dumps(info)
             if profiles and not entry.print_profile:
                 entry.print_profile = json.dumps(profiles[0])   # domyślny profil autora
+            elif profiles:
+                # ten sam profil co wybrany, ale z nowszymi danymi (np. ustawienia, płyty, oceny)
+                chosen = print_profile(entry) or {}
+                fresh = next((p for p in profiles if p['title'] == chosen.get('title')), None)
+                if fresh:
+                    entry.print_profile = json.dumps(fresh)
             if not entry.image_url and not entry.thumb_path:
                 entry.image_url = images[0][:1000]     # miniatura na liście propozycji
             db.session.commit()
@@ -2051,6 +2176,20 @@ def create_app():
         if not entry.thumb_path or not os.path.exists(print_file_path(entry.thumb_path)):
             abort(404)
         return send_file(print_file_path(entry.thumb_path), mimetype='image/jpeg', max_age=24 * 3600)
+
+    @app.route('/druk3d/<int:request_id>/miniatura', methods=['POST'])
+    @login_required
+    def print_thumbnail_save(request_id):
+        """Propozycja z plikiem bez miniatury (np. STL sprzed tej zmiany): zdjęcie podglądu ze strony szczegółów."""
+        entry = PrintRequest.query.get_or_404(request_id)
+        if entry.thumb_path or not entry.file_path:
+            return jsonify(ok=False, error='not_needed')
+        thumb = save_print_snapshot(entry.file_path, (request.get_json(silent=True) or {}).get('image'))
+        if not thumb:
+            return jsonify(ok=False, error='bad_image'), 400
+        entry.thumb_path = thumb
+        db.session.commit()
+        return jsonify(ok=True)
 
     @app.route('/druk3d')
     @login_required
@@ -2093,6 +2232,7 @@ def create_app():
             else:
                 form.file.data = None
             image_url = clean_print_link(form.image_url.data) if (form.image_url.data or '').strip() else None
+            chosen = apply_filament(request.form.get('filament'))
             upload = form.file.data if form.file.data and form.file.data.filename else None
             ext = upload.filename.rsplit('.', 1)[-1].lower() if upload and '.' in upload.filename else ''
             link = clean_print_link(form.link.data) if (form.link.data or '').strip() else None
@@ -2104,6 +2244,8 @@ def create_app():
                 flash('To nie wygląda na poprawny link - wklej pełny adres strony z modelem.', 'danger')
             elif (form.image_url.data or '').strip() and not image_url:
                 flash('To nie wygląda na poprawny link do zdjęcia.', 'danger')
+            elif not chosen:
+                flash('Wybierz filament z listy.', 'danger')
             else:
                 stored = None
                 if upload:
@@ -2111,6 +2253,9 @@ def create_app():
                     create_directory_if_not_exists(os.path.dirname(print_file_path(stored)))
                     upload.save(print_file_path(stored))
                 thumb = extract_3mf_thumbnail(stored) if ext == '3mf' else None
+                if upload and not thumb:
+                    # STL / OBJ (i 3MF bez obrazka): zdjęcie podglądu 3D zrobione w przeglądarce przy wysyłaniu
+                    thumb = save_print_snapshot(stored, request.form.get('snapshot'))
                 # galeria pobrana już w formularzu - strona propozycji nie musi jej ściągać drugi raz
                 gallery = None
                 if link:
@@ -2136,28 +2281,284 @@ def create_app():
                         profile = (clean_profiles([json.loads(request.form.get('profile') or 'null')]) or [None])[0]
                     except ValueError:
                         profile = None
-                entry = PrintRequest(thumb_path=thumb, gallery=json.dumps(gallery) if gallery else None,
+                material, color, color_hex = chosen
+                model_info = None
+                if link:
+                    try:
+                        model_info = clean_model_info(json.loads(request.form.get('model_info') or 'null'))
+                    except ValueError:
+                        model_info = None
+                entry = PrintRequest(thumb_path=thumb, gallery=json.dumps(gallery) if gallery else None, color_hex=color_hex,
+                                     model_info=json.dumps(model_info) if model_info else None,
                                      print_profile=json.dumps(profile) if profile else None,
                                      print_transform=json.dumps(transform) if transform else None, title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
-                                     file_path=stored, link=link, image_url=image_url, quality=form.quality.data, material=form.material.data,
+                                     file_path=stored, link=link, image_url=image_url, quality=form.quality.data, material=material,
                                      file_name=upload.filename.replace('\\', '/').rsplit('/', 1)[-1][:200] if upload else None,
-                                     color=form.color.data, quantity=form.quantity.data, user_id=current_user.id)
+                                     color=color, quantity=form.quantity.data, user_id=current_user.id)
                 db.session.add(entry)
                 db.session.commit()
                 flash('Propozycja wysłana! Status zobaczysz na tej stronie.', 'success')
                 return redirect(url_for('print_detail', request_id=entry.id))
-        return render_template('druk3d_nowa.html', form=form, colors=PRINT_COLORS, max_mb=PRINT_MAX_MB, source=source)
+        return render_template('druk3d_nowa.html', form=form, max_mb=PRINT_MAX_MB, source=source, entry=None,
+                               filaments=filament_groups(), filament_selected=request.form.get('filament') or FILAMENT_ANY)
+
+    def clean_hex(value):
+        """'#f72323', 'F72323FF' -> '#F72323'; None, gdy to nie kolor."""
+        value = (value or '').strip().lstrip('#')
+        return '#' + value[:6].upper() if re.fullmatch(r'[0-9a-fA-F]{6}([0-9a-fA-F]{2})?', value) else None
+
+    def color_name_from_hex(hex_):
+        """Polska nazwa koloru z odcienia (do filamentów z AMS - admin może ją potem zmienić)."""
+        import colorsys
+        r, g, b = (int(hex_[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        h, l, sat = colorsys.rgb_to_hls(r, g, b)
+        h *= 360
+        if sat < 0.15 or l < 0.08 or l > 0.94:
+            return 'Czarny' if l < 0.2 else 'Biały' if l > 0.85 else 'Szary'
+        if 15 <= h < 45 and l < 0.4:
+            return 'Brązowy'
+        for limit, name in ((15, 'Czerwony'), (45, 'Pomarańczowy'), (70, 'Żółty'), (170, 'Zielony'), (200, 'Turkusowy'),
+                            (255, 'Niebieski'), (290, 'Fioletowy'), (345, 'Różowy'), (361, 'Czerwony')):
+            if h < limit:
+                return name
+
+    def fetch_ams():
+        """Szpule w drukarce z serwisu statusu na Pi: lista {slot, material, hex, remain}; None, gdy się nie da."""
+        import urllib.request as _ur
+        url = os.getenv('PRINTER_STATUS_URL')
+        if not url:
+            return None
+        try:
+            # User-Agent jawnie - domyślny "Python-urllib" Cloudflare blokuje jako bota (403)
+            with _ur.urlopen(_ur.Request(url, headers={'User-Agent': 'hlyw-druk3d/1.0'}), timeout=6) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            app.logger.warning('Nie udało się odczytać AMS z %s: %s', url, e)
+            return None
+        trays = []
+        for f in data.get('filaments') or []:
+            hex_ = clean_hex(f.get('color'))
+            material = ' '.join(str(f.get('type') or '').split())[:30]
+            if not hex_ or not material:
+                continue
+            try:
+                number = int(f.get('id'))
+            except (TypeError, ValueError):
+                number = -1
+            if f.get('external') or number >= 254:
+                slot = 'szpula zewnętrzna'
+            elif number >= 4:
+                slot = f'AMS {number // 4 + 1}, slot {number % 4 + 1}'
+            else:
+                slot = f'AMS, slot {number + 1}'
+            remain = f.get('remain')
+            trays.append({'slot': slot, 'material': material, 'hex': hex_,
+                          'remain': remain if isinstance(remain, int) and 0 <= remain <= 100 else None})
+        return trays
+
+    def match_filament(filaments, material, hex_):
+        """Filament z listy pasujący do szpuli: ten sam materiał i kolor (dokładnie albo ta sama nazwa koloru)."""
+        same = [f for f in filaments if f.material.lower() == material.lower()]
+        return next((f for f in same if f.hex.upper() == hex_), None) or \
+            next((f for f in same if f.name == color_name_from_hex(hex_)), None)
+
+    def filament_groups(include_hidden=False):
+        query = Filament.query.order_by(Filament.material, Filament.name)
+        items = query.all() if include_hidden else query.filter(Filament.status != 'ukryty').all()
+        return {status: [f for f in items if f.status == status] for status in FILAMENT_STATUSES
+                if include_hidden or status != 'ukryty'}
+
+    def filament_choice(entry):
+        """Która opcja formularza odpowiada propozycji (przy edycji)."""
+        if entry.material == 'Obojętnie' and entry.color == 'Obojętnie':
+            return FILAMENT_ANY
+        f = Filament.query.filter_by(material=entry.material, name=entry.color).first()
+        if f and f.status != 'ukryty':
+            return str(f.id)
+        return FILAMENT_KEEP
+
+    def apply_filament(value, entry=None):
+        """Wybór z formularza -> (materiał, kolor, hex); None, gdy wybór jest nieprawidłowy."""
+        if value == FILAMENT_ANY:
+            return 'Obojętnie', 'Obojętnie', None
+        if value == FILAMENT_OTHER:
+            return 'Inny', 'Inny (opisz w uwagach)', None
+        if value == FILAMENT_KEEP and entry is not None:
+            return entry.material, entry.color, entry.color_hex
+        f = db.session.get(Filament, int(value)) if (value or '').isdigit() else None
+        if not f or f.status == 'ukryty':
+            return None
+        return f.material, f.name, f.hex
+
+    @app.template_global('print_color_hex')
+    def print_color_hex(entry):
+        return entry.color_hex or PRINT_COLORS.get(entry.color, 'transparent')
+
+    @app.route('/druk3d/filamenty', methods=['GET', 'POST'])
+    @login_required
+    def print_filaments():
+        """Panel admina: lista filamentów do wyboru w propozycjach + podgląd i import z AMS."""
+        if current_user.is_admin == "0":
+            flash('Filamentami zarządza tylko admin.', 'danger')
+            return redirect(url_for('print_list'))
+        if request.method == 'POST':
+            action = request.form.get('action')
+            if action == 'ams':
+                trays = fetch_ams()
+                if trays is None:
+                    flash('Nie udało się odczytać AMS - drukarka albo malinka nie odpowiada.', 'danger')
+                else:
+                    filaments, added, updated = Filament.query.all(), 0, 0
+                    for t in trays:
+                        f = match_filament(filaments, t['material'], t['hex'])
+                        if f is None:
+                            f = Filament(material=t['material'], name=color_name_from_hex(t['hex']), hex=t['hex'])
+                            db.session.add(f)
+                            filaments.append(f)
+                            added += 1
+                        elif f.status != 'dostepny' or f.hex != t['hex']:
+                            f.status, f.hex = 'dostepny', t['hex']
+                            updated += 1
+                    db.session.commit()
+                    flash(f'AMS: {plural(len(trays), "szpula", "szpule", "szpul")}, nowych na liście: {added}, '
+                          f'oznaczonych jako dostępne: {updated}.', 'success')
+            elif action in ('add', 'save'):
+                material = ' '.join((request.form.get('material') or '').split())[:30]
+                name = ' '.join((request.form.get('name') or '').split())[:40]
+                hex_ = clean_hex(request.form.get('hex'))
+                status = request.form.get('status')
+                if not material or not name or not hex_ or status not in FILAMENT_STATUSES:
+                    flash('Uzupełnij materiał, nazwę koloru i kolor.', 'danger')
+                elif action == 'add':
+                    db.session.add(Filament(material=material, name=name, hex=hex_, status=status))
+                    db.session.commit()
+                    flash(f'Dodano: {material} · {name}.', 'success')
+                else:
+                    f = Filament.query.get_or_404(request.form.get('id', type=int))
+                    f.material, f.name, f.hex, f.status = material, name, hex_, status
+                    db.session.commit()
+                    flash(f'Zapisano: {material} · {name}.', 'success')
+            elif action == 'delete':
+                f = Filament.query.get_or_404(request.form.get('id', type=int))
+                db.session.delete(f)
+                db.session.commit()
+                flash(f'Usunięto: {f.material} · {f.name}. Propozycje z tym filamentem go zachowują.', 'success')
+            return redirect(url_for('print_filaments'))
+        trays = fetch_ams()
+        filaments = Filament.query.all()
+        for t in trays or []:
+            t['filament'] = match_filament(filaments, t['material'], t['hex'])
+            t['suggested_name'] = color_name_from_hex(t['hex'])
+        return render_template('druk3d_filamenty.html', groups=filament_groups(include_hidden=True), trays=trays,
+                               statuses=FILAMENT_STATUSES, materials=FILAMENT_MATERIALS)
+
+    def can_edit_print(entry):
+        return current_user.is_admin != "0" or (entry.user_id == current_user.id and entry.status == 'nowa')
+
+    @app.route('/druk3d/<int:request_id>/edytuj', methods=['GET', 'POST'])
+    @login_required
+    def print_edit(request_id):
+        """Edycja propozycji: autor, dopóki ma status „Nowa”, admin zawsze. Rodzaj (plik / link) zostaje ten sam."""
+        entry = PrintRequest.query.get_or_404(request_id)
+        if not can_edit_print(entry):
+            flash('Możesz edytować tylko własną propozycję, dopóki ma status „Nowa”.', 'danger')
+            return redirect(url_for('print_detail', request_id=entry.id))
+        if request.method == 'POST' and (request.content_length or 0) > PRINT_MAX_MB * 1024 * 1024 + 1024 * 1024:
+            flash(f'Plik jest za duży - limit to {PRINT_MAX_MB} MB.', 'danger')
+            return redirect(url_for('print_edit', request_id=entry.id))
+        source = 'plik' if entry.file_path else 'link'
+        # przy wysyłaniu tylko to, co przyszło z formularza - brakujące pole nie może wrócić ze starej wersji
+        form = PrintRequestForm(obj=entry) if request.method == 'GET' else PrintRequestForm()
+        if form.validate_on_submit():
+            upload = form.file.data if source == 'plik' and form.file.data and form.file.data.filename else None
+            ext = upload.filename.rsplit('.', 1)[-1].lower() if upload and '.' in upload.filename else ''
+            link_text = (form.link.data or '').strip() if source == 'link' else ''
+            image_text = (form.image_url.data or '').strip() if source == 'link' else ''
+            link = clean_print_link(link_text) if link_text else None
+            image_url = clean_print_link(image_text) if image_text else None
+            chosen = apply_filament(request.form.get('filament'), entry)
+            if source == 'link' and not link:
+                flash('Wklej poprawny link do strony z modelem.', 'danger')
+            elif upload and ext not in PRINT_EXTENSIONS:
+                flash('Niedozwolony typ pliku. Dozwolone: ' + ', '.join(sorted(PRINT_EXTENSIONS)), 'danger')
+            elif image_text and not image_url:
+                flash('To nie wygląda na poprawny link do zdjęcia.', 'danger')
+            elif not chosen:
+                flash('Wybierz filament z listy.', 'danger')
+            else:
+                if source == 'plik':
+                    if upload:
+                        # nowy plik zastępuje stary razem z miniaturą
+                        stored = uuid.uuid4().hex + '.' + ext
+                        upload.save(print_file_path(stored))
+                        remove_print_file(entry.file_path)
+                        remove_print_file(entry.thumb_path)
+                        entry.file_path, entry.thumb_path = stored, None
+                        entry.file_name = upload.filename.replace('\\', '/').rsplit('/', 1)[-1][:200]
+                        if ext == '3mf':
+                            entry.thumb_path = extract_3mf_thumbnail(stored)
+                    try:
+                        transform = clean_print_transform(json.loads(request.form.get('transform') or 'null'))
+                    except ValueError:
+                        transform = None
+                    entry.print_transform = json.dumps(transform) if transform else None
+                    # miniatura z podglądu odświeża się (np. po zmianie koloru czy ustawienia); obrazka z 3MF nie ruszamy
+                    if not entry.thumb_path or entry.thumb_path.endswith(PRINT_SNAPSHOT_SUFFIX):
+                        thumb = save_print_snapshot(entry.file_path, request.form.get('snapshot'))
+                        if thumb:
+                            remove_print_file(entry.thumb_path)
+                            entry.thumb_path = thumb
+                else:
+                    try:
+                        sent = json.loads(request.form.get('gallery') or 'null')
+                    except ValueError:
+                        sent = None
+                    gallery = [u[:1000] for u in sent[:40] if isinstance(u, str) and clean_print_link(u)] \
+                        if isinstance(sent, list) else None
+                    try:
+                        profile = (clean_profiles([json.loads(request.form.get('profile') or 'null')]) or [None])[0]
+                    except ValueError:
+                        profile = None
+                    try:
+                        model_info = clean_model_info(json.loads(request.form.get('model_info') or 'null'))
+                    except ValueError:
+                        model_info = None
+                    if link != entry.link or model_info:
+                        entry.model_info = json.dumps(model_info) if model_info else None
+                    if link != entry.link:
+                        # inny model: stare zdjęcia i profil nie pasują; bez galerii dociągnie ją strona propozycji
+                        entry.link = link
+                        entry.gallery = json.dumps(gallery) if gallery else None
+                        entry.print_profile = json.dumps(profile) if profile else None
+                        entry.image_url = image_url or (gallery[0] if gallery else None)
+                    else:
+                        if gallery:
+                            entry.gallery = json.dumps(gallery)
+                        if profile:
+                            entry.print_profile = json.dumps(profile)
+                        entry.image_url = image_url or entry.image_url
+                entry.title = form.title.data.strip()
+                entry.description = (form.description.data or '').strip() or None
+                entry.quality, entry.quantity = form.quality.data, form.quantity.data
+                entry.material, entry.color, entry.color_hex = chosen
+                db.session.commit()
+                flash('Zmiany zapisane.', 'success')
+                return redirect(url_for('print_detail', request_id=entry.id))
+        return render_template('druk3d_nowa.html', form=form, max_mb=PRINT_MAX_MB, source=source,
+                               filaments=filament_groups(), filament_selected=request.form.get('filament') or filament_choice(entry),
+                               entry=entry, gallery=print_gallery(entry), transform=print_transform(entry),
+                               file_ext=(entry.file_name or '').rsplit('.', 1)[-1].lower())
 
     @app.route('/druk3d/<int:request_id>')
     @login_required
     def print_detail(request_id):
         entry = PrintRequest.query.get_or_404(request_id)
-        can_delete = current_user.is_admin != "0" or (entry.user_id == current_user.id and entry.status == 'nowa')
+        can_delete = can_edit = can_edit_print(entry)
         file_size = None
         if entry.file_path and os.path.exists(print_file_path(entry.file_path)):
             file_size = os.path.getsize(print_file_path(entry.file_path))
-        return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, file_size=file_size, print_statuses=PRINT_STATUSES,
-                               gallery=print_gallery(entry), profile=print_profile(entry),
+        return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, can_edit=can_edit, file_size=file_size, print_statuses=PRINT_STATUSES,
+                               gallery=print_gallery(entry), profile=print_profile(entry), model_info=print_model_info(entry),
                                transform=print_transform(entry), transform_text=describe_print_transform(print_transform(entry)),
                                gallery_possible=bool(entry.link and model_images_supported(entry.link)),
                                qualities=PRINT_QUALITIES, colors=PRINT_COLORS, delete_form=PrintDeleteForm(),
@@ -2201,8 +2602,7 @@ def create_app():
             flash('Możesz usunąć tylko własną propozycję, dopóki ma status „Nowa”.', 'danger')
         else:
             for name in (entry.file_path, entry.thumb_path):
-                if name and os.path.exists(print_file_path(name)):
-                    os.remove(print_file_path(name))
+                remove_print_file(name)
             db.session.delete(entry)
             db.session.commit()
             flash('Propozycja usunięta.', 'success')

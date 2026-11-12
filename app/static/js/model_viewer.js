@@ -19,6 +19,12 @@ const PROFILE = {                  // wysokość warstwy (mm), średni przepływ
     dokladna: [0.12, 4],
 };
 const WALL_MM = 0.8, INFILL = 0.15, SECONDS_PER_LAYER = 2;
+// „PLA Matte”, „PETG-CF”, „TPU 95A” itp. liczymy jak materiał bazowy; nieznany - jak PLA
+function density(material) {
+    const name = String(material || '').toUpperCase();
+    const key = Object.keys(DENSITY).find(k => name.startsWith(k.split(' ')[0]));
+    return key ? DENSITY[key] : DENSITY.PLA;
+}
 
 function parseModel(buffer, ext) {
     if (ext === 'stl') return new THREE.Mesh(new STLLoader().parse(buffer));
@@ -160,7 +166,7 @@ export function mountViewer(box, { editable = false, onTransform = null } = {}) 
     const material = new THREE.MeshStandardMaterial({ color: 0xb0b0b0, roughness: 0.55, metalness: 0.05 });
     let pivot = null, grid = null, stats = null, options = {};
     let base = null, holder = null, axes = null, transform = cleanTransform();   // base = pomiary modelu przed ustawieniem
-    let toolbar = null;
+    let toolbar = null, lastSize = null;
 
     function render() {
         sun.position.copy(camera.position);
@@ -208,6 +214,7 @@ export function mountViewer(box, { editable = false, onTransform = null } = {}) 
         if (axes) { scene.remove(axes); disposeTree(axes); }
         axes = axesHelper(gridSize, -size.y / 2);
         scene.add(axes);
+        lastSize = size;
         return size;
     }
 
@@ -262,7 +269,7 @@ export function mountViewer(box, { editable = false, onTransform = null } = {}) 
         const quantity = Math.max(1, parseInt(options.quantity, 10) || 1);
         const shell = Math.min(volume, area * WALL_MM);
         const printed = shell + (volume - shell) * INFILL;              // mm³ faktycznie wydrukowane
-        const grams = printed / 1000 * (DENSITY[options.material] || DENSITY.PLA) * quantity;
+        const grams = printed / 1000 * density(options.material) * quantity;
         const seconds = (printed / flow + size.z / layer * SECONDS_PER_LAYER) * quantity;
         const num = (value, digits) => value.toFixed(digits).replace('.', ',');
         const parts = [`${num(size.x, 1)} × ${num(size.y, 1)} × ${num(size.z, 1)} mm`,
@@ -315,6 +322,33 @@ export function mountViewer(box, { editable = false, onTransform = null } = {}) 
         hide() { clear(); stats = null; box.hidden = true; statsEl.textContent = ''; },
         setTransform(next) { setTransform(next, false); },
         getTransform() { return cleanTransform(transform); },
+        // miniatura modelu (JPEG jako data URL) - zawsze z tego samego ukosa, bez strzałek osi,
+        // żeby na liście propozycji wszystkie wyglądały podobnie niezależnie od tego, jak ktoś obrócił widok
+        snapshot(width = 800, height = 600) {
+            if (!pivot || !lastSize) return null;
+            const w = stage.clientWidth, h = stage.clientHeight;
+            const position = camera.position.clone(), target = controls.target.clone();
+            const radius = lastSize.length() / 2 * 1.3 || 1;
+            renderer.setPixelRatio(1);
+            renderer.setSize(width, height, false);
+            camera.aspect = width / height;
+            camera.position.set(radius * 1.6, radius * 1.1, radius * 2.2);
+            camera.lookAt(0, 0, 0);
+            camera.updateProjectionMatrix();
+            if (axes) axes.visible = false;
+            render();
+            const url = renderer.domElement.toDataURL('image/jpeg', 0.85);
+            // z powrotem widok, który użytkownik ustawił
+            if (axes) axes.visible = true;
+            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+            camera.position.copy(position);
+            controls.target.copy(target);
+            controls.update();
+            if (w && h) { renderer.setSize(w, h); camera.aspect = w / h; }
+            camera.updateProjectionMatrix();
+            render();
+            return url;
+        },
         // binarny STL modelu po ustawieniu (osie stołu, Z do góry) - do pobrania przez admina
         exportStl() {
             if (!pivot) return null;

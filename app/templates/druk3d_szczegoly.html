@@ -16,7 +16,7 @@
 {#- CDN MakerWorld sam zmniejsza obrazki - miniatury nie ciągną wielomegabajtowych PNG -#}
 {{ url ~ '?x-oss-process=image/resize,w_' ~ w ~ '/format,webp' if url.startswith('https://makerworld.bblmw.com/') and '?' not in url else url }}
 {%- endmacro %}
-{% set picture = entry.image_url or (url_for('print_thumbnail', request_id=entry.id) if entry.thumb_path) %}
+{% set picture = entry.image_url or print_thumb_url(entry) %}
 {% set images = gallery or ([picture] if picture else []) %}
 {% if images or gallery_possible %}
 <div class="hl-grid hl-print-gallery mb-2">
@@ -61,7 +61,7 @@
     <dt class="col-sm-3">Filament</dt><dd class="col-sm-9">{{ entry.material }}</dd>
     <dt class="col-sm-3">Kolor</dt>
     <dd class="col-sm-9">
-        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; border:1px solid #777; background: {{ colors.get(entry.color, 'transparent') }}"></span>
+        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; border:1px solid #777; background: {{ print_color_hex(entry) }}"></span>
         {{ entry.color }}
     </dd>
     <dt class="col-sm-3">Liczba sztuk</dt><dd class="col-sm-9">{{ entry.quantity }}</dd>
@@ -75,6 +75,48 @@
         {% endfor %}
         {% if profile.ams %}<span class="badge badge-warning ml-1">AMS</span>{% endif %}
         <div class="small text-muted">Profil „{{ profile.title }}” z MakerWorld{% if profile.printer %} - policzony dla {{ profile.printer }}{% endif %}.</div>
+        {% set facts = (profile.settings_text or []) + ([(profile.plates|length) ~ ' płyty'] if (profile.plates or [])|length > 1 else [])
+                       + (['★ ' ~ (profile.rating|string).replace('.', ',') ~ ' (' ~ profile.ratings ~ ' ocen)'] if profile.ratings else [])
+                       + ([profile.prints ~ '× wydrukowany'] if profile.prints else []) %}
+        {% if facts or profile.fits_ours %}
+        <div class="small">{{ facts|join(' · ') }}
+            {% if profile.fits_ours %}<span class="badge badge-success ml-1" title="Profil pasuje do naszej drukarki">✓ {{ our_printer }}</span>{% endif %}
+        </div>
+        {% endif %}
+        {% if profile.summary and profile.summary|lower != profile.title|lower %}
+        <div class="small text-muted" style="white-space: pre-line;">{{ profile.summary }}</div>
+        {% endif %}
+    </dd>
+    {% if (profile.plates or [])|length > 1 %}
+    <dt class="col-sm-3">Płyty</dt>
+    <dd class="col-sm-9">
+        <div class="d-flex flex-wrap hl-gap">
+            {% for pl in profile.plates %}
+            <div class="text-center small">
+                {% if pl.image %}<img src="{{ pl.image }}" alt="Płyta {{ loop.index }}" width="96" height="96" class="rounded d-block mb-1"
+                     style="object-fit: contain; background: #1b1d20;" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}
+                {{ loop.index }}. ⏱ {{ pl.seconds|print_time }} · {{ pl.grams|round|int }} g
+            </div>
+            {% endfor %}
+        </div>
+    </dd>
+    {% endif %}
+    {% endif %}
+    {% if model_info %}
+    <dt class="col-sm-3">Od autora</dt>
+    <dd class="col-sm-9">
+        {% if model_info.description %}
+        <details>
+            <summary class="small">{{ model_info.description.split('\n')[0]|truncate(90) }}</summary>
+            <div class="small mt-1" style="white-space: pre-line;">{{ model_info.description }}</div>
+        </details>
+        {% endif %}
+        {% if model_info.tags or model_info.license %}
+        <div class="small mt-1">
+            {% for t in model_info.tags %}<span class="badge badge-secondary mr-1">{{ t }}</span>{% endfor %}
+            {% if model_info.license %}<span class="text-muted ml-1">licencja: {{ model_info.license }}</span>{% endif %}
+        </div>
+        {% endif %}
     </dd>
     {% endif %}
     {% if transform_text %}
@@ -102,7 +144,7 @@
 const ext = {{ (entry.file_name or '').rsplit('.', 1)[-1].lower()|tojson }};
 const status = document.getElementById('hlModelStatus'), button = document.getElementById('hlModelLoad');
 const options = { quality: {{ entry.quality|tojson }}, material: {{ entry.material|tojson }}, quantity: {{ entry.quantity }},
-                  color: {{ colors.get(entry.color, 'transparent')|tojson }} };
+                  color: {{ print_color_hex(entry)|tojson }} };
 async function show() {
     button.hidden = true;
     status.textContent = 'Ładuję podgląd…';
@@ -114,6 +156,13 @@ async function show() {
         viewer.setOptions(options);
         viewer.setTransform({{ transform|tojson }});
         viewer.load(await response.arrayBuffer(), ext);
+        {% if not entry.thumb_path %}
+        // propozycja bez miniatury (STL sprzed tej zmiany) - zdjęcie podglądu zostaje jej miniaturą na liście
+        fetch("{{ url_for('print_thumbnail_save', request_id=entry.id) }}", {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: viewer.snapshot() }),
+        }).catch(() => {});
+        {% endif %}
         const exportButton = document.getElementById('hlModelExport');
         if (exportButton) {
             exportButton.hidden = false;
@@ -157,10 +206,20 @@ if (['stl', '3mf', 'obj'].includes(ext)) {
 </form>
 {% endif %}
 
-{% if can_delete %}
-<form action="{{ url_for('print_delete', request_id=entry.id) }}" method="POST" onsubmit="return confirm('Na pewno usunąć tę propozycję?');">
-    {{ delete_form.hidden_tag() }}
-    {{ delete_form.submit(class="btn btn-outline-danger btn-sm w-auto") }}
-</form>
+{% if can_edit or can_delete %}
+<div class="d-flex flex-wrap align-items-center hl-gap">
+    {% if can_edit %}
+    <a href="{{ url_for('print_edit', request_id=entry.id) }}" class="btn btn-outline-primary btn-sm w-auto">✏️ Edytuj propozycję</a>
+    {% endif %}
+    {% if can_delete %}
+    <form action="{{ url_for('print_delete', request_id=entry.id) }}" method="POST" class="mb-0" onsubmit="return confirm('Na pewno usunąć tę propozycję?');">
+        {{ delete_form.hidden_tag() }}
+        {{ delete_form.submit(class="btn btn-outline-danger btn-sm w-auto") }}
+    </form>
+    {% endif %}
+    {% if current_user.is_admin == "0" and entry.status == 'nowa' %}
+    <small class="text-muted">Zmienić albo usunąć możesz, dopóki propozycja ma status „Nowa”.</small>
+    {% endif %}
+</div>
 {% endif %}
 {% endblock %}

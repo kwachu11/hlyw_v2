@@ -24,3 +24,6 @@ hlyw
 pierwszastrona.conf
 screenshot.png
 .idea/
+
+# lokalne ustawienia Claude Code (uprawnienia tylko na tym komputerze)
+.claude/settings.local.json

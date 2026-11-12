@@ -3,7 +3,7 @@ from wtforms import StringField, PasswordField, SubmitField, EmailField, FileFie
     SelectField, RadioField, IntegerField
 from wtforms.validators import DataRequired, EqualTo, Length, NumberRange, Optional
 
-# Druk 3D - opcje do wyboru w propozycji; listę filamentów i kolorów można dowolnie zmieniać
+# Druk 3D - opcje do wyboru w propozycji (filamenty i kolory są w bazie, zmienia je admin w /druk3d/filamenty)
 PRINT_EXTENSIONS = {'stl', '3mf', 'obj', 'step', 'stp'}
 PRINT_MAX_MB = 50
 PRINT_QUALITIES = {
@@ -12,8 +12,7 @@ PRINT_QUALITIES = {
     'standard': 'Standard - 0,20 mm',
     'dokladna': 'Dokładna - 0,12 mm (wolno)',
 }
-PRINT_MATERIALS = ['Obojętnie', 'PLA', 'PETG', 'TPU (elastyczny)', 'ABS', 'ASA']
-PRINT_COLORS = {   # nazwa -> kolor kółka w formularzu
+PRINT_COLORS = {   # dawne kolory: kółko przy starszych propozycjach i startowa lista filamentów (PLA „na życzenie”)
     'Obojętnie': 'transparent', 'Czarny': '#111111', 'Biały': '#f5f5f5', 'Szary': '#8a8a8a', 'Czerwony': '#d32f2f',
     'Pomarańczowy': '#f57c00', 'Żółty': '#fbc02d', 'Zielony': '#388e3c', 'Niebieski': '#1976d2', 'Fioletowy': '#7b1fa2',
     'Różowy': '#ec407a', 'Inny (opisz w uwagach)': 'transparent',
@@ -111,8 +110,7 @@ class PrintRequestForm(FlaskForm):
     image_url = StringField('Link do zdjęcia modelu', validators=[Optional(), Length(max=1000)],
                             render_kw={'placeholder': 'Prawy klik na zdjęciu → „Kopiuj adres obrazu”'})
     quality = SelectField('Jakość wydruku', choices=list(PRINT_QUALITIES.items()), default='obojetnie')
-    material = SelectField('Filament', choices=[(m, m) for m in PRINT_MATERIALS], default='Obojętnie')
-    color = RadioField('Kolor', choices=[(c, c) for c in PRINT_COLORS], default='Obojętnie')
+    # filament i kolor: pole „filament” rysowane w szablonie z tabeli filament (lista zarządzana w /druk3d/filamenty)
     quantity = IntegerField('Liczba sztuk', validators=[DataRequired(), NumberRange(min=1, max=20)], default=1)
     description = TextAreaField('Uwagi', validators=[Optional(), Length(max=2000)],
                                 render_kw={'rows': 3, 'placeholder': 'Rozmiar, do kiedy, na co to ma być...'})

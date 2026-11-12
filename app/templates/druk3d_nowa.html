@@ -7,12 +7,19 @@
     .hl-color input:checked + span { border-color: #ffcc00; box-shadow: 0 0 0 1px #ffcc00; }
     .hl-color input:focus-visible + span { outline: 2px solid #fff; }
     .hl-color i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #777; }
+    .hl-profile-summary { white-space: pre-line; max-height: 4.5em; overflow: hidden; }
+    .hl-filament-group { font-size: .85rem; color: var(--gta-muted, #9c9ca6); margin: 12px 0 6px; }
 </style>
 
+{% if entry %}
+<a href="{{ url_for('print_detail', request_id=entry.id) }}" class="small">&larr; wróć do propozycji</a>
+<h2 class="mt-2">Edytuj propozycję</h2>
+{% else %}
 <a href="{{ url_for('print_list') }}" class="small">&larr; wszystkie propozycje</a>
 <h2 class="mt-2">Zaproponuj wydruk</h2>
+{% endif %}
 
-<p class="small text-muted mb-3">
+<p class="small text-muted mb-3" {% if entry %}hidden{% endif %}>
     Wklej link, a tytuł i zdjęcia pobiorą się same.
     Na stronach, z których nie pobieramy zdjęć (np. Printables, Cults3D), użyj zakładki
     <a id="hlBookmarklet" class="btn btn-outline-primary btn-sm w-auto mx-1" href="#">🖨️ Wyślij do druku</a>
@@ -27,7 +34,7 @@
         {{ form.title.label }}
         {{ form.title(class="form-control", required=true) }}
     </div>
-    <div class="form-group">
+    <div class="form-group" {% if entry %}hidden{% endif %}>
         <label class="d-block">Skąd jest model?</label>
         <input type="hidden" name="source" id="print-source" value="{{ source }}">
         <div class="hl-source-switch" role="radiogroup" aria-label="Skąd jest model">
@@ -40,10 +47,11 @@
         <div class="form-group">
             {{ form.file.label }}
             {{ form.file(class="form-control-file") }}
-            <small class="form-text text-muted" id="print-file-info">STL, 3MF, OBJ lub STEP, do {{ max_mb }} MB. Z pliku 3MF pokażemy też jego miniaturę.</small>
+            <small class="form-text text-muted" id="print-file-info">{% if entry %}Obecny plik: <b>{{ entry.file_name }}</b>. Wybierz nowy tylko wtedy, gdy chcesz go podmienić.{% else %}STL, 3MF, OBJ lub STEP, do {{ max_mb }} MB. Miniatura zrobi się sama z podglądu (z pliku 3MF weźmiemy jego obrazek).{% endif %}</small>
         </div>
         {% include "_model_viewer.html" %}
-        <input type="hidden" name="transform" id="print-transform">
+        <input type="hidden" name="transform" id="print-transform" value='{{ transform|tojson if transform else "" }}'>
+        <input type="hidden" name="snapshot" id="print-snapshot">
         <small class="form-text text-muted mt-n2 mb-3" id="print-transform-info" hidden>
             Ustaw model tak, jak ma leżeć na stole - przyciski pod podglądem. Strzałki w rogu stołu pokazują osie:
             <b class="hl-axis-x">X</b> w prawo, <b class="hl-axis-y">Y</b> do tyłu, <b class="hl-axis-z">Z</b> do góry. Ustawienie zapisze się z propozycją.
@@ -70,7 +78,8 @@
         </div>
         <div class="form-group">
             {{ form.image_url(type="hidden") }}
-            <input type="hidden" name="gallery" id="print-gallery">
+            <input type="hidden" name="model_info" id="print-model-info">
+            <input type="hidden" name="gallery" id="print-gallery" value='{{ gallery|tojson if gallery else "" }}'>
             <figure id="print-image-box" class="mb-0" hidden>
                 <figcaption class="small text-muted mb-1">⭐ Zdjęcie główne - widać je na liście propozycji</figcaption>
                 <img id="print-image-preview" class="rounded" style="max-height: 180px; max-width: 100%;" alt="Zdjęcie główne" referrerpolicy="no-referrer">
@@ -84,38 +93,69 @@
         </fieldset>
     </div>
     <div class="form-row">
-        <div class="form-group col-md-5">
+        <div class="form-group col-md-8">
             {{ form.quality.label }}
             {{ form.quality(class="form-control") }}
         </div>
         <div class="form-group col-md-4">
-            {{ form.material.label }}
-            {{ form.material(class="form-control") }}
-        </div>
-        <div class="form-group col-md-3">
             {{ form.quantity.label }}
             {{ form.quantity(class="form-control", type="number", min=1, max=20) }}
         </div>
     </div>
+    {# filament = materiał + kolor; lista z panelu admina (/druk3d/filamenty) #}
+    {% macro filament_option(value, label, hex='transparent', material='') -%}
+    <label class="hl-color mb-0">
+        <input type="radio" name="filament" value="{{ value }}" data-hex="{{ hex }}" data-material="{{ material }}"
+               {{ 'checked' if filament_selected == value|string }} required>
+        <span><i style="background: {{ hex }}"></i>{{ label }}</span>
+    </label>
+    {%- endmacro %}
     <fieldset class="form-group">
-        <legend class="col-form-label pt-0">{{ form.color.label.text }}</legend>
+        <legend class="col-form-label pt-0">Filament i kolor</legend>
         <div class="hl-colors">
-            {% for option in form.color %}
-            <label class="hl-color mb-0">
-                {{ option() }}
-                <span><i style="background: {{ colors[option.data] }}"></i>{{ option.label.text }}</span>
-            </label>
-            {% endfor %}
+            {{ filament_option('obojetnie', 'Obojętnie') }}
+            {% if entry and filament_selected == 'obecny' %}
+            {{ filament_option('obecny', 'Bez zmian: ' ~ entry.material ~ ' · ' ~ entry.color, print_color_hex(entry), entry.material) }}
+            {% endif %}
+        </div>
+        {% if filaments.dostepny %}
+        <div class="hl-filament-group">✅ Dostępne od ręki - jest w drukarce albo na półce</div>
+        <div class="hl-colors">
+            {% for f in filaments.dostepny %}{{ filament_option(f.id, f.material ~ ' · ' ~ f.name, f.hex, f.material) }}{% endfor %}
+        </div>
+        {% endif %}
+        {% if filaments.na_zyczenie %}
+        <div class="hl-filament-group">🛒 Na życzenie - trzeba dokupić, więc wydruk potrwa dłużej</div>
+        <div class="hl-colors">
+            {% for f in filaments.na_zyczenie %}{{ filament_option(f.id, f.material ~ ' · ' ~ f.name, f.hex, f.material) }}{% endfor %}
+        </div>
+        {% endif %}
+        <div class="hl-colors mt-2">
+            {{ filament_option('inny', 'Inny (opisz w uwagach)') }}
         </div>
     </fieldset>
     <div class="form-group">
         {{ form.description.label }}
         {{ form.description(class="form-control") }}
     </div>
-    {{ form.submit(class="btn btn-primary") }}
+    {{ form.submit(class="btn btn-primary", value="Zapisz zmiany" if entry else form.submit.label.text) }}
+    {% if entry %}<a href="{{ url_for('print_detail', request_id=entry.id) }}" class="btn btn-outline-secondary w-auto ml-2">Anuluj</a>{% endif %}
 </form>
 
 <script>
+var PRINT_EDITING = {{ 'true' if entry else 'false' }};
+(function () {
+    // Enter w polu formularza nie wysyła propozycji - tylko zatwierdza wpisaną wartość (np. skalę czy link).
+    // Wysyła wyłącznie przycisk na dole; w polu „Uwagi” Enter dalej robi nową linię.
+    var form = document.getElementById('print-source').form;
+    form.addEventListener('keydown', function (e) {
+        var t = e.target;
+        if (e.key !== 'Enter' || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON' || t.type === 'submit') return;
+        e.preventDefault();
+        // zamiast wysyłania: zatwierdzenie pola, jak przy wyjściu z niego (np. zastosuj skalę, pobierz zdjęcia z linku)
+        if (t.tagName === 'INPUT') t.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+})();
 (function () {
     // plik albo link: widać tylko wybraną część, a pola z ukrytej są wyłączone i nie lecą na serwer
     var sourceInput = document.getElementById('print-source');
@@ -131,7 +171,7 @@
             part.hidden = part.dataset.part !== source;
             [].forEach.call(part.querySelectorAll('input'), function (i) { i.disabled = part.hidden; });
         });
-        document.getElementById('file').required = source === 'plik';
+        document.getElementById('file').required = source === 'plik' && !PRINT_EDITING;   // przy edycji plik już jest
         document.getElementById('link').required = source === 'link';
     }
     [].forEach.call(switchButtons, function (b) { b.addEventListener('click', function () { setSource(b.dataset.source); }); });
@@ -188,7 +228,7 @@
     // Po wklejeniu linku z obsługiwanego serwisu formularz czeka na zdjęcia: przycisk wysyłania jest zablokowany,
     // a kliknięty wcześniej - wysyła formularz sam, gdy zdjęcia dojdą. Pobrana galeria leci razem z propozycją.
     var form = fetchButton.form, submit = document.getElementById('submit'), submitText = submit.value;
-    var galleryInput = document.getElementById('print-gallery');
+    var galleryInput = document.getElementById('print-gallery'), modelInfoInput = document.getElementById('print-model-info');
     var SUPPORTED = /^(https?:\/\/)?([\w-]+\.)*(makerworld|thingiverse|thangs|myminifactory|grabcad)\.com\//i;
     var loading = null, loadedFor = null, sendWhenReady = false;
     var titleInput = document.getElementById('title'), autoTitle = null;
@@ -205,7 +245,7 @@
         var minutes = Math.max(1, Math.round(seconds / 60));
         return minutes < 60 ? minutes + ' min' : Math.floor(minutes / 60) + ' h ' + (minutes % 60) + ' min';
     }
-    function clearProfiles() { profilesList.innerHTML = ''; profileInput.value = ''; profilesBox.hidden = true; }
+    function clearProfiles() { profilesList.innerHTML = ''; profileInput.value = ''; profilesBox.hidden = true; modelInfoInput.value = ''; }
     function showProfiles(profiles) {
         clearProfiles();
         (profiles || []).forEach(function (p, i) {
@@ -228,12 +268,48 @@
                 colors.appendChild(document.createTextNode(f.type + ' ' + Math.round(f.grams) + ' g   '));
             });
             if (p.ams) colors.appendChild(document.createTextNode('· wymaga AMS'));
-            box.appendChild(head); box.appendChild(name); box.appendChild(colors);
+            // ustawienia z projektu autora, płyty, popularność i zgodność z naszą drukarką
+            var facts = [].concat(p.settings_text || []);
+            if (p.plates && p.plates.length > 1) facts.push(p.plates.length + ' płyty');
+            if (p.ratings) facts.push('★ ' + String(p.rating).replace('.', ',') + ' (' + p.ratings + ')');
+            if (p.prints) facts.push(p.prints + '× wydrukowany');
+            var extra = document.createElement('div');
+            extra.className = 'small';
+            extra.textContent = facts.join(' · ');
+            if (p.fits_ours) {
+                var fits = document.createElement('span');
+                fits.className = 'badge badge-success ml-1';
+                fits.textContent = '✓ {{ our_printer }}';
+                fits.title = 'Profil pasuje do naszej drukarki';
+                extra.appendChild(fits);
+            }
+            box.appendChild(head); box.appendChild(name);
+            if (p.summary && p.summary.trim().toLowerCase() !== (p.title || '').trim().toLowerCase()) {
+                var about = document.createElement('div');
+                about.className = 'small text-muted hl-profile-summary';
+                about.textContent = p.summary;
+                box.appendChild(about);
+            }
+            if (facts.length || p.fits_ours) box.appendChild(extra);
+            box.appendChild(colors);
             label.appendChild(radio); label.appendChild(box);
             profilesList.appendChild(label);
             if (i === 0) { radio.checked = true; profileInput.value = JSON.stringify(p); }
         });
         profilesBox.hidden = !profilesList.children.length;
+    }
+    function showThumbs(images) {
+        fetchThumbs.innerHTML = '';
+        fetchStatus.textContent = images.length + ' zdj. - kliknij miniaturę, żeby wybrać zdjęcie główne (⭐)';
+        images.forEach(function (url) {
+            var b = document.createElement('button'), img = document.createElement('img');
+            b.type = 'button'; b.dataset.url = url;
+            img.src = sized(url, 200); img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+            img.addEventListener('error', function () { b.remove(); });
+            b.appendChild(img);
+            b.addEventListener('click', function () { pick(url); });
+            fetchThumbs.appendChild(b);
+        });
     }
     function restoreBookmark(link) {
         if (link === bookmarkLink && bookmarkImage) { imageInput.value = bookmarkImage; showPreview(); }
@@ -259,17 +335,9 @@
                 if (d.title && (!titleInput.value.trim() || titleInput.value === autoTitle)) titleInput.value = autoTitle = d.title;
                 if (!d.ok) { fetchStatus.textContent = 'Brak zdjęć: ' + (FETCH_ERRORS[d.error] || 'nic nie znalazłem'); restoreBookmark(link); return; }
                 galleryInput.value = JSON.stringify(d.images);
+                modelInfoInput.value = d.info ? JSON.stringify(d.info) : '';
                 showProfiles(d.profiles);
-                fetchStatus.textContent = d.images.length + ' zdj. - kliknij miniaturę, żeby wybrać zdjęcie główne (⭐)';
-                d.images.forEach(function (url) {
-                    var b = document.createElement('button'), img = document.createElement('img');
-                    b.type = 'button'; b.dataset.url = url;
-                    img.src = sized(url, 200); img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
-                    img.addEventListener('error', function () { b.remove(); });
-                    b.appendChild(img);
-                    b.addEventListener('click', function () { pick(url); });
-                    fetchThumbs.appendChild(b);
-                });
+                showThumbs(d.images);
                 if (d.images.length) pick(d.images[0]);
             })
             .catch(function () { loadedFor = link; fetchStatus.textContent = 'Nie udało się pobrać zdjęć.'; restoreBookmark(link); })
@@ -286,7 +354,9 @@
         return promise;
     }
     linkInput.addEventListener('change', function () {
-        if (SUPPORTED.test(linkInput.value.trim())) return loadImages();
+        var link = linkInput.value.trim();
+        // ten sam link drugi raz (Enter, a potem wyjście z pola) nie pobiera zdjęć od nowa
+        if (SUPPORTED.test(link)) return loadedFor === link ? undefined : loadImages();
         // link spoza obsługiwanych serwisów: zdjęcia poprzedniego linku znikają
         fetchThumbs.innerHTML = '';
         galleryInput.value = '';
@@ -305,7 +375,17 @@
         loadImages();
         waiting(true);
     });
-    if (SUPPORTED.test(linkInput.value.trim())) loadImages();   // link z zakładki „Wyślij do druku”
+    if (PRINT_EDITING) {
+        // edycja: zapisana galeria do wyboru zdjęcia głównego; zdjęcia pobierają się od nowa tylko po zmianie linku
+        loadedFor = linkInput.value.trim();
+        try {
+            var saved = JSON.parse(galleryInput.value || '[]');
+            if (saved.length) {
+                showThumbs(saved);
+                [].forEach.call(fetchThumbs.children, function (t) { t.classList.toggle('active', sized(t.dataset.url, 1000) === imageInput.value || t.dataset.url === imageInput.value); });
+            }
+        } catch (e) {}
+    } else if (SUPPORTED.test(linkInput.value.trim())) loadImages();   // link z zakładki „Wyślij do druku”
 
     // zakładka: czyta tytuł i og:image z otwartej strony modelu i otwiera ten formularz z wypełnionymi polami
     var bookmarklet = "(function(){var m=function(p){var e=document.querySelector('meta[property=\"'+p+'\"]');return e?e.content:''};" +
@@ -320,31 +400,26 @@
 </script>
 <script type="module">
 const input = document.getElementById('file'), status = document.getElementById('hlModelStatus');
-const colors = {{ colors|tojson }};
-const quality = document.getElementById('quality'), material = document.getElementById('material'), quantity = document.getElementById('quantity');
+const quality = document.getElementById('quality'), quantity = document.getElementById('quantity');
 let viewer = null, VIEWABLE = [];
 const transformInput = document.getElementById('print-transform'), transformInfo = document.getElementById('print-transform-info');
 const transformDefault = transformInfo.innerHTML;
 
 function options() {
-    const color = document.querySelector('input[name="color"]:checked');
-    return { quality: quality.value, material: material.value, quantity: quantity.value, color: colors[color ? color.value : 'Obojętnie'] };
+    // wybrany filament: kolor modelu w podglądzie i materiał do szacowania wagi
+    const f = document.querySelector('input[name="filament"]:checked');
+    return { quality: quality.value, quantity: quantity.value,
+             material: (f && f.dataset.material) || 'PLA', color: (f && f.dataset.hex) || 'transparent' };
 }
-[quality, material, quantity].forEach(el => el.addEventListener('input', () => viewer && viewer.setOptions(options())));
-document.querySelectorAll('input[name="color"]').forEach(el => el.addEventListener('change', () => viewer && viewer.setOptions(options())));
+[quality, quantity].forEach(el => el.addEventListener('input', () => viewer && viewer.setOptions(options())));
+document.querySelectorAll('input[name="filament"]').forEach(el => el.addEventListener('change', () => viewer && viewer.setOptions(options())));
 
-input.addEventListener('change', async () => {
-    status.textContent = '';
-    if (viewer) { viewer.hide(); viewer.setTransform(null); }
-    transformInput.value = '';
-    transformInfo.hidden = true;
-    const file = input.files[0];
-    if (!file) return;
-    const ext = file.name.split('.').pop().toLowerCase();
+let mod = null;
+async function showModel(getBuffer, ext, transform) {
     try {
         status.textContent = 'Ładuję podgląd…';
         if (!viewer) {
-            const mod = await import("{{ url_for('static', filename='js/model_viewer.js') }}");
+            mod = await import("{{ url_for('static', filename='js/model_viewer.js') }}");
             VIEWABLE = mod.VIEWABLE;
             viewer = mod.mountViewer(document.getElementById('hlModel'), {
                 editable: true,
@@ -358,7 +433,11 @@ input.addEventListener('change', async () => {
         }
         if (!VIEWABLE.includes(ext)) { status.textContent = 'Dla tego formatu nie ma podglądu - plik i tak zostanie wysłany.'; return; }
         viewer.setOptions(options());
-        viewer.load(await file.arrayBuffer(), ext);
+        viewer.load(await getBuffer(), ext);
+        if (transform) {
+            viewer.setTransform(transform);
+            transformInfo.textContent = 'Ustawienie: ' + mod.describeTransform(transform) + '.';
+        }
         status.textContent = '';
         transformInfo.hidden = false;
     } catch (e) {
@@ -366,6 +445,34 @@ input.addEventListener('change', async () => {
         if (viewer) viewer.hide();
         status.textContent = 'Nie udało się pokazać podglądu tego pliku - i tak możesz go wysłać.';
     }
+}
+
+input.addEventListener('change', async () => {
+    status.textContent = '';
+    if (viewer) { viewer.hide(); viewer.setTransform(null); }
+    transformInput.value = '';
+    transformInfo.hidden = true;
+    const file = input.files[0];
+    if (!file) return;
+    status.textContent = 'Ładuję podgląd…';
+    await showModel(() => file.arrayBuffer(), file.name.split('.').pop().toLowerCase(), null);
 });
+
+// przy wysyłaniu zdjęcie podglądu (z kolorem i ustawieniem) zostaje miniaturą propozycji
+input.form.addEventListener('submit', () => {
+    const snapshot = document.getElementById('print-snapshot');
+    try { snapshot.value = (viewer && !document.getElementById('hlModel').hidden && viewer.snapshot()) || ''; }
+    catch (e) { snapshot.value = ''; }
+});
+
+{% if entry and entry.file_path %}
+// edycja: od razu zapisany plik z jego ustawieniem
+status.textContent = 'Ładuję podgląd…';
+showModel(async () => {
+    const response = await fetch("{{ url_for('print_download', request_id=entry.id) }}");
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return response.arrayBuffer();
+}, {{ file_ext|tojson }}, {{ transform|tojson }});
+{% endif %}
 </script>
 {% endblock %}
