@@ -27,3 +27,6 @@ screenshot.png
 
 # lokalne ustawienia Claude Code (uprawnienia tylko na tym komputerze)
 .claude/settings.local.json
+
+# paczki z plikami do wgrania na serwer
+wdrozenie_*.zip
