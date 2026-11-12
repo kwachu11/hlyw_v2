@@ -44,6 +44,8 @@ Conventions worth knowing:
 - Uploads go through `save_upload()` into `app/static/images/<folder>/` with random names; paths stored in DB may contain Windows backslashes — render them with the `media_url` filter.
 - Quiz (`/quiz`, admin panel `/quiz/admin`): models `Quiz` / `QuizItem` / `QuizResponse`; players poll `/quiz/state` every 2 s. Old `quiz_question` / `quiz_answer` / `quiz_participant` tables are unused leftovers.
 - FIFA tournament (events with "fifa" in the title): 2 groups → `sync_knockout()` fills semis (A1–B2, B1–A2), final and 3rd-place match automatically after each saved score; knockout matches can't end in a draw.
+- Control panel `/panel` (admin only): site switches live in `SiteSetting` (key/value), declared in the `SITE_SETTINGS` list at the top of `app/__init__.py` (type, default, label, group — the form is generated from it); read via `site_settings()` (cached `SITE_SETTINGS_CACHE_SECONDS` per worker) and the `site` template variable. Defaults = previous behaviour, only changed values are stored. New toggles: add a tuple there, don't hardcode. Home carousel photos are `CarouselImage` rows (seeded once from the old hardcoded list, flag `carousel_seeded`), served resized via `/karuzela/<id>.jpg` and lazy-loaded.
+- Gallery likes: `ImageLike` (one ❤ per user and photo), `/zdjecie/<id>/like`, shown in `_thumb.html` / `_lightbox.html`; `Images.created_by` is set on upload (older photos have none).
 - "Ostatnie Ulepszenia" (`Upgrade` model) is the user-facing changelog; a menu badge appears for entries newer than `UPGRADE_NEW_DAYS`.
 - Templates extend `base.html` (Bootstrap 4.5 + jQuery from CDN, `static/css/custom.css`); games are self-contained HTML/JS in their templates.
 

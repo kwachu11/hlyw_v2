@@ -615,3 +615,36 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .hl-lightbox img.hl-lb-anim { transition: transform .2s ease-out; }
 .hl-lightbox .hl-lb-zoom { right: 76px; top: 16px; font-size: 1.15rem; }
 .hl-lightbox.zoomed .hl-lb-prev, .hl-lightbox.zoomed .hl-lb-next, .hl-lightbox.zoomed .hl-lb-counter { opacity: .25; }
+
+/* ❤ zdjęć w galerii: licznik na miniaturze + przycisk w przeglądarce */
+.hl-thumb-likes { position: absolute; right: 6px; bottom: 6px; padding: 1px 7px; border-radius: 10px;
+    background: rgba(0, 0, 0, .65); color: #fff; font-size: .8rem; line-height: 1.5; pointer-events: none; }
+.hl-thumb-likes.mine { color: #ff4d6d; }
+.hl-thumb-likes b { color: #fff; font-weight: 600; }
+.hl-thumb-likes[hidden] { display: none; }
+.hl-lightbox .hl-lb-like { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 3;
+    width: auto; min-width: 64px; padding: 6px 16px; border: 1px solid rgba(255, 255, 255, .25); border-radius: 22px;
+    background: rgba(0, 0, 0, .55); color: #fff; font-size: 1.15rem; line-height: 1.2; }
+.hl-lightbox .hl-lb-like:hover { background: rgba(255, 255, 255, .15); }
+.hl-lightbox .hl-lb-like.mine { color: #ff4d6d; border-color: #ff4d6d; }
+.hl-lightbox .hl-lb-like .n { color: #fff; font-size: 1rem; }
+.hl-lightbox .hl-lb-like[hidden] { display: none; }
+.hl-lightbox.zoomed .hl-lb-like { opacity: .25; }
+@media (max-width: 576px) { .hl-lightbox .hl-lb-like { bottom: 56px; } }
+
+/* Panel sterowania: zdjęcia karuzeli */
+.hl-carousel-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.hl-carousel-admin-item { position: relative; display: block; width: 100%; padding: 0; aspect-ratio: 16 / 10; overflow: hidden;
+    border: 1px solid var(--gta-border); border-radius: 2px; background: var(--gta-panel-2); }
+.hl-carousel-admin-item img { width: 100%; height: 100%; object-fit: cover; }
+.hl-carousel-admin-item .hl-ca-pos { position: absolute; top: 4px; left: 4px; padding: 0 6px; border-radius: 2px;
+    background: rgba(0, 0, 0, .7); color: var(--gta-yellow); font-size: .8rem; }
+.hl-carousel-admin-item .hl-ca-actions { position: absolute; right: 4px; bottom: 4px; display: flex; gap: 4px; }
+.hl-carousel-admin-item .hl-ca-actions .btn { width: auto; padding: 0 8px; line-height: 1.6; }
+.hl-ca-pick { cursor: pointer; }
+.hl-ca-pick .hl-ca-plus { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; color: #fff; background: rgba(0, 0, 0, .45); opacity: 0; transition: opacity .15s; }
+.hl-ca-pick:hover .hl-ca-plus, .hl-ca-pick:focus .hl-ca-plus { opacity: 1; }
+.hl-ca-pick:disabled { opacity: .4; }
+/* w panelu etykiety bywają długie - Barlow zamiast Pricedown */
+.hl-panel label { font-family: var(--gta-font-text); font-size: .98rem; letter-spacing: 0; text-transform: none; color: #e6e6ea; }

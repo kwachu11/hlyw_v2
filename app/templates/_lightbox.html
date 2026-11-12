@@ -5,6 +5,7 @@
     <div id="hlLightboxMedia"></div>
     <button type="button" class="hl-lb-btn hl-lb-next" aria-label="Następne">&#8250;</button>
     <button type="button" class="hl-lb-btn hl-lb-zoom" aria-label="Przybliż" title="Przybliż / oddal">&#128269;</button>
+    <button type="button" class="hl-lb-like" id="hlLightboxLike" hidden title="Lubię to">&#10084; <span class="n"></span></button>
     <div class="hl-lb-counter" id="hlLightboxCounter"></div>
 </div>
 
@@ -61,7 +62,42 @@
         scale = 1; tx = 0; ty = 0; box.classList.remove('zoomed');
         zoomBtn.hidden = !img;
         counter.textContent = (index + 1) + ' / ' + thumbs.length + (img ? ' · dwuklik / szczypnięcie = przybliż' : '');
+        renderLike();
     }
+
+    // ---- ❤ pod zdjęciem z galerii (tylko miniatury z data-like-id) ----
+    const likeBtn = document.getElementById('hlLightboxLike');
+    function renderLike() {
+        const t = thumbs[index];
+        likeBtn.hidden = !t || !t.dataset.likeId;
+        if (likeBtn.hidden) return;
+        const n = +t.dataset.likes || 0;
+        likeBtn.classList.toggle('mine', t.dataset.liked === '1');
+        likeBtn.querySelector('.n').textContent = n || '';
+        likeBtn.title = t.dataset.who ? 'Lubią to: ' + t.dataset.who : 'Lubię to';
+        // licznik na miniaturze
+        const badge = t.querySelector('.hl-thumb-likes');
+        if (badge) {
+            badge.hidden = !n;
+            badge.classList.toggle('mine', t.dataset.liked === '1');
+            badge.querySelector('b').textContent = n;
+        }
+    }
+    likeBtn.addEventListener('click', () => {
+        const t = thumbs[index];
+        if (!t || !t.dataset.likeId || likeBtn.disabled) return;
+        likeBtn.disabled = true;
+        fetch('/zdjecie/' + t.dataset.likeId + '/like', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'success') return;
+                t.dataset.likes = data.count;
+                t.dataset.liked = data.mine ? '1' : '0';
+                t.dataset.who = data.who;
+                if (thumbs[index] === t) renderLike();
+            })
+            .finally(() => { likeBtn.disabled = false; });
+    });
     function open(i) { show(i); box.classList.add('open'); document.body.style.overflow = 'hidden'; }
     function close() { box.classList.remove('open', 'zoomed'); media.innerHTML = ''; img = null; document.body.style.overflow = ''; }
 

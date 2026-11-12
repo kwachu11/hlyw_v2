@@ -1,5 +1,7 @@
 <div class="content" >
-    {% set marquee_text = '🔥 Witaj na hlyw.pl v2! 🔥 | Nowy wygląd, nowe gry i stare rankingi wróciły — sprawdź, czy wciąż jesteś na szczycie! 🏆' %}
+    {# pasek, powitanie, baner i sekcje ustawia admin w /panel (zmienna `site`) #}
+    {% if site.marquee_on and site.marquee_text %}
+    {% set marquee_text = site.marquee_text %}
     <div class="marquee" id="hl-marquee" data-key="{{ marquee_text }}">
         <div class="marquee-content">{{ marquee_text }}</div>
         <button type="button" class="close hl-marquee-close" aria-label="Ukryj pasek">&times;</button>
@@ -15,40 +17,43 @@
         });
     })();
     </script>
+    {% endif %}
 
     <div class="hl-hero mt-3 mb-3">
-        <h1>Witaj na stronie hlyw.pl</h1>
+        <h1>{{ site.hero_title }}</h1>
         {% if current_user.is_authenticated %}
-        <div class="hl-greeting">Cześć, {{ current_user.username }}! Zobacz, co słychać na Hlywie.</div>
+        <div class="hl-greeting">Cześć, {{ current_user.username }}! {{ site.hero_greeting }}</div>
         {% endif %}
     </div>
 
-    {% if print_promo and current_user.is_authenticated %}
-    <div class="hl-promo mb-3" id="hl-promo-druk3d" hidden>
+    {% if promo_version and current_user.is_authenticated %}
+    <div class="hl-promo mb-3" id="hl-promo" data-version="{{ promo_version }}" hidden>
         <button type="button" class="close hl-promo-close" aria-label="Ukryj">&times;</button>
-        <div class="hl-promo-icon">🖨️</div>
+        {% if site.promo_icon %}<div class="hl-promo-icon">{{ site.promo_icon }}</div>{% endif %}
         <div class="hl-promo-body">
-            <div class="hl-promo-title">Nowość: Druk 3D</div>
-            <p class="mb-2">Masz pomysł, co wydrukować na drukarce HLYW? Wklej link do modelu albo wrzuć plik STL -
-               zdjęcia, czas druku i zużycie filamentu policzą się same, a admin da znać, kiedy będzie gotowe.</p>
-            <a href="{{ url_for('print_new') }}" class="btn btn-primary btn-sm w-auto mr-2 mb-1">Zaproponuj wydruk</a>
-            <a href="{{ url_for('print_list') }}" class="btn btn-outline-primary btn-sm w-auto mb-1">Zobacz propozycje</a>
+            {% if site.promo_title %}<div class="hl-promo-title">{{ site.promo_title }}</div>{% endif %}
+            {% if site.promo_text %}<p class="mb-2" style="white-space: pre-line">{{ site.promo_text }}</p>{% endif %}
+            {% if site.promo_btn1_text %}<a href="{{ site.promo_btn1_url or '#' }}" class="btn btn-primary btn-sm w-auto mr-2 mb-1">{{ site.promo_btn1_text }}</a>{% endif %}
+            {% if site.promo_btn2_text %}<a href="{{ site.promo_btn2_url or '#' }}" class="btn btn-outline-primary btn-sm w-auto mb-1">{{ site.promo_btn2_text }}</a>{% endif %}
         </div>
     </div>
     <script>
     (function () {
-        // krzyżyk chowa baner na stałe w tej przeglądarce
-        var box = document.getElementById('hl-promo-druk3d'), KEY = 'hl-promo-druk3d';
-        try { if (localStorage.getItem(KEY)) return; } catch (e) {}
+        // krzyżyk chowa baner w tej przeglądarce - aż admin zmieni jego treść (nowa wersja)
+        var box = document.getElementById('hl-promo'), KEY = 'hl-promo-hidden', v = box.dataset.version;
+        try {
+            if (localStorage.getItem(KEY) === v) return;
+            if (v === 'druk3d' && localStorage.getItem('hl-promo-druk3d')) return;   // schowany jeszcze starym krzyżykiem
+        } catch (e) {}
         box.hidden = false;
         box.querySelector('.hl-promo-close').addEventListener('click', function () {
             box.hidden = true;
-            try { localStorage.setItem(KEY, '1'); } catch (e) {}
+            try { localStorage.setItem(KEY, v); } catch (e) {}
         });
     })();
     </script>
     {% endif %}
-    {% if stats %}
+    {% if stats and site.home_stats %}
     <div class="row">
         <div class="col-6 col-md-3 mb-3">
             <a href="{{ url_for('users') }}" class="hl-stat d-block">
@@ -77,13 +82,19 @@
     </div>
     {% endif %}
 
+    {% set main_on = (site.home_carousel and images) or (leaders and site.home_leaders) %}
+    {% set side_on = site.home_activity or site.home_events or site.home_camera or site.home_chat %}
+    {% set two_columns = stats and main_on and side_on %}
     <div class="row">
-        <div class="{{ 'col-lg-8' if stats else 'col-12' }}">
-            <div id="carouselExample" class="carousel slide hl-carousel" data-ride="carousel">
+        {% if main_on %}
+        <div class="{{ 'col-lg-8' if two_columns else 'col-12' }}">
+            {% if site.home_carousel and images %}
+            <div id="carouselExample" class="carousel slide hl-carousel" data-ride="carousel" data-interval="{{ site.carousel_seconds * 1000 }}">
                 <div class="carousel-inner">
                     {% for image in images %}
                     <div class="carousel-item {% if loop.first %}active{% endif %}">
-                        <img src="{{ image|media_url }}" class="d-block w-100" alt="Image">
+                        {# od razu tylko pierwsze; reszta (data-src) doczytuje się przed pokazaniem #}
+                        <img {{ 'src' if loop.first else 'data-src' }}="{{ image|media_url }}" class="d-block w-100" alt="Zdjęcie {{ loop.index }}">
                     </div>
                     {% endfor %}
                 </div>
@@ -96,8 +107,23 @@
                     <span class="sr-only">Następne</span>
                 </a>
             </div>
+            <script>
+            // ładujemy zdjęcie, na które karuzela właśnie przechodzi, i jedno za nim - żeby kolejne było gotowe
+            (function () {
+                var items = document.querySelectorAll('#carouselExample .carousel-item');
+                function load(i) {
+                    var img = items[(i + items.length) % items.length].querySelector('img[data-src]');
+                    if (img) { img.src = img.dataset.src; img.removeAttribute('data-src'); }
+                }
+                window.addEventListener('load', function () { load(1); });          // drugie po załadowaniu strony
+                $('#carouselExample').on('slide.bs.carousel', function (e) {
+                    load(e.to); load(e.to + (e.direction === 'right' ? -1 : 1));
+                });
+            })();
+            </script>
+            {% endif %}
 
-            {% if leaders %}
+            {% if leaders and site.home_leaders %}
             <div class="hl-section-title">Liderzy gier <small class="text-muted font-weight-normal">· <a href="{{ url_for('hall_of_fame') }}">Hall of Fame</a></small></div>
             <div class="row">
                 {% for item in leaders %}
@@ -123,9 +149,11 @@
             </div>
             {% endif %}
         </div>
+        {% endif %}
 
-        <div class="{{ 'col-lg-4' if stats else 'col-12' }} hl-side">
-            {% if activity is defined %}
+        {% if side_on %}
+        <div class="{{ 'col-lg-4' if two_columns else 'col-12' }} hl-side">
+            {% if activity is defined and site.home_activity %}
             <div class="card mb-3 hl-activity-card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <strong><span class="hl-live-dot" aria-hidden="true"></span> Co się dzieje</strong>
@@ -158,8 +186,8 @@
             </script>
             {% endif %}
 
-            {% if upcoming_events %}
-            <div class="card mb-3 {{ '' if stats else 'mt-3' }}">
+            {% if upcoming_events and site.home_events %}
+            <div class="card mb-3 {{ '' if two_columns else 'mt-3' }}">
                 <div class="card-header"><strong>📅 Najbliższe wydarzenia</strong></div>
                 <ul class="list-group list-group-flush">
                     {% for e in upcoming_events %}
@@ -175,7 +203,7 @@
             </div>
             {% endif %}
 
-            {% if stats %}
+            {% if stats and site.home_camera %}
             <div class="card mb-3">
                 <div class="card-header d-flex justify-content-between">
                     <strong>🎥 Teraz na kamerze</strong>
@@ -193,7 +221,9 @@
                     {% endif %}
                 </div>
             </div>
+            {% endif %}
 
+            {% if stats and site.home_chat %}
             <div class="card mb-3">
                 <div class="card-header d-flex justify-content-between">
                     <strong>💬 Ostatnio na czacie</strong>
@@ -212,9 +242,10 @@
             </div>
             {% endif %}
         </div>
+        {% endif %}
     </div>
 
-    {% if latest_news %}
+    {% if latest_news and site.home_news %}
     <div class="hl-section-title">Breaking News <small class="text-muted font-weight-normal">· <a href="{{ url_for('news') }}">wszystkie</a></small></div>
     <div class="row">
         {% for n in latest_news %}

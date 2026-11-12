@@ -14,7 +14,7 @@ import uuid
 import io
 import zipfile
 from urllib.parse import urlparse
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from flask import render_template, redirect, url_for, request
 from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -52,6 +52,7 @@ import base64
 from ftplib import FTP
 from flask import session
 import time
+import hashlib
 from itertools import combinations
 import random
 
@@ -83,8 +84,47 @@ PREVIOUS_EDITION_END = datetime(2026, 10, 9)
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp', 'heic'}
 ALLOWED_MEDIA_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | {'mp4', 'mov', 'webm'}
 THUMBNAIL_SIZE = 480  # dłuższy bok miniatury w galerii (px)
+CAROUSEL_SIZE = 1600  # dłuższy bok zdjęcia w karuzeli na stronie głównej (oryginały mają po kilka MB)
 PRINT_THUMB_MAX_BYTES = 10 * 1024 * 1024  # większego obrazka z pliku 3MF nie rozpakowujemy
-PRINT_PROMO_UNTIL = datetime(2026, 12, 1)  # do tej daty: baner „Druk 3D” na stronie głównej i plakietki NOWE w menu
+
+# Panel sterowania (/panel, tylko admin): ustawienia trzymane w tabeli site_setting.
+# (klucz, typ, wartość domyślna, etykieta, grupa). Typy: bool, text, textarea, date (RRRR-MM-DD, puste = bez limitu), int.
+SITE_SETTINGS = [
+    ('marquee_on', 'bool', True, 'Pokazuj pasek', 'Pasek przewijany na górze strony głównej'),
+    ('marquee_text', 'text', '🔥 Witaj na hlyw.pl v2! 🔥 | Nowy wygląd, nowe gry i stare rankingi wróciły — sprawdź, '
+                             'czy wciąż jesteś na szczycie! 🏆', 'Treść paska', 'Pasek przewijany na górze strony głównej'),
+    ('hero_title', 'text', 'Witaj na stronie hlyw.pl', 'Nagłówek', 'Powitanie'),
+    ('hero_greeting', 'text', 'Zobacz, co słychać na Hlywie.', 'Tekst po „Cześć, <nick>!”', 'Powitanie'),
+    ('promo_on', 'bool', True, 'Pokazuj baner', 'Baner na stronie głównej'),
+    ('promo_until', 'date', '2026-11-30', 'Pokazuj do (włącznie; puste = bez końca)', 'Baner na stronie głównej'),
+    ('promo_icon', 'text', '🖨️', 'Ikona (emoji)', 'Baner na stronie głównej'),
+    ('promo_title', 'text', 'Nowość: Druk 3D', 'Tytuł', 'Baner na stronie głównej'),
+    ('promo_text', 'textarea', 'Masz pomysł, co wydrukować na drukarce HLYW? Wklej link do modelu albo wrzuć plik STL - '
+                               'zdjęcia, czas druku i zużycie filamentu policzą się same, a admin da znać, kiedy będzie gotowe.',
+     'Treść', 'Baner na stronie głównej'),
+    ('promo_btn1_text', 'text', 'Zaproponuj wydruk', 'Przycisk 1 - napis (puste = bez przycisku)', 'Baner na stronie głównej'),
+    ('promo_btn1_url', 'text', '/druk3d/nowa', 'Przycisk 1 - adres', 'Baner na stronie głównej'),
+    ('promo_btn2_text', 'text', 'Zobacz propozycje', 'Przycisk 2 - napis (puste = bez przycisku)', 'Baner na stronie głównej'),
+    ('promo_btn2_url', 'text', '/druk3d', 'Przycisk 2 - adres', 'Baner na stronie głównej'),
+    ('print_badge_on', 'bool', True, 'Plakietka NOWE przy „Druk 3D”', 'Menu'),
+    ('print_badge_until', 'date', '2026-11-30', 'Plakietka do (włącznie; puste = bez końca)', 'Menu'),
+    ('home_stats', 'bool', True, 'Liczniki (użytkownicy, gry, zdjęcia, kamera)', 'Sekcje strony głównej'),
+    ('home_carousel', 'bool', True, 'Karuzela zdjęć', 'Sekcje strony głównej'),
+    ('carousel_shuffle', 'bool', False, 'Losowa kolejność zdjęć', 'Karuzela'),
+    ('carousel_seconds', 'int', 5, 'Zmiana zdjęcia co (s)', 'Karuzela'),
+    ('home_leaders', 'bool', True, 'Liderzy gier', 'Sekcje strony głównej'),
+    ('home_activity', 'bool', True, 'Co się dzieje', 'Sekcje strony głównej'),
+    ('home_events', 'bool', True, 'Najbliższe wydarzenia', 'Sekcje strony głównej'),
+    ('home_camera', 'bool', True, 'Teraz na kamerze', 'Sekcje strony głównej'),
+    ('home_chat', 'bool', True, 'Ostatnio na czacie', 'Sekcje strony głównej'),
+    ('home_news', 'bool', True, 'Breaking News', 'Sekcje strony głównej'),
+    ('loading_on', 'bool', True, 'Ekran ładowania (raz na sesję)', 'Efekty'),
+    ('loading_seconds', 'int', 6, 'Czas ekranu ładowania (s)', 'Efekty'),
+    ('notify_on', 'bool', True, 'Powiadomienia SMS o aktywności innych', 'Efekty'),
+]
+# zdjęcia, które karuzela miała w kodzie - przy pierwszym starcie trafiają do tabeli carousel_image
+CAROUSEL_DEFAULT_IMAGES = ['static/images/hlyw_1.png'] + [f'static/images/hlyw_{i}.jpg' for i in range(2, 24)]
+SITE_SETTINGS_CACHE_SECONDS = 10   # każdy worker gunicorna trzyma ustawienia tyle sekund
 # galeria zdjęć ze strony modelu: serwis na Raspberry Pi (headless Chromium), domyślnie obok PRINTER_STATUS_URL
 # (Printables i Cults3D pokazują automatom stronę ochrony przed botami, Creality Cloud się nie doładowuje - pominięte)
 MODEL_IMAGES_SITES = ('makerworld.com', 'thingiverse.com', 'thangs.com', 'myminifactory.com', 'grabcad.com')
@@ -128,7 +168,6 @@ LOADING_TIPS = [
 TM_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 # Rodzaje aktywności, o których przychodzą powiadomienia (gry pomijamy - byłoby ich za dużo)
 NOTIFY_KINDS = {'news', 'event', 'chat', 'photos', 'upgrade', 'tm', 'user', 'camera', 'album', 'match', 'print'}
-LOADING_SCREEN_MS = 6000   # jak długo trwa ekran ładowania (klik / klawisz zamyka od razu)
 CAMERA_VISIT_GAP = timedelta(minutes=2)   # dłuższa przerwa w oglądaniu kamery = nowe wejście
 CAMERA_STREAM_URL = 'https://rtsp.me/embed/62bBnQNN'   # drugi obraz (drukarka) - PRINTER_STREAM_URL w .env
 GAME_RUN_MAX_AGE = timedelta(hours=6)   # dłużej nikt nie gra jednej partii
@@ -503,6 +542,29 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)   # starsze reakcje: brak
         __table_args__ = (db.UniqueConstraint('news_id', 'user_id', 'emoji'),)
 
+    class ImageLike(db.Model):
+        """Polubienie zdjęcia / filmu z galerii (❤)."""
+        id = db.Column(db.Integer, primary_key=True)
+        image_id = db.Column(db.Integer, db.ForeignKey('images.id'), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        __table_args__ = (db.UniqueConstraint('image_id', 'user_id'),)
+
+    class CarouselImage(db.Model):
+        """Zdjęcie w karuzeli na stronie głównej (kolejność: position)."""
+        id = db.Column(db.Integer, primary_key=True)
+        file_path = db.Column(db.String(200), nullable=False)
+        position = db.Column(db.Integer, nullable=False, default=0)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+
+    class SiteSetting(db.Model):
+        """Ustawienie z panelu sterowania (wartość jako tekst, typ z SITE_SETTINGS)."""
+        key = db.Column(db.String(50), primary_key=True)
+        value = db.Column(db.Text)
+        updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+        updated_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+
     class Presence(db.Model):
         """Kiedy użytkownik ostatnio był na stronie kamery. W bazie, a nie w pamięci,
         bo każdy worker gunicorna ma własną pamięć i widziałby innych oglądających."""
@@ -767,6 +829,18 @@ def create_app():
                     if 'duplicate column' not in str(e):
                         raise
 
+        # Karuzela była wpisana na sztywno w kodzie - raz przenosimy te zdjęcia do bazy.
+        # Flaga w site_setting (klucz główny) pilnuje, żeby zrobił to tylko jeden worker i tylko raz,
+        # więc usunięcie wszystkich zdjęć w panelu nie przywróci ich przy restarcie.
+        if not db.session.get(SiteSetting, 'carousel_seeded'):
+            try:
+                db.session.add(SiteSetting(key='carousel_seeded', value='1'))
+                db.session.add_all(CarouselImage(file_path=path, position=i)
+                                   for i, path in enumerate(CAROUSEL_DEFAULT_IMAGES))
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+
 
     @app.template_filter('media_url')
     def media_url(path):
@@ -799,13 +873,202 @@ def create_app():
     app.add_template_filter(when_label, 'when')
     app.add_template_filter(format_tm_time, 'tm_time')
 
+    # ===================== Panel sterowania =====================
+
+    settings_cache = {'at': 0, 'data': None}
+
+    def setting_to_text(kind, value):
+        """Wartość w postaci tekstowej, tak jak trafia do bazy."""
+        return ('1' if value else '0') if kind == 'bool' else str(value)
+
+    def setting_from_text(kind, raw, default):
+        if raw is None:
+            return default
+        if kind == 'bool':
+            return raw == '1'
+        if kind == 'int':
+            try:
+                return int(raw)
+            except ValueError:
+                return default
+        return raw
+
+    def site_settings():
+        """Wszystkie ustawienia panelu: {klucz: wartość}, z bazy albo domyślne."""
+        if settings_cache['data'] is None or time.time() - settings_cache['at'] > SITE_SETTINGS_CACHE_SECONDS:
+            stored = {s.key: s.value for s in SiteSetting.query.all()}
+            settings_cache.update(at=time.time(), data={key: setting_from_text(kind, stored.get(key), default)
+                                                        for key, kind, default, _, _ in SITE_SETTINGS})
+        return settings_cache['data']
+
+    def setting_active(on_key, until_key):
+        """Włączone i (jeśli podano datę) jeszcze nie minął ten dzień."""
+        settings = site_settings()
+        if not settings[on_key]:
+            return False
+        try:
+            return not settings[until_key] or date.today() <= date.fromisoformat(settings[until_key])
+        except ValueError:
+            return True
+
+    PROMO_VERSION_KEYS = ('promo_title', 'promo_text', 'promo_btn1_url')
+    PROMO_DEFAULT_VERSION = '|'.join(str(d) for k, _, d, _, _ in SITE_SETTINGS if k in PROMO_VERSION_KEYS)
+
+    @app.context_processor
+    def inject_site_settings():
+        settings = site_settings()
+        promo_version = None
+        if setting_active('promo_on', 'promo_until'):
+            # zmiana treści banera = nowa wersja, więc wraca też u tych, którzy schowali poprzedni
+            text = '|'.join(str(settings[k]) for k in PROMO_VERSION_KEYS)
+            # stary baner chował się kluczem hl-promo-druk3d - przy niezmienionej treści dalej go honorujemy
+            promo_version = 'druk3d' if text == PROMO_DEFAULT_VERSION else hashlib.md5(text.encode()).hexdigest()[:10]
+        return {'site': settings, 'promo_version': promo_version}
+
+    @app.route('/panel', methods=['GET', 'POST'])
+    @login_required
+    def control_panel():
+        """Panel sterowania stroną: pasek, baner, sekcje strony głównej, efekty."""
+        if current_user.is_admin == "0":
+            flash('Panel sterowania jest tylko dla admina.', 'danger')
+            return redirect(url_for('index'))
+        if request.method == 'POST':
+            stored = {s.key: s for s in SiteSetting.query.all()}
+            if request.form.get('reset_all'):
+                panel_keys = {key for key, *_ in SITE_SETTINGS}
+                for row in stored.values():
+                    if row.key in panel_keys:        # techniczne flagi (np. carousel_seeded) zostają
+                        db.session.delete(row)
+                db.session.commit()
+                settings_cache['data'] = None
+                flash('Przywrócono ustawienia domyślne.', 'success')
+                return redirect(url_for('control_panel'))
+            for key, kind, default, label, _ in SITE_SETTINGS:
+                if kind == 'bool':
+                    value = '1' if request.form.get(key) else '0'
+                else:
+                    value = (request.form.get(key) or '').strip()
+                    if kind == 'int' and not value.isdigit():
+                        flash(f'„{label}” musi być liczbą - zostawiam poprzednią wartość.', 'warning')
+                        continue
+                    if kind == 'date' and value:
+                        try:
+                            date.fromisoformat(value)
+                        except ValueError:
+                            flash(f'„{label}”: zła data - zostawiam poprzednią wartość.', 'warning')
+                            continue
+                row = stored.get(key)
+                if row is None:
+                    if value == setting_to_text(kind, default):
+                        continue              # domyślna wartość - nie ma czego zapisywać
+                    row = SiteSetting(key=key)
+                    db.session.add(row)
+                if row.value != value:
+                    row.value, row.updated_by = value, current_user.id
+            db.session.commit()
+            settings_cache['data'] = None
+            flash('Zapisane. Zmiany widać od razu (na innych workerach do 10 s).', 'success')
+            return redirect(url_for('control_panel'))
+        stored = {s.key: s for s in SiteSetting.query.all()}
+        authors = {u.id: u.username for u in User.query.filter(
+            User.id.in_([s.updated_by for s in stored.values() if s.updated_by])).all()}
+        groups = {}
+        for key, kind, default, label, group in SITE_SETTINGS:
+            row = stored.get(key)
+            changed = row is not None and row.value != setting_to_text(kind, default)
+            groups.setdefault(group, []).append({
+                'key': key, 'kind': kind, 'label': label, 'default': default, 'changed': changed,
+                'changed_info': f'zmienione {when_label(row.updated_at)} przez {authors.get(row.updated_by, "?")}'
+                                if changed and row.updated_at else ''})
+        gallery = [i for i in Images.query.order_by(Images.created_at.desc()).limit(60).all()
+                   if not is_video(i.file_path)][:36]
+        return render_template('panel.html', groups=groups, settings=site_settings(),
+                               carousel=CarouselImage.query.order_by(CarouselImage.position, CarouselImage.id).all(),
+                               gallery=gallery,
+                               promo_live=setting_active('promo_on', 'promo_until'),
+                               badge_live=setting_active('print_badge_on', 'print_badge_until'))
+
+    def panel_admin_json():
+        """Dla tras JSON panelu: odpowiedź z błędem, gdy to nie admin."""
+        if current_user.is_admin == "0":
+            return jsonify({'status': 'error', 'message': 'Tylko dla admina.'}), 403
+        return None
+
+    def carousel_add(file_path):
+        last = db.session.query(func.max(CarouselImage.position)).scalar()
+        item = CarouselImage(file_path=file_path, position=(last if last is not None else -1) + 1,
+                             created_by=current_user.id)
+        db.session.add(item)
+        db.session.commit()
+        return item
+
+    @app.route('/panel/karuzela/dodaj', methods=['POST'])
+    @login_required
+    def carousel_upload():
+        """Jedno zdjęcie na zapytanie (nginx przyjmuje maks. 1 MB), strona wysyła pliki po kolei."""
+        denied = panel_admin_json()
+        if denied:
+            return denied
+        file = request.files.get('file')
+        file_path = save_upload(file, 'karuzela', ALLOWED_IMAGE_EXTENSIONS) if file else None
+        if not file_path:
+            return jsonify({'status': 'error', 'message': 'Dozwolone: ' + ', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS))}), 400
+        item = carousel_add(file_path[4:].replace('\\', '/'))   # do bazy bez "app/"
+        return jsonify({'status': 'success', 'id': item.id})
+
+    @app.route('/panel/karuzela/z-galerii/<int:image_id>', methods=['POST'])
+    @login_required
+    def carousel_from_gallery(image_id):
+        denied = panel_admin_json()
+        if denied:
+            return denied
+        image = Images.query.get_or_404(image_id)
+        if is_video(image.file_path):
+            return jsonify({'status': 'error', 'message': 'Filmy nie mogą być w karuzeli.'}), 400
+        item = carousel_add(image.file_path)
+        return jsonify({'status': 'success', 'id': item.id})
+
+    @app.route('/panel/karuzela/<int:item_id>/usun', methods=['POST'])
+    @login_required
+    def carousel_delete(item_id):
+        denied = panel_admin_json()
+        if denied:
+            return denied
+        item = CarouselImage.query.get_or_404(item_id)
+        path = item.file_path.replace('\\', '/')
+        db.session.delete(item)
+        db.session.commit()
+        for prefix in ('k', 'kd'):
+            if os.path.exists(thumbnail_path(prefix + str(item_id))):
+                os.remove(thumbnail_path(prefix + str(item_id)))
+        # plik wgrany w panelu usuwamy z dysku; zdjęcia z galerii i stare hlyw_N zostają
+        if path.startswith('static/images/karuzela/') and not CarouselImage.query.filter_by(file_path=item.file_path).first():
+            full = os.path.join(app.root_path, path)
+            if os.path.exists(full):
+                os.remove(full)
+        return jsonify({'status': 'success'})
+
+    @app.route('/panel/karuzela/kolejnosc', methods=['POST'])
+    @login_required
+    def carousel_order():
+        denied = panel_admin_json()
+        if denied:
+            return denied
+        ids = (request.get_json(silent=True) or {}).get('ids') or []
+        items = {c.id: c for c in CarouselImage.query.all()}
+        for position, item_id in enumerate(ids):
+            if item_id in items:
+                items[item_id].position = position
+        db.session.commit()
+        return jsonify({'status': 'success'})
+
     @app.context_processor
     def inject_upgrade_badge():
         """Plakietka NOWE przy 'Ostatnie Ulepszenia' w menu, gdy jest świeży wpis."""
         latest = db.session.query(func.max(Upgrade.date)).scalar()
         return {'has_new_upgrade': bool(latest and latest >= datetime.utcnow() - timedelta(days=UPGRADE_NEW_DAYS)),
                 'current_year': datetime.now().year,
-                'print_promo': datetime.utcnow() < PRINT_PROMO_UNTIL,
+                'print_promo': setting_active('print_badge_on', 'print_badge_until'),
                 'report_statuses': REPORT_STATUSES}
 
     @app.template_filter('print_time')
@@ -834,34 +1097,16 @@ def create_app():
         except Exception:
             return 'WASTED — błąd serwera (500)', 500
 
+    def carousel_images():
+        images = [url_for('carousel_photo', item_id=c.id)
+                  for c in CarouselImage.query.order_by(CarouselImage.position, CarouselImage.id).all()]
+        if site_settings()['carousel_shuffle']:
+            random.shuffle(images)
+        return images
+
     @app.route('/')
     def index():
-        images=[]
-        images.append("static\images\hlyw_1.png")
-        images.append("static\images\hlyw_2.jpg")
-        images.append("static\images\hlyw_3.jpg")
-        images.append("static\images\hlyw_4.jpg")
-        images.append("static\images\hlyw_5.jpg")
-        images.append("static\images\hlyw_6.jpg")
-        images.append("static\images\hlyw_7.jpg")
-        images.append("static\images\hlyw_8.jpg")
-        images.append("static\images\hlyw_9.jpg")
-        images.append("static\images\hlyw_10.jpg")
-        images.append("static\images\hlyw_11.jpg")
-        images.append("static\images\hlyw_12.jpg")
-        images.append("static\images\hlyw_13.jpg")
-        images.append("static\images\hlyw_14.jpg")
-        images.append("static\images\hlyw_15.jpg")
-        images.append("static\images\hlyw_16.jpg")
-        images.append("static\images\hlyw_17.jpg")
-        images.append("static\images\hlyw_18.jpg")
-        images.append("static\images\hlyw_19.jpg")
-        images.append("static\images\hlyw_20.jpg")
-        images.append("static\images\hlyw_21.jpg")
-        images.append("static\images\hlyw_22.jpg")
-        images.append("static\images\hlyw_23.jpg")
-
-
+        images = carousel_images()
         today = datetime.combine(date.today(), datetime.min.time())
         upcoming_events = Calendar.query.filter(Calendar.date >= today).order_by(Calendar.date).limit(3).all()
         if not current_user.is_authenticated:
@@ -985,16 +1230,49 @@ def create_app():
     def albums():
         all_album = Albums.query.order_by(Albums.created_at.desc()).all()
         images_no_album=Images.query.filter_by(album_id=0).order_by(Images.created_at.desc()).all()
-        return render_template('albums.html', album=all_album, images=images_no_album)
+        return render_template('albums.html', album=all_album, images=images_no_album,
+                               likes=image_likes([i.id for i in images_no_album]))
 
     @app.route('/albums/<int:album_id>')
     @login_required
     def album(album_id):
         album = Albums.query.get_or_404(album_id)
         images = Images.query.filter_by(album_id=album.id).order_by(Images.created_at).all()
-        return render_template('album.html', album=album, images=images)
+        return render_template('album.html', album=album, images=images, likes=image_likes([i.id for i in images]))
 
-    def save_jpeg_thumbnail(source, thumb_path):
+    def image_likes(image_ids):
+        """{image_id: {'count': n, 'mine': bool, 'who': 'ala, ola'}} dla podanych zdjęć."""
+        result = {i: {'count': 0, 'mine': False, 'who': []} for i in image_ids}
+        if image_ids:
+            rows = db.session.query(ImageLike.image_id, ImageLike.user_id, User.username) \
+                .join(User, User.id == ImageLike.user_id).filter(ImageLike.image_id.in_(image_ids)) \
+                .order_by(ImageLike.created_at).all()
+            for image_id, user_id, username in rows:
+                r = result[image_id]
+                r['count'] += 1
+                r['mine'] = r['mine'] or user_id == current_user.id
+                r['who'].append(username)
+        for r in result.values():
+            r['who'] = ', '.join(r['who'])
+        return result
+
+    @app.route('/zdjecie/<int:image_id>/like', methods=['POST'])
+    @login_required
+    def like_image(image_id):
+        """Przełącza ❤ zalogowanego użytkownika pod zdjęciem."""
+        Images.query.get_or_404(image_id)
+        existing = ImageLike.query.filter_by(image_id=image_id, user_id=current_user.id).first()
+        if existing:
+            db.session.delete(existing)
+        else:
+            db.session.add(ImageLike(image_id=image_id, user_id=current_user.id))
+        try:
+            db.session.commit()
+        except IntegrityError:          # podwójne kliknięcie - polubienie już jest
+            db.session.rollback()
+        return jsonify({'status': 'success', **image_likes([image_id])[image_id]})
+
+    def save_jpeg_thumbnail(source, thumb_path, size=THUMBNAIL_SIZE, quality=78):
         """Zapisuje miniaturę JPEG obrazka (ścieżka albo plik w pamięci); przy błędzie rzuca wyjątek."""
         # zapis przez plik tymczasowy - kilka workerów może generować tę samą miniaturę naraz
         tmp_path = thumb_path + '.' + uuid.uuid4().hex + '.tmp'
@@ -1002,11 +1280,11 @@ def create_app():
             from PIL import Image, ImageOps
             with Image.open(source) as original:
                 picture = ImageOps.exif_transpose(original).convert('RGBA')
-            picture.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+            picture.thumbnail((size, size))
             # JPEG nie ma przezroczystości - podkładamy tło
             background = Image.new('RGB', picture.size, (52, 58, 64))
             background.paste(picture, mask=picture.getchannel('A'))
-            background.save(tmp_path, 'JPEG', quality=78, optimize=True)
+            background.save(tmp_path, 'JPEG', quality=quality, optimize=True)
             os.replace(tmp_path, thumb_path)
         finally:
             if os.path.exists(tmp_path):
@@ -1018,15 +1296,35 @@ def create_app():
         """Miniatura zdjęcia do siatki galerii. Generowana przy pierwszym wyświetleniu i trzymana na dysku,
         więc obejmuje też stare zdjęcia. Gdy się nie uda (np. HEIC, brak Pillow) - przekierowanie na oryginał."""
         image = Images.query.get_or_404(image_id)
-        thumb_path = os.path.join(app.static_folder, 'images', 'thumbs', str(image.id) + '.jpg')
+        return send_thumbnail(str(image.id), image.file_path)
+
+    @app.route('/miniatura/karuzela/<int:item_id>')
+    @login_required
+    def carousel_thumbnail(item_id):
+        """Miniatura zdjęcia karuzeli do panelu sterowania (pełne zdjęcia przycinały stronę)."""
+        item = CarouselImage.query.get_or_404(item_id)
+        return send_thumbnail('k' + str(item.id), item.file_path)
+
+    @app.route('/karuzela/<int:item_id>.jpg')
+    def carousel_photo(item_id):
+        """Zdjęcie karuzeli zmniejszone do CAROUSEL_SIZE (strona główna jest też dla niezalogowanych)."""
+        item = CarouselImage.query.get_or_404(item_id)
+        return send_thumbnail('kd' + str(item.id), item.file_path, size=CAROUSEL_SIZE, quality=82)
+
+    def thumbnail_path(name):
+        return os.path.join(app.static_folder, 'images', 'thumbs', name + '.jpg')
+
+    def send_thumbnail(name, file_path, size=THUMBNAIL_SIZE, quality=78):
+        """Miniatura JPEG pliku `file_path` zapisana jako thumbs/<name>.jpg (tworzona przy pierwszym użyciu)."""
+        thumb_path = thumbnail_path(name)
         if not os.path.exists(thumb_path):
-            source = os.path.join(app.root_path, image.file_path.replace('\\', '/').lstrip('/'))
+            source = os.path.join(app.root_path, file_path.replace('\\', '/').lstrip('/'))
             create_directory_if_not_exists(os.path.dirname(thumb_path))
             try:
-                save_jpeg_thumbnail(source, thumb_path)
+                save_jpeg_thumbnail(source, thumb_path, size, quality)
             except Exception as e:
-                app.logger.warning('Nie udało się utworzyć miniatury zdjęcia %s: %s', image.id, e)
-                return redirect(media_url(image.file_path))
+                app.logger.warning('Nie udało się utworzyć miniatury %s: %s', name, e)
+                return redirect(media_url(file_path))
         return send_file(thumb_path, mimetype='image/jpeg', max_age=30 * 24 * 3600)
 
     @app.route('/add_album', methods=['GET', 'POST'])
@@ -1053,7 +1351,7 @@ def create_app():
                 return render_template('add_images.html', form=form)
             file_path=file_path[4:] #do bazy bez app
 
-            image = Images(file_path=file_path, album_id=album_id)
+            image = Images(file_path=file_path, album_id=album_id, created_by=str(current_user.id))
             db.session.add(image)
             db.session.commit()
             return redirect(url_for('albums'))
@@ -2237,6 +2535,8 @@ def create_app():
     @app.context_processor
     def inject_loading_screen():
         """Ekran ładowania tylko przy pierwszej stronie w sesji przeglądarki (flaga w ciasteczku sesji)."""
+        if not site_settings()['loading_on']:
+            return {}
         if session.get('intro_seen') or request.method != 'GET' or request.blueprint or                 (request.endpoint or 'static') == 'static' or request.path.startswith('/api'):
             return {}
         session['intro_seen'] = True
@@ -2244,7 +2544,7 @@ def create_app():
                                              ('jpg', 'jpeg', 'png', 'webp')])).order_by(func.random()).first()
         return {'loading_screen': {'photo': photo.file_path if photo else 'static/images/hlyw_2.jpg',
                                    'tips': random.sample(LOADING_TIPS, 3),
-                                   'duration_ms': LOADING_SCREEN_MS}}
+                                   'duration_ms': max(1, site_settings()['loading_seconds']) * 1000}}
 
     @app.context_processor
     def inject_cash():
@@ -2383,6 +2683,15 @@ def create_app():
         if want('album'):
             for a in Albums.query.filter(Albums.created_at > since).all():
                 add('album', '📁', a.created_by, 'nowy album: ' + a.name, url_for('album', album_id=a.id), a.created_at)
+        if want('like'):
+            rows = db.session.query(ImageLike.user_id, Images.album_id, func.count(), func.max(ImageLike.created_at)) \
+                .join(Images, Images.id == ImageLike.image_id) \
+                .filter(ImageLike.created_at > since).group_by(ImageLike.user_id, Images.album_id).all()
+            for user_id, album_id, count, at in rows:
+                album = Albums.query.get(album_id)
+                add('like', '❤️', user_id,
+                    f'polubienie: {plural(count, "zdjęcie", "zdjęcia", "zdjęć")}' + (f' w albumie {album.name}' if album else ' w galerii'),
+                    url_for('album', album_id=album_id) if album else url_for('albums'), at)
         if want('reaction'):
             rows = db.session.query(NewsReaction.user_id, NewsReaction.news_id,
                                     func.group_concat(NewsReaction.emoji, ''), func.max(NewsReaction.created_at)) \
@@ -2462,6 +2771,8 @@ def create_app():
         try:
             since = datetime.fromisoformat(request.args['since'])
         except (KeyError, ValueError):
+            return jsonify({'now': now.isoformat(), 'items': []})
+        if not site_settings()['notify_on']:
             return jsonify({'now': now.isoformat(), 'items': []})
         since = max(since, now - timedelta(hours=1))   # po długiej przerwie nie zalewamy starociami
         items = recent_activity(since, limit=20, kinds=NOTIFY_KINDS, exclude_user_id=current_user.id)

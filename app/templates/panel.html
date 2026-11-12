@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 hl-gap">
+    <h2 class="mb-0">⚙️ Panel sterowania</h2>
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm w-auto" target="_blank">Podgląd strony głównej ↗</a>
+</div>
+
+<div class="d-flex flex-wrap hl-gap mb-3">
+    <span class="badge {{ 'badge-success' if promo_live else 'badge-secondary' }} p-2">Baner: {{ 'widoczny' if promo_live else 'ukryty' }}</span>
+    <span class="badge {{ 'badge-success' if site.marquee_on else 'badge-secondary' }} p-2">Pasek: {{ 'widoczny' if site.marquee_on else 'ukryty' }}</span>
+    <span class="badge {{ 'badge-success' if badge_live else 'badge-secondary' }} p-2">NOWE przy Druk 3D: {{ 'tak' if badge_live else 'nie' }}</span>
+    <span class="badge {{ 'badge-success' if site.notify_on else 'badge-secondary' }} p-2">SMS-y: {{ 'włączone' if site.notify_on else 'wyłączone' }}</span>
+</div>
+
+<form method="POST" id="hl-panel-form" class="hl-panel">
+    <div class="row">
+        {% for group, fields in groups.items() %}
+        <div class="col-lg-6 mb-3">
+            <div class="card h-100">
+                <div class="card-header"><strong>{{ group }}</strong></div>
+                <div class="card-body">
+                    {% for f in fields %}
+                    {% set value = settings[f.key] %}
+                    <div class="form-group mb-3">
+                        {% if f.kind == 'bool' %}
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="s-{{ f.key }}" name="{{ f.key }}" value="1" {{ 'checked' if value }}>
+                            <label class="custom-control-label" for="s-{{ f.key }}">{{ f.label }}</label>
+                        </div>
+                        {% else %}
+                        <label for="s-{{ f.key }}" class="mb-1">{{ f.label }}</label>
+                        {% if f.kind == 'textarea' %}
+                        <textarea class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" rows="4">{{ value }}</textarea>
+                        {% elif f.kind == 'date' %}
+                        <div class="d-flex hl-gap">
+                            <input type="date" class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ value }}">
+                            <button type="button" class="btn btn-outline-secondary btn-sm w-auto text-nowrap" onclick="document.getElementById('s-{{ f.key }}').value = ''">bez końca</button>
+                        </div>
+                        {% elif f.kind == 'int' %}
+                        <input type="number" min="1" max="60" class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ value }}">
+                        {% else %}
+                        <input type="text" class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ value }}" maxlength="500">
+                        {% endif %}
+                        {% endif %}
+                        {% if f.changed %}
+                        <small class="text-muted d-block">
+                            {{ f.changed_info }} ·
+                            <a href="#" class="hl-panel-default" data-target="s-{{ f.key }}" data-kind="{{ f.kind }}"
+                               data-default="{{ f.default if f.kind != 'bool' else ('1' if f.default else '') }}">przywróć domyślne</a>
+                        </small>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-flex flex-wrap hl-gap mb-4">
+        <button type="submit" class="btn btn-primary w-auto">Zapisz zmiany</button>
+        <button type="submit" name="reset_all" value="1" class="btn btn-outline-danger w-auto"
+                onclick="return confirm('Przywrócić wszystkie ustawienia domyślne?')">Wszystko domyślne</button>
+    </div>
+</form>
+
+<div class="card mb-4" id="hl-carousel-admin">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center hl-gap">
+        <strong>🖼️ Zdjęcia karuzeli na stronie głównej <span class="text-muted font-weight-normal">({{ carousel|length }})</span></strong>
+        <label class="btn btn-primary btn-sm w-auto mb-0">
+            + Wgraj zdjęcia
+            <input type="file" id="hl-carousel-file" accept="image/*" multiple hidden data-hl-no-resize="1">
+        </label>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-2">Kolejność zmieniasz strzałkami (zapisuje się od razu). Przy włączonej „Losowej kolejności” ustawiona kolejność jest ignorowana.</p>
+        <div id="hl-carousel-status" class="small mb-2"></div>
+        <div class="hl-carousel-admin-grid" id="hl-carousel-list">
+            {% for c in carousel %}
+            <div class="hl-carousel-admin-item" data-id="{{ c.id }}">
+                <img src="{{ url_for('carousel_thumbnail', item_id=c.id) }}" alt="" loading="lazy" decoding="async">
+                <span class="hl-ca-pos">{{ loop.index }}</span>
+                <div class="hl-ca-actions">
+                    <button type="button" class="btn btn-sm btn-dark hl-ca-left" title="Wcześniej">&#8592;</button>
+                    <button type="button" class="btn btn-sm btn-dark hl-ca-right" title="Później">&#8594;</button>
+                    <button type="button" class="btn btn-sm btn-danger hl-ca-del" title="Usuń z karuzeli">&times;</button>
+                </div>
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">Karuzela jest pusta - na stronie głównej się nie pokaże.</p>
+            {% endfor %}
+        </div>
+
+        {% if gallery %}
+        <details class="mt-3">
+            <summary>Dodaj z galerii (ostatnie zdjęcia)</summary>
+            <div class="hl-carousel-admin-grid mt-2">
+                {% for image in gallery %}
+                <button type="button" class="hl-carousel-admin-item hl-ca-pick" data-image-id="{{ image.id }}" title="Dodaj do karuzeli">
+                    <img src="{{ url_for('thumbnail', image_id=image.id) }}" alt="" loading="lazy" decoding="async">
+                    <span class="hl-ca-plus">+</span>
+                </button>
+                {% endfor %}
+            </div>
+        </details>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function () {
+    var list = document.getElementById('hl-carousel-list'), status = document.getElementById('hl-carousel-status');
+    function say(text, cls) { status.className = 'small mb-2 ' + (cls || 'text-muted'); status.textContent = text; }
+    function post(url, body) {
+        var opts = { method: 'POST', credentials: 'same-origin' };
+        if (body instanceof FormData) opts.body = body;
+        else if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+        return fetch(url, opts).then(function (r) {
+            return r.json().catch(function () { return { status: 'error', message: 'HTTP ' + r.status }; });
+        });
+    }
+    function renumber() {
+        list.querySelectorAll('.hl-carousel-admin-item').forEach(function (el, i) { el.querySelector('.hl-ca-pos').textContent = i + 1; });
+    }
+    function saveOrder() {
+        var ids = Array.prototype.map.call(list.querySelectorAll('[data-id]'), function (el) { return +el.dataset.id; });
+        renumber();
+        post('{{ url_for("carousel_order") }}', { ids: ids }).then(function (d) {
+            say(d.status === 'success' ? 'Kolejność zapisana.' : 'Nie udało się zapisać kolejności.', d.status === 'success' ? 'text-success' : 'text-danger');
+        });
+    }
+    list.addEventListener('click', function (e) {
+        var btn = e.target.closest('button'), item = e.target.closest('[data-id]');
+        if (!btn || !item) return;
+        if (btn.classList.contains('hl-ca-left') && item.previousElementSibling) { list.insertBefore(item, item.previousElementSibling); saveOrder(); }
+        if (btn.classList.contains('hl-ca-right') && item.nextElementSibling) { list.insertBefore(item.nextElementSibling, item); saveOrder(); }
+        if (btn.classList.contains('hl-ca-del')) {
+            if (!confirm('Usunąć to zdjęcie z karuzeli?')) return;
+            post('/panel/karuzela/' + item.dataset.id + '/usun').then(function (d) {
+                if (d.status === 'success') { item.remove(); renumber(); say('Usunięte.', 'text-success'); }
+                else say(d.message || 'Nie udało się usunąć.', 'text-danger');
+            });
+        }
+    });
+    // wgrywanie: upload_resize.js najpierw zmniejsza pliki, potem wysyłamy po jednym (limit 1 MB na zapytanie)
+    var input = document.getElementById('hl-carousel-file');
+    input.addEventListener('change', function () {
+        var files = Array.prototype.slice.call(input.files), total = files.length, done = 0, failed = 0;
+        input.value = '';
+        (function next() {
+            if (!files.length) {
+                say('Wgrane: ' + done + (failed ? ', nieudane: ' + failed : '') + '. Odświeżam…', failed ? 'text-warning' : 'text-success');
+                return setTimeout(function () { location.reload(); }, 700);
+            }
+            say('Zmniejszam i wysyłam ' + (done + failed + 1) + ' z ' + total + '…');
+            (window.hlShrink ? window.hlShrink(files.shift()) : Promise.resolve(files.shift())).then(function (file) {
+                var fd = new FormData(); fd.append('file', file);
+                return post('{{ url_for("carousel_upload") }}', fd);
+            }).then(function (d) { d.status === 'success' ? done++ : failed++; }, function () { failed++; }).then(next);
+        })();
+    });
+    document.querySelectorAll('.hl-ca-pick').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            btn.disabled = true;
+            post('/panel/karuzela/z-galerii/' + btn.dataset.imageId).then(function (d) {
+                if (d.status === 'success') { say('Dodane do karuzeli. Odświeżam…', 'text-success'); setTimeout(function () { location.reload(); }, 500); }
+                else { btn.disabled = false; say(d.message || 'Nie udało się dodać.', 'text-danger'); }
+            });
+        });
+    });
+})();
+
+// „przywróć domyślne” wpisuje wartość domyślną do pola - zapisuje się dopiero przyciskiem
+document.querySelectorAll('.hl-panel-default').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+        e.preventDefault();
+        var el = document.getElementById(a.dataset.target);
+        if (a.dataset.kind === 'bool') el.checked = !!a.dataset.default;
+        else el.value = a.dataset.default;
+        a.textContent = 'wstawione - zapisz zmiany';
+    });
+});
+</script>
+{% endblock %}

@@ -26,7 +26,7 @@
             {% call nav_item(url_for('quiz'), '🧠 Quiz', ('/quiz',)) %} <span class="badge badge-danger">LIVE</span>{% endcall %}
             {% endif %}
             <!-- Dodatki -->
-            <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/report', '/users', '/aktywnosc', '/druk3d')) }}">
+            <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/report', '/users', '/aktywnosc', '/druk3d', '/panel')) }}">
                 <a class="nav-link dropdown-toggle" href="#" id="extrasDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                     Dodatki{% if print_promo %} <span class="badge badge-danger">NOWE</span>{% endif %}
                 </a>
@@ -37,6 +37,7 @@
                     <a class="dropdown-item" href="{{ url_for('users') }}">Użytkownicy</a>
                     {% if current_user.is_authenticated and current_user.is_admin != "0" %}
                     <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="{{ url_for('control_panel') }}">⚙️ Panel sterowania</a>
                     <a class="dropdown-item" href="{{ url_for('quiz_admin') }}">🧠 Quiz — prowadzenie</a>
                     {% endif %}
                     <!-- Można tutaj dodać kolejne strony w przyszłości -->

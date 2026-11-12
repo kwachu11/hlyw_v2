@@ -42,6 +42,9 @@
         return file;
     }
 
+    // dla stron, które same wysyłają pliki (np. karuzela w panelu): hlShrink(file) -> Promise<File>
+    window.hlShrink = function (file) { return shrink(file).catch(function () { return file; }); };
+
     document.addEventListener('change', async function (e) {
         var input = e.target;
         if (input.tagName !== 'INPUT' || input.type !== 'file' || !input.files.length || input.dataset.hlResized || input.dataset.hlNoResize) return;
