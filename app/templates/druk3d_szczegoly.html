@@ -145,7 +145,7 @@
         {% for ph in entry.photos %}
         {% set src = ph.file_path|media_url %}
         <figure class="hl-print-photo mb-0">
-            <a href="{{ src }}" class="hl-thumb" data-src="{{ src }}"><img src="{{ src }}" alt="" loading="lazy" decoding="async"></a>
+            <a href="{{ src }}" class="hl-thumb" data-src="{{ src }}"><img src="{{ url_for('print_photo_thumbnail', photo_id=ph.id) }}" alt="" loading="lazy" decoding="async"></a>
             <figcaption class="small">
                 <span class="badge {{ 'badge-success' if ph.kind == 'wydruk' else 'badge-info' }}">{{ photo_kinds[ph.kind] }}</span>
                 {% if ph.caption %}<span class="d-block">{{ ph.caption }}</span>{% endif %}

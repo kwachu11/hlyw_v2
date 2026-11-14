@@ -1831,35 +1831,56 @@ def create_app():
                 return None
         return _bambu_tasks['data']
 
+    def bambu_cache_path(task_id, kind):
+        """Plik z obrazkiem zadania z chmury Bambu na dysku (instance/bambu_cache) - okładka i zdjęcie po wydruku
+        już się nie zmieniają, więc każdy pobieramy z Bambu tylko raz."""
+        return os.path.join(app.instance_path, 'bambu_cache', f'{int(task_id)}_{kind}')
+
+    def send_bambu_image(path):
+        with open(path, 'rb') as f:
+            head = f.read(3)
+        resp = send_file(path, mimetype='image/jpeg' if head == b'\xff\xd8\xff' else 'image/png', max_age=7 * 24 * 3600)
+        return resp
+
     @app.route('/api/drukarka/okladka')
     @login_required
     def drukarka_okladka():
-        # miniatura (okładka) wydruku z chmury Bambu - po id albo nazwie; token zostaje po stronie serwera
+        # obrazek wydruku z chmury Bambu - okładka (render z slicera) albo zdjęcie po wydruku (?rodzaj=zdjecie),
+        # po id albo nazwie zadania; token zostaje po stronie serwera, a pobrane obrazki - na dysku
         import urllib.request as _ur
+        kind = 'zdjecie' if request.args.get('rodzaj') == 'zdjecie' else 'okladka'
+        field = 'snapShot' if kind == 'zdjecie' else 'cover'
+        tid = (request.args.get('id') or '').strip()
+        if tid.isdigit() and os.path.exists(bambu_cache_path(tid, kind)):
+            return send_bambu_image(bambu_cache_path(tid, kind))     # bez pytania chmury o listę zadań
         data = _bambu_tasks_data()
         if data is None:
             abort(404)
         hits = data.get('hits', []) or []
-        tid = (request.args.get('id') or '').strip()
         name = (request.args.get('name') or '').strip().lower()
-        cover = None
-        field = 'snapShot' if request.args.get('rodzaj') == 'zdjecie' else 'cover'   # zdjęcie z kamery po wydruku / render z slicera
+        task = None
         for h in hits:
             if tid and str(h.get('id')) == tid:
-                cover = h.get(field); break
+                task = h; break
             if not tid and name and (h.get('title') or '').strip().lower() == name:
-                cover = h.get('cover'); break
-        if not cover and not tid and not name and hits:
-            cover = hits[0].get('cover')          # fallback: najnowsze
-        if not cover:
+                task = h; break
+        if task is None and not tid and not name and hits:
+            task = hits[0]                        # fallback: najnowsze
+        url = task and task.get(field)
+        if not url:
             abort(404)
-        try:
-            img = _ur.urlopen(_ur.Request(cover, headers={'User-Agent': 'hlyw-camera/1.0'}), timeout=10).read()
-        except Exception:
-            abort(502)
-        resp = app.response_class(img, content_type='image/jpeg' if img[:3] == b'\xff\xd8\xff' else 'image/png')
-        resp.headers['Cache-Control'] = 'public, max-age=300'
-        return resp
+        path = bambu_cache_path(task['id'], kind)
+        if not os.path.exists(path):
+            try:
+                img = _ur.urlopen(_ur.Request(url, headers={'User-Agent': 'hlyw-camera/1.0'}), timeout=10).read(5 * 1024 * 1024)
+            except Exception:
+                abort(502)
+            create_directory_if_not_exists(os.path.dirname(path))
+            tmp = path + '.' + uuid.uuid4().hex + '.tmp'      # kilka workerów naraz - zapis przez plik tymczasowy
+            with open(tmp, 'wb') as f:
+                f.write(img)
+            os.replace(tmp, path)
+        return send_bambu_image(path)
 
     @app.route('/api/drukarka/wydruki')
     @login_required
@@ -2797,15 +2818,25 @@ def create_app():
         return photo
 
     def remove_print_photo_file(photo):
-        path = os.path.join(app.root_path, photo.file_path.replace('\\', '/'))
-        if os.path.exists(path):
-            os.remove(path)
+        for path in (os.path.join(app.root_path, photo.file_path.replace('\\', '/')), thumbnail_path('p' + str(photo.id))):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError as e:          # np. plik akurat otwarty - zdjęcie i tak znika z bazy
+                app.logger.warning('Nie udało się usunąć pliku %s: %s', path, e)
 
     @app.template_global('print_photo_url')
     def print_photo_url(entry):
-        """Najnowsze zdjęcie gotowego wydruku (na listę propozycji zamiast renderu); None, gdy nie ma."""
+        """Miniatura najnowszego zdjęcia gotowego wydruku (na listę propozycji zamiast renderu); None, gdy nie ma."""
         photo = next((ph for ph in reversed(entry.photos) if ph.kind == 'wydruk'), None)
-        return media_url(photo.file_path) if photo else None
+        return url_for('print_photo_thumbnail', photo_id=photo.id) if photo else None
+
+    @app.route('/miniatura/druk/<int:photo_id>')
+    @login_required
+    def print_photo_thumbnail(photo_id):
+        """Miniatura zdjęcia wydruku (480 px) do siatki i listy - pełne zdjęcie dopiero w przeglądarce zdjęć."""
+        photo = PrintPhoto.query.get_or_404(photo_id)
+        return send_thumbnail('p' + str(photo.id), photo.file_path)
 
     def bambu_task_title(task):
         return task.get('designTitleTranslated') or task.get('designTitle') or task.get('instanceTitleTranslated') \
