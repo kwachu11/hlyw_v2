@@ -948,6 +948,18 @@ def create_app():
                 db.session.rollback()
 
 
+    @app.url_defaults
+    def static_version(endpoint, values):
+        """Wersja pliku w adresie: url_for('static', ...) -> /static/css/gta.css?v=<czas zmiany pliku>.
+        Cloudflare każe przeglądarce trzymać pliki statyczne 4 h, więc bez tego po wdrożeniu nowy HTML
+        dostawał stary CSS/JS. Zmieniony plik = nowy adres = od razu świeża wersja."""
+        # tylko CSS i JS - czcionka z preload musi mieć ten sam adres co w CSS (url('fonts/...') bez wersji)
+        if endpoint == 'static' and str(values.get('filename', '')).endswith(('.css', '.js')) and 'v' not in values:
+            try:
+                values['v'] = int(os.stat(os.path.join(app.static_folder, values['filename'])).st_mtime)
+            except (OSError, ValueError):
+                pass
+
     @app.template_filter('media_url')
     def media_url(path):
         """Ścieżka z bazy (np. static\\images\\3\\x.jpg z Windowsa) jako adres od katalogu głównego,
