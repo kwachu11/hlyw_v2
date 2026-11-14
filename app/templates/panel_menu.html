@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .hl-menu-list { min-height: 46px; padding: 6px; border: 1px dashed var(--gta-border, #444); border-radius: 2px; }
+    .hl-menu-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 6px;
+        background: var(--gta-panel-2, #202026); border: 1px solid var(--gta-border, #333); border-radius: 2px; }
+    .hl-menu-row:last-child { margin-bottom: 0; }
+    .hl-menu-handle { cursor: grab; user-select: none; color: var(--gta-muted, #999); padding: 0 4px; font-size: 1.1rem; touch-action: none; }
+    .hl-menu-row input { flex: 1; min-width: 0; }
+    .hl-menu-default { font-size: .78rem; color: var(--gta-muted, #999); white-space: nowrap; }
+    .hl-menu-group { display: block; border-color: var(--gta-yellow, #ffcc00); }
+    .hl-menu-group > .hl-menu-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .hl-menu-group .hl-menu-list { margin-left: 24px; background: rgba(0, 0, 0, .15); }
+    .hl-menu-ghost { opacity: .4; }
+    .hl-menu-row .btn { width: auto; }
+    .hl-menu-empty { font-size: .85rem; color: var(--gta-muted, #999); padding: 4px; }
+    .hl-menu-list:not(:empty) > .hl-menu-empty { display: none; }
+    @media (max-width: 575px) { .hl-menu-default { display: none; } }
+</style>
+
+<div class="mb-2"><a href="{{ url_for('control_panel') }}">&larr; Panel sterowania</a></div>
+<h2>🧭 Menu (zakładki)</h2>
+<p class="text-muted small">
+    Przeciągnij pozycje za uchwyt <b>⋮⋮</b>: zmień kolejność, wrzuć do grupy (rozwijane menu, jak „Dodatki”) albo do „Ukryte”.
+    Nazwę pozycji możesz zmienić - puste pole = nazwa domyślna. Zmiany widać po „Zapisz menu”.
+    Linki admina (panel, filamenty, quiz) są zawsze w osobnym menu ⚙️. „Quiz” pojawia się tylko w trakcie quizu.
+</p>
+
+<div class="row">
+    <div class="col-lg-8 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center hl-gap">
+                <strong>Menu</strong>
+                <button type="button" class="btn btn-outline-primary btn-sm w-auto" id="hl-menu-add-group">+ Dodaj grupę</button>
+            </div>
+            <div class="card-body">
+                <div class="hl-menu-list" id="hl-menu-main" data-level="top">
+                    {% for e in layout %}
+                    {% if e.group is defined %}
+                    <div class="hl-menu-row hl-menu-group" data-type="group">
+                        <div class="hl-menu-group-head">
+                            <span class="hl-menu-handle" title="Przeciągnij">⋮⋮</span>
+                            <span>📂</span>
+                            <input type="text" class="form-control form-control-sm" value="{{ e.group }}" maxlength="30" aria-label="Nazwa grupy" placeholder="Nazwa grupy">
+                            <button type="button" class="btn btn-sm btn-outline-danger hl-menu-del-group" title="Usuń grupę (pozycje wrócą do menu)">&times;</button>
+                        </div>
+                        <div class="hl-menu-list" data-level="group">
+                            {% for i in e['items'] %}{% set it = items[i.key] %}
+                            <div class="hl-menu-row" data-type="item" data-key="{{ i.key }}">
+                                <span class="hl-menu-handle" title="Przeciągnij">⋮⋮</span>
+                                <input type="text" class="form-control form-control-sm" value="{{ i.label or '' }}" placeholder="{{ it.default }}" maxlength="40" aria-label="Nazwa: {{ it.default }}">
+                                <span class="hl-menu-default">{{ it.default }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% else %}{% set it = items[e.key] %}
+                    <div class="hl-menu-row" data-type="item" data-key="{{ e.key }}">
+                        <span class="hl-menu-handle" title="Przeciągnij">⋮⋮</span>
+                        <input type="text" class="form-control form-control-sm" value="{{ e.label or '' }}" placeholder="{{ it.default }}" maxlength="40" aria-label="Nazwa: {{ it.default }}">
+                        <span class="hl-menu-default">{{ it.default }}</span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header"><strong>🙈 Ukryte</strong></div>
+            <div class="card-body">
+                <div class="hl-menu-list" id="hl-menu-hidden" data-level="hidden">
+                    {% for key in hidden %}{% set it = items[key] %}
+                    <div class="hl-menu-row" data-type="item" data-key="{{ key }}">
+                        <span class="hl-menu-handle" title="Przeciągnij">⋮⋮</span>
+                        <input type="text" class="form-control form-control-sm" value="" placeholder="{{ it.default }}" maxlength="40" aria-label="Nazwa: {{ it.default }}">
+                    </div>
+                    {% endfor %}
+                </div>
+                <small class="text-muted d-block mt-2">Ukryte zakładki znikają z menu, ale same strony dalej działają pod swoim adresem.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form method="POST" id="hl-menu-form" class="d-flex flex-wrap hl-gap mb-4">
+    <input type="hidden" name="layout" id="hl-menu-layout">
+    <button type="submit" class="btn btn-primary w-auto">Zapisz menu</button>
+    <button type="submit" name="reset" value="1" class="btn btn-outline-danger w-auto"
+            onclick="return confirm('Przywrócić domyślne menu?')">Przywróć domyślne</button>
+</form>
+
+<template id="hl-menu-group-tpl">
+    <div class="hl-menu-row hl-menu-group" data-type="group">
+        <div class="hl-menu-group-head">
+            <span class="hl-menu-handle" title="Przeciągnij">⋮⋮</span>
+            <span>📂</span>
+            <input type="text" class="form-control form-control-sm" value="Nowa grupa" maxlength="30" aria-label="Nazwa grupy" placeholder="Nazwa grupy">
+            <button type="button" class="btn btn-sm btn-outline-danger hl-menu-del-group" title="Usuń grupę (pozycje wrócą do menu)">&times;</button>
+        </div>
+        <div class="hl-menu-list" data-level="group"></div>
+    </div>
+</template>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+(function () {
+    var main = document.getElementById('hl-menu-main'), hidden = document.getElementById('hl-menu-hidden');
+    var MAX_GROUPS = {{ max_groups }};
+
+    function makeSortable(list) {
+        Sortable.create(list, {
+            group: 'menu', handle: '.hl-menu-handle', animation: 150, ghostClass: 'hl-menu-ghost', fallbackOnBody: true,
+            // grupa może leżeć tylko na głównym poziomie menu (bez grup w grupach i bez grup w „Ukryte”)
+            onMove: function (evt) {
+                return !(evt.dragged.dataset.type === 'group' && evt.to.dataset.level !== 'top');
+            }
+        });
+    }
+    document.querySelectorAll('.hl-menu-list').forEach(makeSortable);
+
+    document.getElementById('hl-menu-add-group').addEventListener('click', function () {
+        if (main.querySelectorAll(':scope > [data-type=group]').length >= MAX_GROUPS) {
+            alert('Najwyżej ' + MAX_GROUPS + ' grup.');
+            return;
+        }
+        var node = document.getElementById('hl-menu-group-tpl').content.firstElementChild.cloneNode(true);
+        main.appendChild(node);
+        makeSortable(node.querySelector('.hl-menu-list'));
+        node.querySelector('input').select();
+    });
+
+    // usunięcie grupy: jej pozycje wracają do menu w miejscu grupy
+    main.addEventListener('click', function (e) {
+        var btn = e.target.closest('.hl-menu-del-group');
+        if (!btn) return;
+        var group = btn.closest('[data-type=group]');
+        Array.prototype.slice.call(group.querySelectorAll('[data-type=item]')).forEach(function (row) { main.insertBefore(row, group); });
+        group.remove();
+    });
+
+    function item(row) {
+        var label = row.querySelector('input').value.trim();
+        return label ? { key: row.dataset.key, label: label } : { key: row.dataset.key };
+    }
+    document.getElementById('hl-menu-form').addEventListener('submit', function (e) {
+        if (e.submitter && e.submitter.name === 'reset') return;
+        var layout = Array.prototype.map.call(main.querySelectorAll(':scope > .hl-menu-row'), function (row) {
+            if (row.dataset.type !== 'group') return item(row);
+            return { group: row.querySelector('.hl-menu-group-head input').value.trim() || 'Więcej',
+                     items: Array.prototype.map.call(row.querySelectorAll('.hl-menu-list > [data-type=item]'), item) };
+        });
+        var hiddenKeys = Array.prototype.map.call(hidden.querySelectorAll('[data-type=item]'), function (r) { return r.dataset.key; });
+        document.getElementById('hl-menu-layout').value = JSON.stringify({ layout: layout, hidden: hiddenKeys });
+    });
+})();
+</script>
+{% endblock %}

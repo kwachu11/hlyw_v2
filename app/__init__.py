@@ -126,6 +126,29 @@ SITE_SETTINGS = [
 CAROUSEL_DEFAULT_IMAGES = ['static/images/hlyw_1.png'] + [f'static/images/hlyw_{i}.jpg' for i in range(2, 24)]
 SITE_SETTINGS_CACHE_SECONDS = 10
 
+# Menu (zakładki): znane pozycje - klucz: (nazwa, endpoint, początki adresów podświetlających zakładkę, plakietka).
+# Układ (kolejność, grupy rozwijane, własne nazwy, ukryte) ustawia admin w /panel/menu - zapis w site_setting 'menu_layout'.
+# Plakietki: 'upgrade' = NOWE przy świeżym ulepszeniu, 'print' = NOWE w czasie promocji druku 3D, 'quiz' = LIVE (i tylko wtedy widać).
+MENU_ITEMS = {
+    'home': ('Strona Główna', 'index', ('/',), None),
+    'albums': ('Galeria', 'albums', ('/album', '/add_album', '/add_image'), None),
+    'news': ('Breaking News', 'news', ('/news', '/add_new'), None),
+    'games': ('🎮 Gry', 'games', ('/games', '/ranking_', '/snake', '/tetris', '/dino', '/ice_tower', '/kolko_krzyzyk',
+                                 '/formula', '/gorka'), None),
+    'camera': ('Kamera', 'camera', ('/camera',), None),
+    'calendar': ('Kalendarz', 'calendar', ('/calendar', '/add_entry', '/event'), None),
+    'hof': ('🏆 Hall of Fame', 'hall_of_fame', ('/hall_of_fame', '/profil'), None),
+    'upgrades': ('Ostatnie Ulepszenia', 'ostatnie_ulepszenia', ('/ostatnie-ulepszenia',), 'upgrade'),
+    'quiz': ('🧠 Quiz', 'quiz', ('/quiz',), 'quiz'),
+    'activity': ('⚡ Ostatnia aktywność', 'activity', ('/aktywnosc',), None),
+    'print': ('🖨️ Druk 3D', 'print_list', ('/druk3d',), 'print'),
+    'reports': ('Zgłoszenia', 'view_report_list', ('/report',), None),
+    'users': ('Użytkownicy', 'users', ('/users',), None),
+}
+MENU_DEFAULT_LAYOUT = [{'key': k} for k in ('home', 'albums', 'news', 'games', 'camera', 'calendar', 'hof', 'upgrades', 'quiz')] + \
+    [{'group': 'Dodatki', 'items': [{'key': k} for k in ('activity', 'print', 'reports', 'users')]}]
+MENU_MAX_GROUPS = 8
+
 # Druk 3D: filamenty do wyboru w propozycji (tabela filament, zarządza admin w /druk3d/filamenty)
 OUR_PRINTER = 'H2C'   # nasza drukarka - profil MakerWorld z nią zgodny dostaje znaczek
 FILAMENT_STATUSES = {'dostepny': 'Dostępne od ręki', 'na_zyczenie': 'Na życzenie', 'ukryty': 'Ukryte'}
@@ -925,8 +948,8 @@ def create_app():
         """Wszystkie ustawienia panelu: {klucz: wartość}, z bazy albo domyślne."""
         if settings_cache['data'] is None or time.time() - settings_cache['at'] > SITE_SETTINGS_CACHE_SECONDS:
             stored = {s.key: s.value for s in SiteSetting.query.all()}
-            settings_cache.update(at=time.time(), data={key: setting_from_text(kind, stored.get(key), default)
-                                                        for key, kind, default, _, _ in SITE_SETTINGS})
+            settings_cache.update(at=time.time(), raw=stored, data={key: setting_from_text(kind, stored.get(key), default)
+                                                                    for key, kind, default, _, _ in SITE_SETTINGS})
         return settings_cache['data']
 
     def setting_active(on_key, until_key):
@@ -952,6 +975,105 @@ def create_app():
             # stary baner chował się kluczem hl-promo-druk3d - przy niezmienionej treści dalej go honorujemy
             promo_version = 'druk3d' if text == PROMO_DEFAULT_VERSION else hashlib.md5(text.encode()).hexdigest()[:10]
         return {'site': settings, 'promo_version': promo_version}
+
+    # ===================== Menu (zakładki) =====================
+
+    def clean_menu_layout(raw):
+        """Układ menu z edytora / bazy -> (układ, ukryte klucze); nieznane klucze i powtórki odpadają,
+        a pozycje, których nie ma ani w układzie, ani w ukrytych (np. nowa zakładka w kodzie), dochodzą na końcu."""
+        used, layout = set(), []
+
+        def item(entry):
+            key = entry.get('key') if isinstance(entry, dict) else None
+            if key not in MENU_ITEMS or key in used:
+                return None
+            used.add(key)
+            label = ' '.join(str(entry.get('label') or '').split())[:40]
+            return {'key': key, 'label': label} if label and label != MENU_ITEMS[key][0] else {'key': key}
+
+        entries = raw.get('layout') if isinstance(raw, dict) else None
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and 'group' in entry:
+                if sum(1 for e in layout if 'group' in e) >= MENU_MAX_GROUPS:
+                    continue
+                name = ' '.join(str(entry.get('group') or '').split())[:30] or 'Więcej'
+                children = [c for c in (item(x) for x in entry.get('items') or [] if isinstance(entry.get('items'), list)) if c]
+                layout.append({'group': name, 'items': children})
+            else:
+                one = item(entry)
+                if one:
+                    layout.append(one)
+        hidden = [k for k in (raw.get('hidden') if isinstance(raw, dict) and isinstance(raw.get('hidden'), list) else [])
+                  if k in MENU_ITEMS and k not in used]
+        used.update(hidden)
+        layout += [{'key': k} for k in MENU_ITEMS if k not in used]
+        return layout, hidden
+
+    def menu_layout():
+        try:
+            raw = json.loads(site_settings_raw('menu_layout') or 'null')
+        except ValueError:
+            raw = None
+        return clean_menu_layout(raw if raw else {'layout': MENU_DEFAULT_LAYOUT})
+
+    def site_settings_raw(key):
+        """Surowa wartość z site_setting spoza listy SITE_SETTINGS (np. układ menu) - z tą samą pamięcią podręczną."""
+        site_settings()
+        return settings_cache.get('raw', {}).get(key)
+
+    @app.context_processor
+    def inject_menu():
+        """Menu dla menu.html: lista pozycji i grup z gotowymi adresami i podświetleniem bieżącej zakładki."""
+        path = request.path
+
+        def entry(e):
+            label, endpoint, prefixes, badge = MENU_ITEMS[e['key']]
+            active = path == '/' if e['key'] == 'home' else path.startswith(prefixes)
+            return {'key': e['key'], 'label': e.get('label') or label, 'url': url_for(endpoint), 'active': active,
+                    'badge': badge}
+
+        menu = []
+        for e in menu_layout()[0]:
+            if 'group' in e:
+                items = [entry(i) for i in e['items']]
+                menu.append({'group': e['group'], 'items': items, 'active': any(i['active'] for i in items)})
+            else:
+                menu.append(entry(e))
+        return {'nav_menu': menu}
+
+    @app.route('/panel/menu', methods=['GET', 'POST'])
+    @login_required
+    def menu_editor():
+        """Edytor zakładek: kolejność, grupy rozwijane, własne nazwy, ukrywanie."""
+        if current_user.is_admin == "0":
+            flash('Menu ustawia tylko admin.', 'danger')
+            return redirect(url_for('index'))
+        if request.method == 'POST':
+            row = db.session.get(SiteSetting, 'menu_layout')
+            if request.form.get('reset'):
+                if row:
+                    db.session.delete(row)
+                flash('Przywrócono domyślne menu.', 'success')
+            else:
+                try:
+                    raw = json.loads(request.form.get('layout') or 'null')
+                except ValueError:
+                    raw = None
+                if not isinstance(raw, dict):
+                    flash('Nie udało się odczytać układu - spróbuj jeszcze raz.', 'danger')
+                    return redirect(url_for('menu_editor'))
+                layout, hidden = clean_menu_layout(raw)
+                if row is None:
+                    row = SiteSetting(key='menu_layout')
+                    db.session.add(row)
+                row.value, row.updated_by = json.dumps({'layout': layout, 'hidden': hidden}, ensure_ascii=False), current_user.id
+                flash('Menu zapisane.', 'success')
+            db.session.commit()
+            settings_cache['data'] = None
+            return redirect(url_for('menu_editor'))
+        layout, hidden = menu_layout()
+        items = {k: {'key': k, 'default': v[0]} for k, v in MENU_ITEMS.items()}
+        return render_template('panel_menu.html', layout=layout, hidden=hidden, items=items, max_groups=MENU_MAX_GROUPS)
 
     @app.route('/panel', methods=['GET', 'POST'])
     @login_required

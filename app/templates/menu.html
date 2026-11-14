@@ -1,6 +1,6 @@
 {# podświetla zakładkę, w której jest użytkownik (także jej podstrony, np. ranking -> Gry) #}
-{% macro nav_item(href, label, prefixes) -%}
-    {%- set active = (request.path == '/' and href == '/') or (href != '/' and request.path.startswith(prefixes)) -%}
+{% macro nav_item(href, label, prefixes, active=None) -%}
+    {%- if active is none %}{% set active = (request.path == '/' and href == '/') or (href != '/' and prefixes and request.path.startswith(prefixes)) %}{% endif -%}
     <li class="nav-item {{ 'active' if active }}">
         <a class="nav-link" href="{{ href }}" {% if active %}aria-current="page"{% endif %}>{{ label }}{{ caller() if caller }}</a>
     </li>
@@ -14,36 +14,48 @@
     </button>
     <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav ml-auto">
-            {{ nav_item('/', 'Strona Główna', ('/',)) }}
-            {{ nav_item('/albums', 'Galeria', ('/album', '/add_album', '/add_image')) }}
-            {{ nav_item('/news', 'Breaking News', ('/news', '/add_new')) }}
-            {{ nav_item(url_for('games'), '🎮 Gry', ('/games', '/ranking_', '/snake', '/tetris', '/dino', '/ice_tower', '/kolko_krzyzyk', '/formula')) }}
-            {{ nav_item('/camera', 'Kamera', ('/camera',)) }}
-            {{ nav_item('/calendar', 'Kalendarz', ('/calendar', '/add_entry', '/event')) }}
-            {{ nav_item(url_for('hall_of_fame'), '🏆 Hall of Fame', ('/hall_of_fame', '/profil')) }}
-            {% call nav_item('/ostatnie-ulepszenia', 'Ostatnie Ulepszenia', ('/ostatnie-ulepszenia',)) %}{% if has_new_upgrade %} <span class="badge badge-danger">NOWE</span>{% endif %}{% endcall %}
-            {% if quiz_live %}
-            {% call nav_item(url_for('quiz'), '🧠 Quiz', ('/quiz',)) %} <span class="badge badge-danger">LIVE</span>{% endcall %}
-            {% endif %}
-            <!-- Dodatki -->
-            <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/report', '/users', '/aktywnosc', '/druk3d', '/panel')) }}">
-                <a class="nav-link dropdown-toggle" href="#" id="extrasDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    Dodatki{% if print_promo %} <span class="badge badge-danger">NOWE</span>{% endif %}
+            {# zakładki z układu ustawionego w /panel/menu (nav_menu z inject_menu) #}
+            {% macro badge(kind) -%}
+                {%- if kind == 'upgrade' and has_new_upgrade or kind == 'print' and print_promo %} <span class="badge badge-danger">NOWE</span>
+                {%- elif kind == 'quiz' %} <span class="badge badge-danger">LIVE</span>{% endif -%}
+            {%- endmacro %}
+            {% for e in nav_menu %}
+            {% if e.group %}
+            {# quiz widać tylko w trakcie, a pusta grupa znika #}
+            {% set items = e['items']|rejectattr('badge', 'equalto', 'quiz')|list if not quiz_live else e['items'] %}
+            {% if items %}
+            <li class="nav-item dropdown {{ 'active' if e.active }}">
+                <a class="nav-link dropdown-toggle" href="#" id="navGroup{{ loop.index }}" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    {% set ns = namespace(new=false, live=false) %}
+                    {% for i in items %}
+                        {% if i.badge == 'upgrade' and has_new_upgrade or i.badge == 'print' and print_promo %}{% set ns.new = true %}{% endif %}
+                        {% if i.badge == 'quiz' %}{% set ns.live = true %}{% endif %}
+                    {% endfor %}
+                    {{ e.group }}{% if ns.live %} <span class="badge badge-danger">LIVE</span>{% elif ns.new %} <span class="badge badge-danger">NOWE</span>{% endif %}
                 </a>
-                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="extrasDropdown">
-                    <a class="dropdown-item" href="{{ url_for('activity') }}">⚡ Ostatnia aktywność</a>
-                    <a class="dropdown-item" href="{{ url_for('print_list') }}">🖨️ Druk 3D{% if print_promo %} <span class="badge badge-danger">NOWE</span>{% endif %}</a>
-                    <a class="dropdown-item" href="{{ url_for('view_report_list') }}">Zgłoszenia</a>
-                    <a class="dropdown-item" href="{{ url_for('users') }}">Użytkownicy</a>
-                    {% if current_user.is_authenticated and current_user.is_admin != "0" %}
-                    <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" href="{{ url_for('control_panel') }}">⚙️ Panel sterowania</a>
-                    <a class="dropdown-item" href="{{ url_for('print_filaments') }}">🧵 Filamenty do druku 3D</a>
-                    <a class="dropdown-item" href="{{ url_for('quiz_admin') }}">🧠 Quiz — prowadzenie</a>
-                    {% endif %}
-                    <!-- Można tutaj dodać kolejne strony w przyszłości -->
+                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="navGroup{{ loop.index }}">
+                    {% for i in items %}
+                    <a class="dropdown-item {{ 'active' if i.active }}" href="{{ i.url }}">{{ i.label }}{{ badge(i.badge) }}</a>
+                    {% endfor %}
                 </div>
             </li>
+            {% endif %}
+            {% elif e.badge != 'quiz' or quiz_live %}
+            {% call nav_item(e.url, e.label, (), e.active) %}{{ badge(e.badge) }}{% endcall %}
+            {% endif %}
+            {% endfor %}
+            {% if current_user.is_authenticated and current_user.is_admin != "0" %}
+            <!-- linki admina: osobno, żeby nie zginęły przy przebudowie menu -->
+            <li class="nav-item dropdown {{ 'active' if request.path.startswith(('/panel', '/druk3d/filamenty', '/quiz/admin')) }}">
+                <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Admin">⚙️</a>
+                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="adminDropdown">
+                    <a class="dropdown-item" href="{{ url_for('control_panel') }}">⚙️ Panel sterowania</a>
+                    <a class="dropdown-item" href="{{ url_for('menu_editor') }}">🧭 Menu (zakładki)</a>
+                    <a class="dropdown-item" href="{{ url_for('print_filaments') }}">🧵 Filamenty do druku 3D</a>
+                    <a class="dropdown-item" href="{{ url_for('quiz_admin') }}">🧠 Quiz — prowadzenie</a>
+                </div>
+            </li>
+            {% endif %}
             {% if current_user.is_authenticated %}
                 <li class="nav-item">
                     <a class="nav-link hl-cash" href="{{ url_for('hall_of_fame') }}#kasa"
