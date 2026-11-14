@@ -25,6 +25,66 @@
         Organizator: <b>{{ owner.username }}</b>
     </div>
 
+{# wybór drużyny jak w FIFA: najpierw liga, potem klub; zajęte przez innych są wyszarzone #}
+{% macro club_picker(id, current='') -%}
+<div class="form-row hl-club-picker" data-current="{{ current }}">
+    <div class="form-group col-md-6 mb-2">
+        <label for="league-{{ id }}" class="mb-1"><b>Liga</b></label>
+        <select name="league" id="league-{{ id }}" class="custom-select hl-league">
+            <option value="">— wybierz ligę —</option>
+            {% for key, label, clubs in fifa_leagues %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+            <option value="{{ fifa_other }}">✏️ Inna drużyna (wpisz nazwę)</option>
+        </select>
+    </div>
+    <div class="form-group col-md-6 mb-2">
+        <label for="club-{{ id }}" class="mb-1"><b>Klub</b></label>
+        <select name="club" id="club-{{ id }}" class="custom-select hl-club" disabled>
+            <option value="">najpierw wybierz ligę</option>
+        </select>
+        <input type="text" name="club_custom" class="form-control hl-club-custom" maxlength="60" placeholder="Nazwa drużyny" hidden>
+    </div>
+</div>
+{%- endmacro %}
+{% if fifa_mode %}
+<script>
+window.HL_FIFA = {
+    leagues: {{ fifa_leagues|tojson }},      // [[klucz, nazwa, [kluby]], ...]
+    taken: {{ taken_clubs|tojson }},         // klub małymi literami -> kto go ma
+    other: {{ fifa_other|tojson }},
+};
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.hl-club-picker').forEach(function (box) {
+        const league = box.querySelector('.hl-league'), club = box.querySelector('.hl-club'), custom = box.querySelector('.hl-club-custom');
+        const current = box.dataset.current || '';
+        function fill() {
+            const key = league.value, entry = HL_FIFA.leagues.find(l => l[0] === key);
+            const isOther = key === HL_FIFA.other;
+            club.hidden = isOther; custom.hidden = !isOther;
+            club.required = !!entry; custom.required = isOther;
+            club.innerHTML = '';
+            if (!entry) { club.disabled = true; club.add(new Option(isOther ? '' : 'najpierw wybierz ligę', '')); return; }
+            club.disabled = false;
+            club.add(new Option('— wybierz klub —', ''));
+            entry[2].forEach(function (name) {
+                const who = name.toLowerCase() !== current.toLowerCase() && HL_FIFA.taken[name.toLowerCase()];
+                const o = new Option(who ? name + ' — zajęte: ' + who : name, name);
+                o.disabled = !!who;
+                club.add(o);
+            });
+            if (current) club.value = current;
+        }
+        league.addEventListener('change', fill);
+        // zmiana klubu: od razu liga i klub, które gracz ma teraz
+        if (current) {
+            const entry = HL_FIFA.leagues.find(l => l[2].some(c => c.toLowerCase() === current.toLowerCase()));
+            if (entry) league.value = entry[0]; else { league.value = HL_FIFA.other; custom.value = current; }
+        }
+        fill();
+    });
+});
+</script>
+{% endif %}
+
 <div class="mb-3">
     <b>Uczestnicy:</b>
     <ul>
@@ -33,7 +93,7 @@
                 <li>
                     {{ p.username }} –
                     {% if p.role == "player" %}
-                        Gracz ({{ p.club }})
+                        Gracz ({{ p.club }}{% if p.league %} <small class="text-muted">· {{ p.league }}</small>{% endif %})
                     {% else %}
                         Obserwator
                     {% endif %}
@@ -47,6 +107,21 @@
     </ul>
 </div>
 
+{% if fifa_mode and my_fifa and my_fifa.role == 'player' %}
+    {% if not (tournament and tournament.started) %}
+    <details class="mb-3">
+        <summary>⚽ Twój klub: <b>{{ my_fifa.club or 'brak' }}</b> - zmień</summary>
+        <form action="{{ url_for('change_fifa_club', event_id=event.id) }}" method="POST" class="mt-2">
+            {{ club_picker('change', my_fifa.club or '') }}
+            <button type="submit" class="btn btn-primary btn-sm w-auto">Zmień klub</button>
+            <small class="text-muted ml-2">Klub zmienisz, dopóki turniej się nie zacznie.</small>
+        </form>
+    </details>
+    {% else %}
+    <p class="mb-3">⚽ Grasz jako <b>{{ my_fifa.club }}</b> <small class="text-muted">- turniej trwa, klubu nie można już zmienić.</small></p>
+    {% endif %}
+{% endif %}
+
 {% if not czy_zapisany %}
     {% if fifa_mode %}
         <!-- Formularz zapisu do turnieju FIFA -->
@@ -57,73 +132,21 @@
                 <input type="radio" name="role" value="player" required> Gracz
                 <input type="radio" name="role" value="observer"> Obserwator
             </div>
-            <div class="mb-2" id="club-select" style="display:none;">
-                <label for="club"><b>Wybierz klub:</b></label>
-<select name="club" class="custom-select">
-    <option value="Real Madrid">Real Madrid</option>
-    <option value="Manchester City">Manchester City</option>
-    <option value="FC Barcelona">FC Barcelona</option>
-    <option value="Liverpool">Liverpool</option>
-    <option value="Bayern Munich">Bayern Munich</option>
-    <option value="Paris Saint-Germain">Paris Saint-Germain</option>
-    <option value="Arsenal">Arsenal</option>
-    <option value="Inter Milan">Inter Milan</option>
-    <option value="Chelsea">Chelsea</option>
-    <option value="Manchester United">Manchester United</option>
-    <option value="Atlético Madrid">Atlético Madrid</option>
-    <option value="Juventus">Juventus</option>
-    <option value="AC Milan">AC Milan</option>
-    <option value="Borussia Dortmund">Borussia Dortmund</option>
-    <option value="Napoli">Napoli</option>
-    <option value="Tottenham Hotspur">Tottenham Hotspur</option>
-    <option value="Bayer Leverkusen">Bayer Leverkusen</option>
-    <option value="Aston Villa">Aston Villa</option>
-    <option value="Newcastle United">Newcastle United</option>
-    <option value="RB Leipzig">RB Leipzig</option>
-    <option value="AS Roma">AS Roma</option>
-    <option value="Lazio">Lazio</option>
-    <option value="Atalanta">Atalanta</option>
-    <option value="Villarreal CF">Villarreal CF</option>
-    <option value="Athletic Club">Athletic Club</option>
-    <option value="Sevilla FC">Sevilla FC</option>
-    <option value="AS Monaco">AS Monaco</option>
-    <option value="Olympique de Marseille">Olympique de Marseille</option>
-    <option value="Benfica">Benfica</option>
-    <option value="FC Porto">FC Porto</option>
-    <option value="Sporting CP">Sporting CP</option>
-    <option value="Ajax">Ajax</option>
-    <option value="PSV Eindhoven">PSV Eindhoven</option>
-    <option value="Feyenoord">Feyenoord</option>
-    <option value="Galatasaray">Galatasaray</option>
-    <option value="Fenerbahçe">Fenerbahçe</option>
-    <option value="Celtic">Celtic</option>
-    <option value="Rangers">Rangers</option>
-    <option value="Al Hilal">Al Hilal</option>
-    <option value="Al Nassr">Al Nassr</option>
-    <option value="Al Ittihad">Al Ittihad</option>
-    <option value="Al Ahli">Al Ahli</option>
-    <option value="Inter Miami">Inter Miami</option>
-    <option value="Boca Juniors">Boca Juniors</option>
-    <option value="River Plate">River Plate</option>
-    <option value="Flamengo">Flamengo</option>
-    <option value="Palmeiras">Palmeiras</option>
-    <option value="Corinthians">Corinthians</option>
-    <option value="Club América">Club América</option>
-    <option value="Monterrey">Monterrey</option>
-</select>
+            <div class="mb-2" id="club-select" hidden>
+                {{ club_picker('join') }}
             </div>
             <button type="submit" class="btn btn-success">Zapisz się</button>
         </form>
 
         <script>
-        // pokazanie wyboru klubu tylko jeśli gracz
+        // wybór klubu tylko dla gracza - obserwator nie musi go wypełniać
         document.querySelectorAll('input[name="role"]').forEach(el => {
-            el.addEventListener('change', function() {
-                if (this.value === "player") {
-                    document.getElementById('club-select').style.display = 'block';
-                } else {
-                    document.getElementById('club-select').style.display = 'none';
-                }
+            el.addEventListener('change', function () {
+                const box = document.getElementById('club-select'), player = this.value === 'player';
+                const league = box.querySelector('.hl-league');
+                box.hidden = !player;
+                league.required = player;
+                if (!player) { league.value = ''; league.dispatchEvent(new Event('change')); }   // obserwator - bez wymaganych pól klubu
             });
         });
         </script>

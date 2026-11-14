@@ -25,6 +25,7 @@ from flask_login import login_user, logout_user, login_required, current_user, L
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
 
+from app.fifa_teams import FIFA_LEAGUES, FIFA_OTHER, FIFA_CLUB_MAX, club_league, resolve_club
 from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail, \
     ForgotPasswordForm, ResetPasswordForm, ChangePasswordForm, UpgradeForm, PrintRequestForm, PrintStatusForm, \
     PrintDeleteForm, PRINT_EXTENSIONS, PRINT_MAX_MB, PRINT_QUALITIES, PRINT_COLORS, PRINT_STATUSES
@@ -1684,15 +1685,21 @@ def create_app():
 
         if fifa_mode:
             fifa_participants = FifaParticipant.query.filter_by(event_id=event.id).all()
+            taken_clubs = {}          # klub (małymi literami) -> kto go ma - w formularzu zajęte są wyszarzone
+            my_fifa = None
             for fp in fifa_participants:
                 user = User.query.get(fp.user_id)
                 participants_names.append({
                     "username": user.username,
                     "role": fp.role,
-                    "club": fp.club
+                    "club": fp.club,
+                    "league": club_league(fp.club) if fp.club else None,
                 })
+                if fp.role == "player" and fp.club:
+                    taken_clubs[fp.club.strip().lower()] = user.username
                 if fp.user_id == current_user.id:
                     czy_zapisany = True
+                    my_fifa = fp
 
             # Turniej
             tournament = Tournament.query.filter_by(event_id=event.id).first()
@@ -1762,6 +1769,8 @@ def create_app():
             knockout=knockout if fifa_mode else [],
             podium=podium if fifa_mode else [],
             knockout_warning=knockout_warning if fifa_mode else None,
+            fifa_leagues=FIFA_LEAGUES if fifa_mode else [], fifa_other=FIFA_OTHER,
+            taken_clubs=taken_clubs if fifa_mode else {}, my_fifa=my_fifa if fifa_mode else None,
             tm=tm,
         )
 
@@ -4129,11 +4138,53 @@ def create_app():
         flash('Usunięto czas.', 'info')
         return redirect_to_event(event)
 
+    def pick_fifa_club(event_id, user_id):
+        """Klub z formularza (liga + klub albo „Inna drużyna”) -> (nazwa, błąd). Klub może mieć tylko jeden gracz."""
+        club = resolve_club(request.form.get("league"), request.form.get("club"), request.form.get("club_custom"))
+        if not club:
+            return None, "Wybierz ligę i klub."
+        taken = FifaParticipant.query.filter(FifaParticipant.event_id == event_id, FifaParticipant.role == "player",
+                                             FifaParticipant.user_id != user_id,
+                                             func.lower(func.trim(FifaParticipant.club)) == club.strip().lower()).first()
+        if taken:
+            owner = User.query.get(taken.user_id)
+            return None, f"{club} - ten klub ma już {owner.username if owner else 'inny gracz'}. Wybierz inny."
+        return club, None
+
+    def fifa_started(event_id):
+        tournament = Tournament.query.filter_by(event_id=event_id).first()
+        return bool(tournament and tournament.started)
+
+    @app.route("/fifa/<int:event_id>/klub", methods=["POST"])
+    @login_required
+    def change_fifa_club(event_id):
+        """Gracz zmienia klub - tylko dopóki turniej się nie zaczął."""
+        entry = FifaParticipant.query.filter_by(event_id=event_id, user_id=current_user.id, role="player").first_or_404()
+        if fifa_started(event_id):
+            flash("Turniej już trwa - klubu nie można zmienić.", "warning")
+            return redirect(request.referrer or url_for("calendar"))
+        club, error = pick_fifa_club(event_id, current_user.id)
+        if error:
+            flash(error, "danger")
+        else:
+            entry.club = club
+            db.session.commit()
+            flash(f"Grasz teraz jako {club} ⚽", "success")
+        return redirect(request.referrer or url_for("calendar"))
+
     @app.route("/join_fifa_event/<int:event_id>", methods=["POST"])
     @login_required
     def join_fifa_event(event_id):
         role = request.form.get("role")
-        club = request.form.get("club") if role == "player" else None
+        if role not in ("player", "observer"):
+            flash("Wybierz, czy grasz, czy oglądasz.", "warning")
+            return redirect(request.referrer)
+        club = None
+        if role == "player":
+            club, error = pick_fifa_club(event_id, current_user.id)
+            if error:
+                flash(error, "danger")
+                return redirect(request.referrer)
 
         if FifaParticipant.query.filter_by(event_id=event_id, user_id=current_user.id).first():
             flash("Już jesteś zapisany na to wydarzenie.", "warning")
