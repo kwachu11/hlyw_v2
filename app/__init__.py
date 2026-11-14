@@ -370,6 +370,32 @@ def create_app():
                     )
                     db.session.add(match)
 
+    def round_robin(items):
+        """Terminarz „każdy z każdym” metodą koła: lista kolejek z parami - w kolejce każdy gra najwyżej raz."""
+        items = list(items)
+        if len(items) % 2:
+            items.append(None)
+        rounds = []
+        for _ in range(len(items) - 1):
+            rounds.append([(items[i], items[-1 - i]) for i in range(len(items) // 2)
+                           if items[i] is not None and items[-1 - i] is not None])
+            items.insert(1, items.pop())
+        return rounds
+
+    def generate_league(tournament, players, legs):
+        """Liga: jedna „grupa” ze wszystkimi graczami, mecze po kolejkach; przy rewanżu druga runda z zamienionym gospodarzem."""
+        random.shuffle(players)
+        group = TournamentGroup(tournament_id=tournament.id, name='Liga')
+        db.session.add(group)
+        db.session.flush()
+        rounds = round_robin(p.user_id for p in players)
+        if legs == 2:
+            rounds += [[(away, home) for home, away in r] for r in rounds]
+        for r in rounds:
+            for home, away in r:
+                db.session.add(TournamentMatch(tournament_id=tournament.id, group_id=group.id, round='grupa',
+                                               home_player_id=home, away_player_id=away))
+
     KNOCKOUT_ROUNDS = ['1/4 finału', '1/2 finału', 'o 3. miejsce', 'finał']
 
     def match_winner_loser(match):
@@ -416,6 +442,8 @@ def create_app():
         """Uzupełnia drabinkę po każdym wpisanym wyniku. Z każdej z 2 grup wychodzi tournament.advance graczy:
         2 -> półfinały A1-B2, B1-A2; 4 -> ćwierćfinały A1-B4, B2-A3, B1-A4, A2-B3 (zwycięzcy grup w różnych
         połówkach). Potem finał i mecz o 3. miejsce. Zwraca komunikat dla admina albo None."""
+        if tournament.is_league:
+            return None                     # liga nie ma fazy pucharowej
         advance = 4 if tournament.advance == 4 else 2
         groups = TournamentGroup.query.filter_by(tournament_id=tournament.id).order_by(TournamentGroup.name).all()
         group_matches = TournamentMatch.query.filter_by(tournament_id=tournament.id, round='grupa').all()
@@ -808,7 +836,12 @@ def create_app():
         event_id = db.Column(db.Integer, db.ForeignKey('calendar.id'))
         started = db.Column(db.Boolean, default=False)
         finished = db.Column(db.Boolean, default=False)
-        advance = db.Column(db.Integer, nullable=False, default=2, server_default='2')  # ilu wychodzi z grupy: 2 albo 4
+        advance = db.Column(db.Integer, nullable=False, default=2, server_default='2')  # ilu wychodzi z grupy: 2 albo 4; 0 = liga
+        legs = db.Column(db.Integer, nullable=False, default=1, server_default='1')        # liga: 1 = raz, 2 = mecz i rewanż
+
+        @property
+        def is_league(self):
+            return self.advance == 0
 
         groups = db.relationship('TournamentGroup', backref='tournament')
         matches = db.relationship('TournamentMatch', backref='tournament')
@@ -869,6 +902,7 @@ def create_app():
         for table, column, ddl in ([
             ('report', 'status', "VARCHAR(20) NOT NULL DEFAULT 'nowe'"),
             ('tournament', 'advance', "INTEGER NOT NULL DEFAULT 2"),
+            ('tournament', 'legs', "INTEGER NOT NULL DEFAULT 1"),
             ('participant', 'created_at', "DATETIME"),
             ('fifa_participant', 'created_at', "DATETIME"),
             ('news_reaction', 'created_at', "DATETIME"),
@@ -1684,10 +1718,16 @@ def create_app():
                     if matches:
                         knockout.append((round_name, matches))
 
-                final = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="finał").first()
-                third = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="o 3. miejsce").first()
-                first_id, second_id = match_winner_loser(final)
-                third_id = match_winner_loser(third)[0]
+                if tournament.is_league:
+                    league_matches = [m for g in groups for m in g.matches]
+                    done = tournament.finished or (league_matches and all(m.home_score is not None for m in league_matches))
+                    top = [row['player'].id for row in groups[0].table[:3]] if groups and done else []
+                    first_id, second_id, third_id = (top + [None, None, None])[:3]
+                else:
+                    final = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="finał").first()
+                    third = TournamentMatch.query.filter_by(tournament_id=tournament.id, round="o 3. miejsce").first()
+                    first_id, second_id = match_winner_loser(final)
+                    third_id = match_winner_loser(third)[0]
                 # (miejsce, gracz) - numer miejsca stały, żeby np. sam mecz o 3. miejsce nie dawał złota
                 podium = [(place, User.query.get(uid))
                           for place, uid in enumerate((first_id, second_id, third_id), 1) if uid]
@@ -3454,7 +3494,7 @@ def create_app():
                 if m.home_score is None or not m.home_player or not m.away_player:
                     continue
                 ev = Calendar.query.get(m.tournament.event_id) if m.tournament else None
-                round_name = 'grupa' if m.round == 'grupa' else m.round
+                round_name = ('liga' if m.tournament and m.tournament.is_league else 'grupa') if m.round == 'grupa' else m.round
                 add('match', '⚽', None,
                     f'FIFA ({round_name}): {m.home_player.username} {m.home_score}:{m.away_score} {m.away_player.username}',
                     url_for('event', day=ev.date.day, month=ev.date.month, year=ev.date.year) if ev else url_for('calendar'),
@@ -3889,14 +3929,22 @@ def create_app():
 
         # gracze z eventu
         fifa_players = FifaParticipant.query.filter_by(event_id=event.id, role="player").all()
-        advance = 4 if request.form.get("advance", type=int) == 4 else 2
-        if len(fifa_players) < 2 * advance:
-            db.session.rollback()
-            flash(f"Za mało graczy: przy {advance} wychodzących z grupy potrzeba minimum {2 * advance}.", "danger")
-            return redirect(request.referrer)
-        tournament.advance = advance
-
-        generate_groups_and_matches(tournament, fifa_players)
+        mode = request.form.get("advance")
+        if mode in ("liga", "liga2"):
+            if len(fifa_players) < 3:
+                db.session.rollback()
+                flash("Za mało graczy: liga potrzebuje minimum 3.", "danger")
+                return redirect(request.referrer)
+            tournament.advance, tournament.legs = 0, 2 if mode == "liga2" else 1
+            generate_league(tournament, fifa_players, tournament.legs)
+        else:
+            advance = 4 if mode == "4" else 2
+            if len(fifa_players) < 2 * advance:
+                db.session.rollback()
+                flash(f"Za mało graczy: przy {advance} wychodzących z grupy potrzeba minimum {2 * advance}.", "danger")
+                return redirect(request.referrer)
+            tournament.advance = advance
+            generate_groups_and_matches(tournament, fifa_players)
         db.session.commit()
 
         flash("Turniej rozpoczęty 🚀", "success")
@@ -3936,6 +3984,9 @@ def create_app():
             flash("Brak uprawnień", "danger")
             return redirect(request.referrer)
         tournament = Tournament.query.filter_by(event_id=event_id).first_or_404()
+        if tournament.is_league:
+            flash("Liga nie ma fazy pucharowej.", "warning")
+            return redirect(request.referrer)
         knockout = TournamentMatch.query.filter(TournamentMatch.tournament_id == tournament.id,
                                                 TournamentMatch.round != "grupa").all()
         if request.form.get("action") == "reset":

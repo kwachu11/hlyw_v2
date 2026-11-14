@@ -186,7 +186,7 @@
     <h2 class="mt-4">⚽ Turniej FIFA</h2>
 
     {% with timer_players = participants_names|selectattr('role', 'equalto', 'player')|list|length,
-            timer_advance = tournament.advance if tournament else 2,
+            timer_advance = (('liga2' if tournament.legs == 2 else 'liga') if tournament.is_league else tournament.advance) if tournament else 2,
             timer_start = event.date.strftime('%H:%M') if event.date.hour or event.date.minute else '' %}
         {% include '_fifa_timer.html' %}
     {% endwith %}
@@ -195,12 +195,24 @@
         <div class="mb-3">
             {% if not tournament %}
                 <form action="{{ url_for('start_tournament', event_id=event.id) }}" method="POST" class="form-inline hl-gap">
-                    <label for="advance">Z grupy wychodzi:</label>
+                    <label for="advance">Format:</label>
                     <select name="advance" id="advance" class="custom-select custom-select-sm w-auto">
-                        <option value="2">2 → półfinały</option>
-                        <option value="4">4 → ćwierćfinały</option>
+                        <optgroup label="Grupy A i B + faza pucharowa">
+                            <option value="2">z grupy wychodzi 2 → półfinały</option>
+                            <option value="4">z grupy wychodzi 4 → ćwierćfinały</option>
+                        </optgroup>
+                        <optgroup label="Liga - jedna tabela, bez pucharów">
+                            <option value="liga">Liga (każdy z każdym)</option>
+                            <option value="liga2">Liga - mecz i rewanż</option>
+                        </optgroup>
                     </select>
-                    <button type="submit" class="btn btn-primary w-auto">🚀 Rozpocznij turniej (losowanie grup)</button>
+                    <button type="submit" class="btn btn-primary w-auto">🚀 Rozpocznij turniej (losowanie)</button>
+                </form>
+            {% elif not tournament.finished and tournament.is_league %}
+                <p class="small text-muted mb-2">Liga{{ ' (mecz i rewanż)' if tournament.legs == 2 }}: każdy gra z każdym, mecze są ułożone w kolejki.
+                    Za wygraną 3 pkt, za remis 1. Po rozegraniu wszystkich meczów TOP 3 tabeli trafia na podium.</p>
+                <form action="{{ url_for('finish_tournament', event_id=event.id) }}" method="POST" onsubmit="return confirm('Zakończyć turniej? Wyników nie będzie można już zmieniać.')">
+                    <button type="submit" class="btn btn-outline-danger btn-sm w-auto">🏁 Zakończ turniej</button>
                 </form>
             {% elif not tournament.finished %}
                 <p class="small text-muted mb-2">Wpisuj wyniki — po rozegraniu wszystkich meczów grupowych drabinka ułoży się sama
@@ -247,8 +259,8 @@
 
     <div class="row">
     {% for group in groups %}
-    <div class="{{ 'col-12' if is_admin else 'col-lg-6' }} mb-3">
-        <h4>Grupa {{ group.name }}</h4>
+    <div class="{{ 'col-12' if is_admin or tournament.is_league else 'col-lg-6' }} mb-3">
+        <h4>{{ '🏟️ Tabela ligi' if tournament.is_league else 'Grupa ' ~ group.name }}</h4>
         <div class="table-responsive">
         <table class="table table-sm table-bordered hl-group-table">
             <thead class="thead-light">
@@ -265,8 +277,8 @@
             </thead>
             <tbody>
                 {% for row in group.table %}
-                <tr class="{{ 'hl-advance' if loop.index <= (tournament.advance or 2) }}">
-                    <td>{{ loop.index }}</td>
+                <tr class="{{ 'hl-advance' if loop.index <= (3 if tournament.is_league else tournament.advance or 2) }}">
+                    <td>{{ (['🥇', '🥈', '🥉'][loop.index0] if tournament.is_league and loop.index <= 3 else loop.index) }}</td>
                     <td>{{ row.player.username }}</td>
                     <td><strong>{{ row.points }}</strong></td>
                     <td>{{ row.wins }}</td>
@@ -280,7 +292,7 @@
         </table>
         </div>
         <details {{ 'open' if is_admin }}>
-            <summary class="mb-2">Mecze grupy {{ group.name }} ({{ group.match_list|selectattr('home_score', 'ne', none)|list|length }}/{{ group.match_list|length }})</summary>
+            <summary class="mb-2">{{ 'Mecze ligi' if tournament.is_league else 'Mecze grupy ' ~ group.name }} ({{ group.match_list|selectattr('home_score', 'ne', none)|list|length }}/{{ group.match_list|length }})</summary>
             {{ match_table(group.match_list, is_admin) }}
         </details>
     </div>
