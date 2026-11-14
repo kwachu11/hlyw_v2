@@ -149,6 +149,12 @@ MENU_DEFAULT_LAYOUT = [{'key': k} for k in ('home', 'albums', 'news', 'games', '
     [{'group': 'Dodatki', 'items': [{'key': k} for k in ('activity', 'print', 'reports', 'users')]}]
 MENU_MAX_GROUPS = 8
 
+# Zdjęcia propozycji druku 3D: 'wydruk' = gotowy wydruk (admin: kamera drukarki, chmura Bambu, plik),
+# 'uzytkownik' = autor pokazuje, co zrobił z modelem. Pliki w static/images/druk3d/, dłuższy bok PRINT_PHOTO_SIZE.
+PRINT_PHOTO_KINDS = {'wydruk': '📸 Gotowy wydruk', 'uzytkownik': '🏡 Wydruk w akcji'}
+PRINT_PHOTO_SIZE = 1600
+PRINT_PHOTO_MAX_BYTES = 15 * 1024 * 1024
+
 # Druk 3D: filamenty do wyboru w propozycji (tabela filament, zarządza admin w /druk3d/filamenty)
 OUR_PRINTER = 'H2C'   # nasza drukarka - profil MakerWorld z nią zgodny dostaje znaczek
 FILAMENT_STATUSES = {'dostepny': 'Dostępne od ręki', 'na_zyczenie': 'Na życzenie', 'ukryty': 'Ukryte'}
@@ -668,6 +674,20 @@ def create_app():
         status_by = db.Column(db.Integer, db.ForeignKey('user.id'))
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
         user = db.relationship('User', foreign_keys=[user_id], lazy=True)
+
+    class PrintPhoto(db.Model):
+        """Zdjęcie propozycji druku: gotowy wydruk albo autor pokazujący, co z nim zrobił."""
+        __tablename__ = 'print_photo'
+        id = db.Column(db.Integer, primary_key=True)
+        request_id = db.Column(db.Integer, db.ForeignKey('print_request.id'), nullable=False, index=True)
+        file_path = db.Column(db.String(200), nullable=False)    # static/images/druk3d/<losowa>.jpg
+        kind = db.Column(db.String(20), nullable=False, default='wydruk')
+        source = db.Column(db.String(20))                        # kamera / chmura / plik
+        caption = db.Column(db.String(200))
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+        author = db.relationship('User', foreign_keys=[created_by], lazy=True)
+        request = db.relationship('PrintRequest', backref=db.backref('photos', lazy=True, order_by='PrintPhoto.created_at'))
 
     class Comment(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -1774,9 +1794,10 @@ def create_app():
         tid = (request.args.get('id') or '').strip()
         name = (request.args.get('name') or '').strip().lower()
         cover = None
+        field = 'snapShot' if request.args.get('rodzaj') == 'zdjecie' else 'cover'   # zdjęcie z kamery po wydruku / render z slicera
         for h in hits:
             if tid and str(h.get('id')) == tid:
-                cover = h.get('cover'); break
+                cover = h.get(field); break
             if not tid and name and (h.get('title') or '').strip().lower() == name:
                 cover = h.get('cover'); break
         if not cover and not tid and not name and hits:
@@ -1787,7 +1808,7 @@ def create_app():
             img = _ur.urlopen(_ur.Request(cover, headers={'User-Agent': 'hlyw-camera/1.0'}), timeout=10).read()
         except Exception:
             abort(502)
-        resp = app.response_class(img, content_type='image/png')
+        resp = app.response_class(img, content_type='image/jpeg' if img[:3] == b'\xff\xd8\xff' else 'image/png')
         resp.headers['Cache-Control'] = 'public, max-age=300'
         return resp
 
@@ -1800,10 +1821,15 @@ def create_app():
             return jsonify(wydruki=[])
         out = []
         for h in (data.get('hits', []) or [])[:8]:
+            # wynik po zdjęciu: drukarka robi je tylko po udanym wydruku (status 2); 4 = jeszcze się drukuje
+            result = 'drukuje' if h.get('status') == 4 else 'udany' if h.get('snapShot') else 'nieudany'
             out.append({
                 'id': h.get('id'),
-                'title': h.get('title') or h.get('designTitle') or 'Wydruk',
+                'title': bambu_task_title(h),
+                'raw_title': h.get('title') or '',          # tak jak podaje drukarka (panel statusu tłumaczy po nim)
                 'status': h.get('status'),
+                'result': result,
+                'photo': bool(h.get('snapShot')),
                 'start': h.get('startTime'),
                 'cost': h.get('costTime'),
                 'weight': h.get('weight'),
@@ -2681,6 +2707,8 @@ def create_app():
             file_size = os.path.getsize(print_file_path(entry.file_path))
         return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, can_edit=can_edit, file_size=file_size, print_statuses=PRINT_STATUSES,
                                gallery=print_gallery(entry), profile=print_profile(entry), model_info=print_model_info(entry),
+                               photo_kinds=PRINT_PHOTO_KINDS, camera_ready=bool(printer_frame_url()),
+                               cloud_ready=bool(os.getenv('BAMBU_TOKEN')),
                                transform=print_transform(entry), transform_text=describe_print_transform(print_transform(entry)),
                                gallery_possible=bool(entry.link and model_images_supported(entry.link)),
                                qualities=PRINT_QUALITIES, colors=PRINT_COLORS, delete_form=PrintDeleteForm(),
@@ -2694,6 +2722,181 @@ def create_app():
             abort(404)
         return send_file(print_file_path(entry.file_path), as_attachment=True, download_name=entry.file_name,
                          mimetype='application/octet-stream')
+
+    def printer_frame_url():
+        """Adres pojedynczej klatki z kamery drukarki (go2rtc na malince) - z PRINTER_STREAM_URL (.../api/ws?src=...)."""
+        stream = os.getenv('PRINTER_STREAM_URL') or ''
+        return stream.replace('/api/ws', '/api/frame.jpeg') if '/api/ws' in stream else None
+
+    def download_image(url, timeout=20):
+        import urllib.request as _ur
+        with _ur.urlopen(_ur.Request(url, headers={'User-Agent': 'hlyw-druk3d/1.0'}), timeout=timeout) as resp:
+            data = resp.read(PRINT_PHOTO_MAX_BYTES + 1)
+        if len(data) > PRINT_PHOTO_MAX_BYTES:
+            raise ValueError('za duży obrazek')
+        return data
+
+    def save_print_photo(entry, data, kind, source, caption=None):
+        """Zapisuje zdjęcie (bajty) jako JPEG w static/images/druk3d i dodaje wpis; przy złym obrazku rzuca wyjątek."""
+        folder = os.path.join(app.static_folder, 'images', 'druk3d')
+        create_directory_if_not_exists(folder)
+        name = uuid.uuid4().hex + '.jpg'
+        save_jpeg_thumbnail(io.BytesIO(data), os.path.join(folder, name), size=PRINT_PHOTO_SIZE, quality=85)
+        photo = PrintPhoto(request_id=entry.id, file_path='static/images/druk3d/' + name, kind=kind, source=source,
+                           caption=' '.join((caption or '').split())[:200] or None, created_by=current_user.id)
+        db.session.add(photo)
+        return photo
+
+    def remove_print_photo_file(photo):
+        path = os.path.join(app.root_path, photo.file_path.replace('\\', '/'))
+        if os.path.exists(path):
+            os.remove(path)
+
+    @app.template_global('print_photo_url')
+    def print_photo_url(entry):
+        """Najnowsze zdjęcie gotowego wydruku (na listę propozycji zamiast renderu); None, gdy nie ma."""
+        photo = next((ph for ph in reversed(entry.photos) if ph.kind == 'wydruk'), None)
+        return media_url(photo.file_path) if photo else None
+
+    def bambu_task_title(task):
+        return task.get('designTitleTranslated') or task.get('designTitle') or task.get('instanceTitleTranslated') \
+            or task.get('title') or 'Wydruk'
+
+    def cloud_tasks_for(entry):
+        """Zakończone wydruki z chmury Bambu ze zdjęciem z kamery (snapShot), od najnowszego; pasujące do propozycji
+        (numer modelu z linku MakerWorld = designId albo nazwa pliku = tytuł zadania) mają 'match'. None = chmura nie odpowiada."""
+        data = _bambu_tasks_data()
+        if data is None:
+            return None
+        model = re.search(r'makerworld\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?models/(\d+)', entry.link or '')
+        model_id = int(model.group(1)) if model else None
+        file_name = (entry.file_name or '').strip().lower()
+        stem = file_name.rsplit('.', 1)[0]
+        tasks = []
+        for h in data.get('hits') or []:
+            if h.get('status') != 2 or not h.get('snapShot'):        # 2 = wydruk zakończony (3 = przerwany, 4 = w trakcie)
+                continue
+            title = (h.get('title') or '').strip().lower()
+            match = bool(model_id and h.get('designId') == model_id) or \
+                bool(file_name and (title == file_name or (stem and title.rsplit('.', 1)[0] == stem)))
+            tasks.append({'id': h.get('id'), 'title': bambu_task_title(h), 'end': h.get('endTime'), 'match': match,
+                          'weight': h.get('weight'), 'minutes': round((h.get('costTime') or 0) / 60)})
+        return tasks
+
+    def cloud_task(task_id):
+        data = _bambu_tasks_data()
+        return next((h for h in (data or {}).get('hits', []) or [] if str(h.get('id')) == str(task_id)), None)
+
+    def finish_photo(entry, choice):
+        """Zdjęcie wybrane przy statusie „Wydrukowana”: 'kamera' = kamera drukarki teraz, 'task:<id>' = zdjęcie,
+        które drukarka zrobiła po skończeniu tego wydruku (chmura Bambu), puste = bez zdjęcia. Zwraca (opis źródła, błąd)."""
+        if choice == 'kamera':
+            error = camera_photo(entry)
+            return ('zdjęcie z kamery drukarki', None) if not error else (None, error)
+        if choice.startswith('task:'):
+            task = cloud_task(choice[5:])
+            if not task or not task.get('snapShot'):
+                return None, 'nie znalazłem tego wydruku w chmurze Bambu'
+            try:
+                save_print_photo(entry, download_image(task['snapShot']), 'wydruk', 'chmura', bambu_task_title(task))
+            except Exception as e:
+                app.logger.warning('Zdjęcie z chmury Bambu dla propozycji %s: %s', entry.id, e)
+                return None, 'chmura Bambu nie oddała zdjęcia'
+            return 'zdjęcie z chmury Bambu (wydruk „' + bambu_task_title(task) + '”)', None
+        return None, None
+
+    def camera_photo(entry, caption=None):
+        """Zdjęcie z kamery drukarki dla propozycji; zwraca komunikat błędu albo None, gdy się udało."""
+        url = printer_frame_url()
+        if not url:
+            return 'kamera drukarki nie jest skonfigurowana (PRINTER_STREAM_URL)'
+        try:
+            save_print_photo(entry, download_image(url), 'wydruk', 'kamera', caption)
+        except Exception as e:
+            app.logger.warning('Zdjęcie z kamery drukarki dla propozycji %s nie wyszło: %s', entry.id, e)
+            return 'kamera drukarki nie odpowiada'
+        return None
+
+    @app.route('/druk3d/<int:request_id>/zdjecia/dodaj', methods=['POST'])
+    @login_required
+    def print_photo_add(request_id):
+        """Nowe zdjęcie propozycji: admin z kamery / chmury Bambu / pliku, autor z pliku (co zrobił z modelem)."""
+        entry = PrintRequest.query.get_or_404(request_id)
+        is_admin = current_user.is_admin != "0"
+        source = request.form.get('source')
+        caption = request.form.get('caption')
+        back = redirect(url_for('print_detail', request_id=entry.id) + '#zdjecia')
+        if not is_admin and entry.user_id != current_user.id:
+            flash('Zdjęcia dodaje autor propozycji albo admin.', 'danger')
+            return back
+        if source in ('kamera', 'chmura') and not is_admin:
+            flash('Zdjęcie z drukarki dodaje admin.', 'danger')
+            return back
+        kind = request.form.get('kind') if is_admin and request.form.get('kind') in PRINT_PHOTO_KINDS else \
+            ('wydruk' if is_admin else 'uzytkownik')
+        if source == 'kamera':
+            error = camera_photo(entry, caption)
+            if error:
+                flash('Nie udało się zrobić zdjęcia: ' + error + '.', 'danger')
+                return back
+        elif source == 'chmura':
+            task = cloud_task((request.form.get('task_id') or '').strip())
+            url = task and (task.get('snapShot') or task.get('cover'))
+            if not url:
+                flash('Nie znalazłem tego wydruku w chmurze Bambu.', 'danger')
+                return back
+            try:
+                save_print_photo(entry, download_image(url), kind, 'chmura', caption or bambu_task_title(task))
+            except Exception as e:
+                app.logger.warning('Okładka z chmury Bambu dla propozycji %s: %s', entry.id, e)
+                flash('Nie udało się pobrać obrazka z chmury Bambu.', 'danger')
+                return back
+        else:
+            file = request.files.get('file')
+            ext = file.filename.rsplit('.', 1)[-1].lower() if file and '.' in (file.filename or '') else ''
+            if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                flash('Wybierz zdjęcie (' + ', '.join(sorted(ALLOWED_IMAGE_EXTENSIONS)) + ').', 'danger')
+                return back
+            data = file.read(PRINT_PHOTO_MAX_BYTES + 1)
+            if len(data) > PRINT_PHOTO_MAX_BYTES:
+                flash('Zdjęcie jest za duże.', 'danger')
+                return back
+            try:
+                save_print_photo(entry, data, kind, 'plik', caption)
+            except Exception as e:
+                app.logger.warning('Zdjęcie z pliku dla propozycji %s: %s', entry.id, e)
+                flash('Nie udało się odczytać tego zdjęcia (HEIC z iPhone\'a wyślij jako JPG).', 'danger')
+                return back
+        db.session.commit()
+        flash('Zdjęcie dodane.', 'success')
+        return back
+
+    @app.route('/druk3d/zdjecie/<int:photo_id>/usun', methods=['POST'])
+    @login_required
+    def print_photo_delete(photo_id):
+        photo = PrintPhoto.query.get_or_404(photo_id)
+        request_id = photo.request_id
+        if current_user.is_admin == "0" and photo.created_by != current_user.id:
+            flash('Usunąć zdjęcie może ten, kto je dodał, albo admin.', 'danger')
+        else:
+            remove_print_photo_file(photo)
+            db.session.delete(photo)
+            db.session.commit()
+            flash('Zdjęcie usunięte.', 'success')
+        return redirect(url_for('print_detail', request_id=request_id) + '#zdjecia')
+
+    @app.route('/druk3d/chmura')
+    @login_required
+    def print_cloud_tasks():
+        """Ostatnie wydruki z chmury Bambu do wyboru okładki (tylko admin)."""
+        if current_user.is_admin == "0":
+            abort(403)
+        entry = PrintRequest.query.get_or_404(request.args.get('id', type=int))
+        tasks = cloud_tasks_for(entry)
+        if tasks is None:
+            return jsonify(ok=False, error='token' if os.getenv('BAMBU_TOKEN') else 'not_configured', tasks=[])
+        tasks.sort(key=lambda t: not t['match'])                  # pasujące do propozycji na początek
+        return jsonify(ok=True, tasks=tasks[:16])
 
     @app.route('/druk3d/<int:request_id>/status', methods=['POST'])
     @login_required
@@ -2710,8 +2913,13 @@ def create_app():
                 entry.status_at = datetime.utcnow()
                 entry.status_by = current_user.id
             entry.admin_note = (form.admin_note.data or '').strip() or None
+            photo_source, photo_error = finish_photo(entry, request.form.get('finish_photo') or '') \
+                if entry.status == 'wydrukowana' else (None, None)
             db.session.commit()
-            flash(f'Zapisano. Status: {PRINT_STATUSES[entry.status][0]}.', 'success')
+            flash(f'Zapisano. Status: {PRINT_STATUSES[entry.status][0]}.'
+                  + (f' Dodano {photo_source}.' if photo_source else ''), 'success')
+            if photo_error:
+                flash('Zdjęcia nie dodałem: ' + photo_error + '. Możesz spróbować jeszcze raz niżej, w „Zdjęcia”.', 'warning')
         return redirect(url_for('print_detail', request_id=entry.id))
 
     @app.route('/druk3d/<int:request_id>/usun', methods=['POST'])
@@ -2725,6 +2933,9 @@ def create_app():
         else:
             for name in (entry.file_path, entry.thumb_path):
                 remove_print_file(name)
+            for photo in list(entry.photos):
+                remove_print_photo_file(photo)
+                db.session.delete(photo)
             db.session.delete(entry)
             db.session.commit()
             flash('Propozycja usunięta.', 'success')
@@ -3184,6 +3395,11 @@ def create_app():
             for p in PrintRequest.query.filter(PrintRequest.status_at > since).all():
                 name, _, icon = PRINT_STATUSES[p.status]
                 add('print', icon, p.status_by, f'druk 3D „{p.title}”: {name}', url_for('print_detail', request_id=p.id), p.status_at)
+            for ph in PrintPhoto.query.filter(PrintPhoto.created_at > since).all():
+                if ph.request:
+                    text = ('zdjęcie gotowego wydruku: ' if ph.kind == 'wydruk' else 'wydruk w akcji: ') + ph.request.title
+                    add('print', '📸' if ph.kind == 'wydruk' else '🏡', ph.created_by, text,
+                        url_for('print_detail', request_id=ph.request_id) + '#zdjecia', ph.created_at)
         if want('tm'):
             for t in TmTime.query.filter(TmTime.created_at > since).all():
                 ev = Calendar.query.get(t.track.event_id)

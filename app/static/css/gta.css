@@ -648,3 +648,29 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .hl-ca-pick:disabled { opacity: .4; }
 /* w panelu etykiety bywają długie - Barlow zamiast Pricedown */
 .hl-panel label { font-family: var(--gta-font-text); font-size: .98rem; letter-spacing: 0; text-transform: none; color: #e6e6ea; }
+
+/* Druk 3D: zdjęcia wydruku i okładki z chmury Bambu */
+.hl-print-photo figcaption { margin-top: 4px; line-height: 1.35; }
+.hl-gallery-thumbs form { margin: 0; }
+.hl-cloud-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.hl-cloud-list form { margin: 0; }
+.hl-cloud-list button { display: block; width: 100%; padding: 0 0 6px; text-align: left; color: inherit; cursor: pointer;
+    background: var(--gta-panel-2, #202026); border: 1px solid var(--gta-border, #333); border-radius: 2px; }
+.hl-cloud-list button:hover { border-color: var(--gta-yellow, #ffcc00); }
+.hl-cloud-list button.match { border-color: #46a758; }
+.hl-cloud-list img { display: block; width: 100%; aspect-ratio: 876 / 324; object-fit: cover; background: #111; margin-bottom: 4px; }
+.hl-cloud-title, .hl-cloud-meta { display: block; padding: 0 6px; font-size: .8rem; line-height: 1.3; }
+.hl-cloud-meta { color: var(--gta-muted, #999); }
+/* licznik pod zdjęciem nie może łapać stuknięć - na telefonie leży na strzałkach (prawo/lewo nie działały) */
+.hl-lightbox .hl-lb-counter { pointer-events: none; }
+.hl-lightbox .hl-lb-btn { z-index: 4; }
+/* /camera, ostatnie wydruki: zdjęcie po wydruku i wynik */
+.hl-print-photo-strip { display: block; aspect-ratio: 876 / 324; overflow: hidden; background: #0a0a0a; cursor: zoom-in; }
+.hl-print-photo-strip img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
+.hl-print-photo-strip:hover img { transform: scale(1.05); }
+.hl-print-result { display: inline-block; margin: 8px 10px 0; padding: 1px 6px; border-radius: 2px; font-size: .7rem;
+    background: rgba(255, 255, 255, .08); color: var(--gta-muted, #aaa); }
+.hl-print-result.is-udany { background: rgba(70, 167, 88, .2); color: #7bd88f; }
+.hl-print-result.is-nieudany { background: rgba(229, 72, 77, .18); color: #ff8a8e; }
+.hl-print-result.is-drukuje { background: rgba(255, 204, 0, .18); color: var(--gta-yellow, #ffcc00); }
+.hl-print-result:empty { display: none; }

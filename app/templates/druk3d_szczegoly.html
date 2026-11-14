@@ -134,6 +134,118 @@
     {% endif %}
 </dl>
 
+{# ===== Zdjęcia: gotowy wydruk (admin: kamera / chmura Bambu / plik) i „wydruk w akcji” od autora ===== #}
+{% set is_admin = current_user.is_admin != "0" %}
+{% set is_author = entry.user_id == current_user.id %}
+{% if entry.photos or is_admin or (is_author and entry.status == 'wydrukowana') %}
+<section id="zdjecia" class="mb-4">
+    <h4 class="hl-section-title">📸 Zdjęcia</h4>
+    {% if entry.photos %}
+    <div class="hl-grid hl-print-photos mb-3">
+        {% for ph in entry.photos %}
+        {% set src = ph.file_path|media_url %}
+        <figure class="hl-print-photo mb-0">
+            <a href="{{ src }}" class="hl-thumb" data-src="{{ src }}"><img src="{{ src }}" alt="" loading="lazy" decoding="async"></a>
+            <figcaption class="small">
+                <span class="badge {{ 'badge-success' if ph.kind == 'wydruk' else 'badge-info' }}">{{ photo_kinds[ph.kind] }}</span>
+                {% if ph.caption %}<span class="d-block">{{ ph.caption }}</span>{% endif %}
+                <span class="text-muted d-block">{{ ph.author.username if ph.author else '' }} · {{ ph.created_at|when }}
+                    {% if ph.source == 'kamera' %}· z kamery drukarki{% elif ph.source == 'chmura' %}· z chmury Bambu{% endif %}</span>
+                {% if is_admin or ph.created_by == current_user.id %}
+                <form method="POST" action="{{ url_for('print_photo_delete', photo_id=ph.id) }}" class="d-inline" onsubmit="return confirm('Usunąć to zdjęcie?')">
+                    <button type="submit" class="btn btn-link btn-sm p-0 text-danger w-auto">usuń</button>
+                </form>
+                {% endif %}
+            </figcaption>
+        </figure>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if is_admin %}
+    <div class="card mb-3">
+        <div class="card-header"><strong>Dodaj zdjęcie wydruku</strong> <small class="text-muted">(admin)</small></div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap hl-gap mb-2">
+                <button type="button" class="btn btn-primary btn-sm w-auto" id="hlCloudLoad" {{ 'disabled' if not cloud_ready }}>☁️ Zdjęcie z chmury Bambu</button>
+                <form method="POST" action="{{ url_for('print_photo_add', request_id=entry.id) }}" class="mb-0" onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = '⏳ Robię zdjęcie…'">
+                    <input type="hidden" name="source" value="kamera">
+                    <button type="submit" class="btn btn-outline-primary btn-sm w-auto" {{ 'disabled' if not camera_ready }}>📷 Zdjęcie z kamery drukarki</button>
+                </form>
+            </div>
+            <div id="hlCloudBox" class="mb-2" hidden>
+                <small class="text-muted d-block mb-1" id="hlCloudStatus"></small>
+                <div class="hl-cloud-list" id="hlCloudList"></div>
+            </div>
+            <form method="POST" action="{{ url_for('print_photo_add', request_id=entry.id) }}" enctype="multipart/form-data" class="form-row align-items-end">
+                <input type="hidden" name="source" value="plik">
+                <div class="form-group col-md-4 mb-2"><label class="small mb-1">Z pliku</label>
+                    <input type="file" name="file" accept="image/*" class="form-control-file" required></div>
+                <div class="form-group col-md-3 mb-2"><label class="small mb-1">Rodzaj</label>
+                    <select name="kind" class="form-control form-control-sm">{% for k, v in photo_kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+                <div class="form-group col-md-3 mb-2"><label class="small mb-1">Podpis (opcjonalnie)</label>
+                    <input type="text" name="caption" maxlength="200" class="form-control form-control-sm"></div>
+                <div class="form-group col-md-2 mb-2"><button type="submit" class="btn btn-outline-primary btn-sm">Dodaj</button></div>
+            </form>
+        </div>
+    </div>
+    {% elif is_author %}
+    <div class="card mb-3">
+        <div class="card-header"><strong>🏡 Pokaż wydruk w akcji</strong></div>
+        <div class="card-body">
+            <p class="small text-muted mb-2">Gdzie stoi, do czego się przydał, jak wyszło po złożeniu - wrzuć zdjęcie, zobaczą je wszyscy.</p>
+            <form method="POST" action="{{ url_for('print_photo_add', request_id=entry.id) }}" enctype="multipart/form-data" class="form-row align-items-end">
+                <input type="hidden" name="source" value="plik">
+                <div class="form-group col-md-5 mb-2"><input type="file" name="file" accept="image/*" class="form-control-file" required></div>
+                <div class="form-group col-md-5 mb-2"><input type="text" name="caption" maxlength="200" class="form-control form-control-sm" placeholder="Podpis, np. stoi na biurku i trzyma kable"></div>
+                <div class="form-group col-md-2 mb-2"><button type="submit" class="btn btn-primary btn-sm">Dodaj</button></div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% if not (images or gallery_possible) %}{% include "_lightbox.html" %}{% endif %}
+{% if is_admin %}
+<script>
+(function () {
+    // okładki ostatnich wydruków z chmury Bambu - klik dodaje obrazek do propozycji
+    var load = document.getElementById('hlCloudLoad'), box = document.getElementById('hlCloudBox');
+    var list = document.getElementById('hlCloudList'), status = document.getElementById('hlCloudStatus');
+    if (!load) return;
+    load.addEventListener('click', function () {
+        box.hidden = false;
+        status.textContent = '⏳ Pobieram ostatnie wydruki z chmury Bambu…';
+        list.innerHTML = '';
+        fetch("{{ url_for('print_cloud_tasks', id=entry.id) }}").then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.ok) {
+                status.textContent = d.error === 'token' ? 'Token chmury Bambu wygasł - trzeba wpisać nowy BAMBU_TOKEN w .env.'
+                                                         : 'Chmura Bambu nie jest skonfigurowana (BAMBU_TOKEN).';
+                return;
+            }
+            status.textContent = d.tasks.length ? 'Zdjęcia, które drukarka zrobiła po skończeniu wydruku - kliknij, żeby dodać:'
+                                                : 'W chmurze nie ma ostatnich zakończonych wydruków ze zdjęciem.';
+            d.tasks.forEach(function (t) {
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = "{{ url_for('print_photo_add', request_id=entry.id) }}";
+                form.innerHTML = '<input type="hidden" name="source" value="chmura"><input type="hidden" name="task_id">' +
+                                 '<button type="submit"><img alt="" loading="lazy"><span class="hl-cloud-title"></span><span class="hl-cloud-meta"></span></button>';
+                form.querySelector('[name=task_id]').value = t.id;
+                form.querySelector('img').src = "{{ url_for('drukarka_okladka') }}?rodzaj=zdjecie&id=" + encodeURIComponent(t.id);
+                form.querySelector('.hl-cloud-title').textContent = (t.match ? '✅ ' : '') + t.title;
+                form.querySelector('.hl-cloud-meta').textContent = (t.end ? new Date(t.end).toLocaleString('pl-PL', {day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'}) : '')
+                    + (t.weight ? ' · ' + Math.round(t.weight) + ' g' : '') + (t.match ? ' · pasuje do tej propozycji' : '');
+                if (t.match) form.querySelector('button').classList.add('match');
+                form.addEventListener('submit', function () { form.querySelector('button').disabled = true; });
+                list.appendChild(form);
+            });
+        }).catch(function () { status.textContent = 'Nie udało się połączyć z chmurą Bambu.'; });
+    });
+})();
+</script>
+{% endif %}
+{% endif %}
+
 {% if file_size %}
 {% include "_model_viewer.html" %}
 {% if transform and current_user.is_admin != "0" %}
@@ -202,7 +314,59 @@ if (['stl', '3mf', 'obj'].includes(ext)) {
             {{ status_form.admin_note(class="form-control") }}
         </div>
     </div>
+    <div class="form-group" id="hlFinishBox" hidden>
+        <label for="hlFinishPhoto">📸 Zdjęcie gotowego wydruku</label>
+        <select name="finish_photo" id="hlFinishPhoto" class="form-control">
+            <option value="">— bez zdjęcia —</option>
+            {% if camera_ready %}<option value="kamera">📷 Z kamery drukarki teraz</option>{% endif %}
+        </select>
+        <small class="text-muted d-block" id="hlFinishInfo">{% if cloud_ready %}Wczytuję wydruki z chmury Bambu…{% endif %}</small>
+        <img id="hlFinishPreview" alt="" class="rounded mt-2" style="max-width: 100%; width: 440px; aspect-ratio: 876 / 324; object-fit: cover; background: #111;" hidden>
+    </div>
     {{ status_form.submit(class="btn btn-primary btn-sm w-auto") }}
+    <script>
+    (function () {
+        // „Wydrukowana” -> wybór zdjęcia: wydruki z chmury Bambu (pasujący do propozycji domyślnie), kamera albo bez zdjęcia
+        var status = document.getElementById('status'), box = document.getElementById('hlFinishBox');
+        var choice = document.getElementById('hlFinishPhoto'), info = document.getElementById('hlFinishInfo');
+        var preview = document.getElementById('hlFinishPreview'), was = status.value, loaded = false;
+        function showPreview() {
+            var v = choice.value;
+            preview.hidden = v.indexOf('task:') !== 0;
+            if (!preview.hidden) preview.src = "{{ url_for('drukarka_okladka') }}?rodzaj=zdjecie&id=" + encodeURIComponent(v.slice(5));
+        }
+        function loadCloud() {
+            if (loaded || {{ 'false' if cloud_ready else 'true' }}) return;
+            loaded = true;
+            fetch("{{ url_for('print_cloud_tasks', id=entry.id) }}").then(function (r) { return r.json(); }).then(function (d) {
+                if (!d.ok) { info.textContent = d.error === 'token' ? 'Chmura Bambu nie odpowiada (token?).' : 'Chmura Bambu nie jest skonfigurowana.'; return; }
+                var group = document.createElement('optgroup'), match = null;
+                group.label = 'Zdjęcia z chmury Bambu (po skończeniu wydruku)';
+                d.tasks.forEach(function (t) {
+                    var o = document.createElement('option');
+                    o.value = 'task:' + t.id;
+                    o.textContent = (t.match ? '✅ ' : '') + t.title + (t.end ? ' · ' + new Date(t.end).toLocaleString('pl-PL', {day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'}) : '');
+                    group.appendChild(o);
+                    if (t.match && !match) match = o;
+                });
+                if (d.tasks.length) choice.insertBefore(group, choice.options[1] || null);
+                // pasujący wydruk zaznaczony od razu, ale tylko przy zmianie statusu na „Wydrukowana”
+                if (match && was !== 'wydrukowana' && !choice.dataset.touched) choice.value = match.value;
+                info.textContent = match ? '✅ = wydruk pasujący do tej propozycji (ten sam model / plik).'
+                                         : (d.tasks.length ? 'Żaden wydruk z chmury nie pasuje do tej propozycji - wybierz sam albo zostaw bez zdjęcia.' : 'W chmurze nie ma ostatnich wydruków ze zdjęciem.');
+                showPreview();
+            }).catch(function () { info.textContent = 'Nie udało się połączyć z chmurą Bambu.'; });
+        }
+        function sync() {
+            box.hidden = status.value !== 'wydrukowana';
+            if (!box.hidden) loadCloud();
+            else { choice.value = ''; showPreview(); }
+        }
+        choice.addEventListener('change', function () { choice.dataset.touched = '1'; showPreview(); });
+        status.addEventListener('change', sync);
+        sync();
+    })();
+    </script>
 </form>
 {% endif %}
 

@@ -15,6 +15,7 @@ app/static/images/newsy/
 app/static/images/profile_pics/
 app/static/images/thumbs/
 app/static/images/karuzela/
+app/static/images/druk3d/
 # zdjęcia z albumów galerii (folder = id albumu, 0 = bez albumu)
 app/static/images/[0-9]*/
 

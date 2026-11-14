@@ -22,7 +22,7 @@
     {% set name, badge, _ = print_statuses[r.status] %}
     <a href="{{ url_for('print_detail', request_id=r.id) }}" class="list-group-item list-group-item-action hl-report-row {{ 'hl-report-closed' if r.status in ('wydrukowana', 'odrzucona') }}">
         <div class="d-flex hl-gap">
-            {% set picture = r.image_url or print_thumb_url(r) %}
+            {% set picture = print_photo_url(r) or r.image_url or print_thumb_url(r) %}
             {% if picture %}
             <img src="{{ picture }}" alt="" width="64" height="64" class="rounded flex-shrink-0" style="object-fit: cover;" loading="lazy" referrerpolicy="no-referrer">
             {% endif %}

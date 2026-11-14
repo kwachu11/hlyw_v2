@@ -15,7 +15,8 @@
     const media = document.getElementById('hlLightboxMedia');
     const counter = document.getElementById('hlLightboxCounter');
     const zoomBtn = box.querySelector('.hl-lb-zoom');
-    const thumbs = Array.from(document.querySelectorAll('.hl-thumb[data-src]'));
+    // lista zbierana przy każdym otwarciu - łapie też miniatury dodane na stronie niżej albo później
+    let thumbs = [];
     const MAX_SCALE = 5, TAP_SCALE = 2.5;
     let index = 0, img = null;
 
@@ -101,7 +102,13 @@
     function open(i) { show(i); box.classList.add('open'); document.body.style.overflow = 'hidden'; }
     function close() { box.classList.remove('open', 'zoomed'); media.innerHTML = ''; img = null; document.body.style.overflow = ''; }
 
-    thumbs.forEach((t, i) => t.addEventListener('click', e => { e.preventDefault(); open(i); }));
+    document.addEventListener('click', e => {
+        const t = e.target.closest('.hl-thumb[data-src]');
+        if (!t || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        e.preventDefault();
+        thumbs = Array.from(document.querySelectorAll('.hl-thumb[data-src]'));
+        open(thumbs.indexOf(t));
+    });
     box.querySelector('.hl-lb-close').addEventListener('click', close);
     box.querySelector('.hl-lb-prev').addEventListener('click', () => show(index - 1));
     box.querySelector('.hl-lb-next').addEventListener('click', () => show(index + 1));

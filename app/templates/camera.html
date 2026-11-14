@@ -139,12 +139,17 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         if (min == null || min <= 0) return '';
         return min < 60 ? (min + ' min') : (Math.floor(min / 60) + ' g ' + (min % 60) + ' min');
     }
+    // drukarka podaje oryginalną nazwę profilu (często po chińsku) - z chmury Bambu bierzemy tytuł modelu po angielsku
+    const PRINT_TITLES = {};
+    let lastTask = '';
+    function taskTitle(raw) { return PRINT_TITLES[raw] || raw; }
     function renderStatus(d) {
         if (!psBox) return;
         psBox.classList.toggle('is-offline', !d || !d.online);
         if (!d) return;
         psSet('ps-state', !d.online ? 'offline' : (STATE_PL[d.state] || d.state || '—'));
-        psSet('ps-task', d.task || '');
+        lastTask = d.task || '';
+        psSet('ps-task', taskTitle(lastTask));
         // miniatura wydruku (okładka z chmury Bambu) - ładuj tylko gdy zmieni się nazwa wydruku
         const thumb = document.getElementById('ps-thumb');
         if (thumb) {
@@ -238,7 +243,8 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
     }
     // sekcja "Ostatnie wydruki" (z chmury Bambu)
     const printsBox = document.getElementById('printer-prints');
-    const PRINT_STATUS_PL = { 2: 'Zakończono', 4: 'Drukuje' };
+    // wynik z serwera: jest zdjęcie po wydruku = udany, brak = przerwany / nieudany
+    const PRINT_RESULT_PL = { udany: '✅ Udany', nieudany: '❌ Nieudany', drukuje: '🖨️ Drukuje' };
     function fmtDate(iso) {
         if (!iso) return '';
         const d = new Date(iso);
@@ -258,6 +264,8 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             const items = (data && data.wydruki) || [];
             if (!grid || !items.length) { printsBox.hidden = true; return; }
             grid.innerHTML = '';
+            items.forEach(it => { if (it.raw_title && it.title) PRINT_TITLES[it.raw_title] = it.title; });
+            if (lastTask) psSet('ps-task', taskTitle(lastTask));   // lista przyszła po statusie - popraw tytuł od razu
             items.forEach(it => {
                 const card = document.createElement('div'); card.className = 'hl-print';
                 const img = document.createElement('img'); img.className = 'hl-print-thumb'; img.alt = ''; img.loading = 'lazy';
@@ -265,13 +273,26 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
                 img.onerror = () => { img.style.visibility = 'hidden'; };
                 const name = document.createElement('div'); name.className = 'hl-print-name'; name.title = it.title || ''; name.textContent = it.title || 'Wydruk';
                 const meta = document.createElement('div'); meta.className = 'hl-print-meta';
+                const badge = document.createElement('span'); badge.className = 'hl-print-result is-' + it.result;
+                badge.textContent = PRINT_RESULT_PL[it.result] || '';
+                // zdjęcie, które drukarka zrobiła po skończeniu - klik otwiera je w przeglądarce zdjęć
+                let photo = null;
+                if (it.photo) {
+                    const src = '/api/drukarka/okladka?rodzaj=zdjecie&id=' + encodeURIComponent(it.id);
+                    photo = document.createElement('a');
+                    photo.className = 'hl-thumb hl-print-photo-strip'; photo.href = src; photo.dataset.src = src;
+                    photo.title = 'Zdjęcie gotowego wydruku';
+                    const pimg = document.createElement('img'); pimg.alt = 'Gotowy wydruk'; pimg.loading = 'lazy'; pimg.src = src;
+                    photo.append(pimg);
+                }
                 const bits = [];
-                if (PRINT_STATUS_PL[it.status]) bits.push(PRINT_STATUS_PL[it.status]);
                 if (it.start) bits.push(fmtDate(it.start));
                 if (it.cost) bits.push('⏱ ' + fmtDur(it.cost));
                 if (it.weight) bits.push('⚖️ ' + Math.round(it.weight) + ' g');
                 meta.textContent = bits.join(' · ');
-                card.append(img, name, meta);
+                card.append(img);
+                if (photo) card.append(photo);
+                card.append(badge, name, meta);
                 grid.appendChild(card);
             });
             printsBox.hidden = false;
@@ -502,4 +523,5 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
 })();
 </script>
 
+{% include "_lightbox.html" %}
 {% endblock %}
