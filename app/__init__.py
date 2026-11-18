@@ -53,6 +53,7 @@ import base64
 from ftplib import FTP
 from flask import session
 import time
+import threading
 import hashlib
 from itertools import combinations
 import random
@@ -768,6 +769,15 @@ def create_app():
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         __table_args__ = (db.UniqueConstraint('photo_id', 'user_id'),)
+
+    class MailLog(db.Model):
+        """Dziennik maili z /panel/maile: kto dostał (albo nie) wiadomość o danym temacie."""
+        __tablename__ = 'mail_log'
+        id = db.Column(db.Integer, primary_key=True)
+        subject = db.Column(db.String(200), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        ok = db.Column(db.Boolean, default=True)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     class Comment(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -4263,41 +4273,71 @@ def create_app():
             else:
                 wanted = {int(x) for x in form['to'] if x.isdigit()}
                 chosen = [u for u in users if u.id in wanted]
+            is_test = request.form.get('action') == 'test'
+            skipped = 0
+            if subject and chosen and not is_test and request.form.get('skip_sent'):
+                done = {row.user_id for row in MailLog.query.filter_by(subject=subject[:200], ok=True)}
+                skipped = sum(1 for u in chosen if u.id in done)
+                chosen = [u for u in chosen if u.id not in done]
             if not subject or not body:
                 flash('Uzupełnij temat i treść maila.', 'danger')
             elif not chosen:
-                flash('Zaznacz przynajmniej jednego odbiorcę.', 'danger')
+                flash('Wszyscy zaznaczeni już dostali mail z tym tematem.' if skipped else 'Zaznacz przynajmniej jednego odbiorcę.',
+                      'warning' if skipped else 'danger')
             else:
-                sent, failed, seen = 0, [], set()
-                try:
-                    with mail.connect() as conn:
-                        for user in chosen:
-                            address = user.email.strip()
-                            if address.lower() in seen:      # jeden e-mail może mieć kilka kont
-                                continue
-                            seen.add(address.lower())
-                            try:
-                                conn.send(Message_(subject=fill(subject, user), recipients=[address], html=fill(body, user)))
-                                sent += 1
-                            except Exception:
-                                app.logger.exception('Mail do %s nie wyszedł', user.username)
-                                failed.append(user.username)
-                except Exception:
-                    app.logger.exception('Brak połączenia z serwerem poczty')
-                    flash('Nie udało się połączyć z serwerem poczty - nic nie wysłano.', 'danger')
+                # jeden e-mail może mieć kilka kont - wysyłamy raz
+                jobs, seen = [], set()
+                for user in chosen:
+                    address = user.email.strip()
+                    if address.lower() not in seen:
+                        seen.add(address.lower())
+                        jobs.append((user.id, address, fill(subject, user), fill(body, user)))
+                log_subject = None if is_test else subject[:200]
+                if is_test:
+                    send_mail_jobs(jobs, log_subject)          # jeden mail - od razu, z wynikiem
+                    ok = send_mail_jobs.last_ok
+                    flash('Wysłano test na Twój adres - sprawdź skrzynkę (i spam).' if ok else 'Test nie wyszedł - zobacz log serwera.',
+                          'success' if ok else 'danger')
                 else:
-                    if request.form.get('action') == 'test':
-                        flash('Wysłano test na Twój adres - sprawdź skrzynkę (i spam).' if sent else 'Test nie wyszedł.',
-                              'success' if sent else 'danger')
-                    else:
-                        flash(f'Wysłano {sent} maili.' + (f' Nie wyszło do: {", ".join(failed)}.' if failed else ''),
-                              'warning' if failed else 'success')
-                        return redirect(url_for('mail_sender'))
+                    # dhosting potrzebuje ~1-2 s na mail, a gunicorn ubija zapytanie po 30 s - wysyłka idzie w tle
+                    threading.Thread(target=send_mail_jobs, args=(jobs, log_subject), daemon=True).start()
+                    flash(f'Wysyłka ruszyła w tle: {len(jobs)} maili' + (f' (pominięto {skipped}, którzy już dostali)' if skipped else '')
+                          + '. Postęp widać niżej - odśwież stronę.', 'success')
+                    return redirect(url_for('mail_sender', temat=subject[:200]))
         else:
             tpl = MAIL_TEMPLATES['gta6']
-            form.update(subject=tpl['subject'], body=tpl['body'], to=[str(u.id) for u in users if u.confirmed])
+            form.update(subject=request.args.get('temat') or tpl['subject'], body=tpl['body'],
+                        to=[str(u.id) for u in users if u.confirmed])
+        progress = None
+        if form['subject'].strip():
+            rows = MailLog.query.filter_by(subject=form['subject'].strip()[:200]).all()
+            names = {u.id: u.username for u in users}
+            progress = {'ok': sorted(names.get(r.user_id, '?') for r in rows if r.ok),
+                        'failed': sorted(names.get(r.user_id, '?') for r in rows if not r.ok)}
         return render_template('panel_maile.html', users=users, form=form, templates=MAIL_TEMPLATES,
-                               preview_nick=current_user.username, links=links)
+                               preview_nick=current_user.username, links=links, progress=progress)
+
+    def send_mail_jobs(jobs, log_subject):
+        """Wysyła przygotowane maile [(user_id, adres, temat, html)] jednym połączeniem SMTP i zapisuje wynik w MailLog."""
+        send_mail_jobs.last_ok = 0
+        with app.app_context():
+            try:
+                with mail.connect() as conn:
+                    for user_id, address, subject, html in jobs:
+                        try:
+                            conn.send(Message_(subject=subject, recipients=[address], html=html))
+                            ok = True
+                            send_mail_jobs.last_ok += 1
+                        except Exception:
+                            app.logger.exception('Mail do użytkownika %s nie wyszedł', user_id)
+                            ok = False
+                        if log_subject:
+                            db.session.add(MailLog(subject=log_subject, user_id=user_id, ok=ok))
+                            db.session.commit()
+                        time.sleep(0.3)
+            except Exception:
+                app.logger.exception('Brak połączenia z serwerem poczty')
+                db.session.rollback()
 
     @app.route("/start_tournament/<int:event_id>", methods=["POST"])
     @login_required

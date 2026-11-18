@@ -52,9 +52,22 @@
         </div>
     </div>
 
+    <div class="custom-control custom-checkbox mb-2">
+        <input type="checkbox" class="custom-control-input" id="mail-skip" name="skip_sent" value="1" checked>
+        <label class="custom-control-label" for="mail-skip">Pomiń osoby, które już dostały mail z tym samym tematem</label>
+    </div>
     <button type="submit" name="action" value="test" class="btn btn-outline-primary w-auto mr-2 mb-2" formnovalidate>Wyślij test do mnie</button>
     <button type="submit" name="action" value="send" class="btn btn-primary w-auto mb-2" id="mail-send">Wyślij do zaznaczonych</button>
 </form>
+
+{% if progress and (progress.ok or progress.failed) %}
+<div class="hl-mail-progress mt-3">
+    <h5>Wysłane z tematem „{{ form.subject }}”: {{ progress.ok|length }}{% if progress.failed %} · nie wyszło: {{ progress.failed|length }}{% endif %}</h5>
+    <p class="small mb-1">✅ {{ progress.ok|join(', ') or '—' }}</p>
+    {% if progress.failed %}<p class="small text-danger mb-1">❌ {{ progress.failed|join(', ') }}</p>{% endif %}
+    <p class="small text-muted mb-0">Odśwież stronę, żeby zobaczyć postęp wysyłki w tle (ok. 1-2 s na mail).</p>
+</div>
+{% endif %}
 
 <script>
 (function () {
