@@ -140,6 +140,7 @@ MAIL_TEMPLATES = {
 <div style="padding:22px;font-size:15px;line-height:1.6">
 <p>Cześć <b>{nick}</b>!</p>
 <p>Czekaliśmy na to latami - <b>dziś o północy wychodzi GTA VI</b>. 🌴🚗</p>
+<p style="text-align:center;margin:18px 0"><img src="{link_strona}gta6/licznik.gif" width="516" alt="Licznik premiery GTA VI" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:0 auto"></p>
 <p>Na kamerze hlyw.pl leci <b>stream z gry</b>, więc wbijaj oglądać razem z nami. Na stronie jest licznik, ile zostało do premiery, a potem - ile już gramy.</p>
 <p style="text-align:center;margin:26px 0">
 <a href="{link_kamera}" style="background:#ff2e88;color:#fff;text-decoration:none;padding:12px 26px;border-radius:6px;font-weight:bold;display:inline-block">🔴 Oglądaj stream</a>
@@ -4189,6 +4190,51 @@ def create_app():
             form.content.data = 'test'
             form.subject.data = "Test subject"
         return render_template('test_email.html', form=form)
+
+    def gta6_font(size, logo=False):
+        from PIL import ImageFont
+        fonts = [os.path.join(app.static_folder, 'css', 'fonts', 'pricedown.otf')] if logo else []
+        fonts += ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 'C:/Windows/Fonts/arialbd.ttf',
+                  os.path.join(app.static_folder, 'css', 'fonts', 'pricedown.otf')]
+        for path in fonts:
+            try:
+                return ImageFont.truetype(path, size)
+            except (OSError, IOError):
+                continue
+        return ImageFont.load_default()
+
+    @app.route('/gta6/licznik.gif')
+    def gta6_counter_gif():
+        """Licznik do maili (bez JS): animacja na 60 s liczona od chwili otwarcia maila - publiczna, bez cache."""
+        from PIL import Image, ImageDraw
+        release = datetime.fromisoformat(GTA6_RELEASE)
+        now = datetime.now(release.tzinfo)
+        width, height = 560, 150
+        logo_font, time_font, label_font = gta6_font(54, logo=True), gta6_font(40), gta6_font(17)
+        frames = []
+        for step in range(60):
+            diff = int((now - release).total_seconds()) + step
+            after = diff >= 0
+            s = abs(diff)
+            d, h, m, sec = s // 86400, s % 86400 // 3600, s % 3600 // 60, s % 60
+            text = (f'{d} d ' if d else '') + f'{h:02d}:{m:02d}:{sec:02d}'
+            img = Image.new('RGB', (width, height), (23, 23, 31))
+            draw = ImageDraw.Draw(img)
+            left, right = ((31, 191, 117), (255, 46, 136)) if after else ((255, 46, 136), (255, 157, 46))
+            for x in range(width):           # poziomy gradient jak na stronie
+                t = x / (width - 1)
+                draw.line([(x, 0), (x, height)], fill=tuple(int(left[i] + (right[i] - left[i]) * t) for i in range(3)))
+            draw.text((24, 44), 'GTA VI', font=logo_font, fill=(255, 255, 255), stroke_width=3, stroke_fill=(0, 0, 0))
+            draw.text((230, 34), 'GTA VI JEST Z NAMI JUŻ' if after else 'DO PREMIERY ZOSTAŁO', font=label_font, fill=(255, 255, 255))
+            draw.text((230, 60), text, font=time_font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
+            draw.text((230, 112), 'premiera 19.11.2026, 00:00', font=label_font, fill=(255, 255, 255))
+            frames.append(img.convert('P', palette=Image.ADAPTIVE, colors=64))
+        out = io.BytesIO()
+        frames[0].save(out, format='GIF', save_all=True, append_images=frames[1:], duration=1000, optimize=True)
+        response = send_file(io.BytesIO(out.getvalue()), mimetype='image/gif')
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Expires'] = '0'
+        return response
 
     @app.route('/panel/maile', methods=['GET', 'POST'])
     @login_required
