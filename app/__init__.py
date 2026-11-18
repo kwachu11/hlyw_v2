@@ -20,7 +20,7 @@ from flask_login import login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort, send_file
-from markupsafe import Markup
+from markupsafe import Markup, escape
 from flask_login import login_user, logout_user, login_required, current_user, LoginManager, UserMixin
 from .forms import LoginForm, RegistrationForm
 from itsdangerous import URLSafeTimedSerializer
@@ -122,7 +122,45 @@ SITE_SETTINGS = [
     ('loading_on', 'bool', True, 'Ekran ładowania (raz na sesję)', 'Efekty'),
     ('loading_seconds', 'int', 6, 'Czas ekranu ładowania (s)', 'Efekty'),
     ('notify_on', 'bool', True, 'Powiadomienia SMS o aktywności innych', 'Efekty'),
+    ('gta6_on', 'bool', True, 'Licznik premiery GTA VI (strona główna i kamera)', 'Efekty'),
 ]
+
+# Maile do użytkowników (/panel/maile). W temacie i treści: {nick}, {link_kamera}, {link_strona}.
+GTA6_RELEASE = '2026-11-19T00:00:00+01:00'
+MAIL_TEMPLATES = {
+    'gta6': {
+        'name': '🎮 GTA VI - zaproszenie na stream',
+        'subject': 'GTA VI wychodzi o północy - oglądamy razem na hlyw.pl!',
+        'body': '''<div style="background:#0d0d12;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#eee">
+<div style="max-width:560px;margin:0 auto;background:#17171f;border-radius:10px;overflow:hidden">
+<div style="background:linear-gradient(90deg,#ff2e88,#ff9d2e);padding:22px;text-align:center">
+<div style="font-size:30px;font-weight:bold;color:#fff;letter-spacing:2px">GRAND THEFT AUTO VI</div>
+<div style="color:#fff;font-size:15px;margin-top:4px">premiera 19.11.2026 o 00:00</div>
+</div>
+<div style="padding:22px;font-size:15px;line-height:1.6">
+<p>Cześć <b>{nick}</b>!</p>
+<p>Czekaliśmy na to latami - <b>dziś o północy wychodzi GTA VI</b>. 🌴🚗</p>
+<p>Na kamerze hlyw.pl leci <b>stream z gry</b>, więc wbijaj oglądać razem z nami. Na stronie jest licznik, ile zostało do premiery, a potem - ile już gramy.</p>
+<p style="text-align:center;margin:26px 0">
+<a href="{link_kamera}" style="background:#ff2e88;color:#fff;text-decoration:none;padding:12px 26px;border-radius:6px;font-weight:bold;display:inline-block">🔴 Oglądaj stream</a>
+</p>
+<p>Do zobaczenia w Vice City!<br>Ekipa hlyw.pl</p>
+</div>
+<div style="padding:12px 22px;font-size:12px;color:#888;border-top:1px solid #2a2a35">Dostajesz tę wiadomość, bo masz konto na <a href="{link_strona}" style="color:#ff9d2e">hlyw.pl</a>.</div>
+</div></div>''',
+    },
+    'news': {
+        'name': '📰 Nowość na stronie',
+        'subject': 'Coś nowego na hlyw.pl',
+        'body': '''<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#222">
+<p>Cześć <b>{nick}</b>!</p>
+<p>Na hlyw.pl pojawiło się coś nowego: ...</p>
+<p><a href="{link_strona}">Wejdź na hlyw.pl</a></p>
+<p>Ekipa hlyw.pl</p>
+</div>''',
+    },
+    'pusty': {'name': '✏️ Pusty', 'subject': '', 'body': '<p>Cześć <b>{nick}</b>!</p>\n<p></p>'},
+}
 # zdjęcia, które karuzela miała w kodzie - przy pierwszym starcie trafiają do tabeli carousel_image
 CAROUSEL_DEFAULT_IMAGES = ['static/images/hlyw_1.png'] + [f'static/images/hlyw_{i}.jpg' for i in range(2, 24)]
 SITE_SETTINGS_CACHE_SECONDS = 10
@@ -2195,6 +2233,7 @@ def create_app():
             os.remove(print_file_path(name))
 
     app.jinja_env.globals['our_printer'] = OUR_PRINTER   # znaczek „✓ H2C” przy zgodnych profilach MakerWorld
+    app.jinja_env.globals['gta6_release'] = GTA6_RELEASE  # licznik premiery GTA VI (_gta6.html)
 
     @app.template_global('print_thumb_url')
     def print_thumb_url(entry):
@@ -4150,6 +4189,69 @@ def create_app():
             form.content.data = 'test'
             form.subject.data = "Test subject"
         return render_template('test_email.html', form=form)
+
+    @app.route('/panel/maile', methods=['GET', 'POST'])
+    @login_required
+    def mail_sender():
+        """Admin wysyła maila (z szablonu) do wybranych użytkowników - każdy dostaje osobną wiadomość."""
+        if current_user.is_admin == "0":
+            abort(403)
+        users = sorted((u for u in User.query.all() if (u.email or '').strip()), key=lambda u: u.username.lower())
+        root = request.url_root
+        if 'hlyw.pl' in root:
+            root = 'https://hlyw.pl/'
+        links = {'{link_kamera}': root + 'camera', '{link_strona}': root}
+
+        def fill(text, user):
+            text = text.replace('{nick}', str(escape(user.username)))
+            for key, value in links.items():
+                text = text.replace(key, value)
+            return text
+
+        form = {'template': request.form.get('template', 'gta6'), 'subject': request.form.get('subject', ''),
+                'body': request.form.get('body', ''), 'to': request.form.getlist('to')}
+        if request.method == 'POST':
+            subject, body = form['subject'].strip(), form['body'].strip()
+            if request.form.get('action') == 'test':
+                chosen = [current_user]
+            else:
+                wanted = {int(x) for x in form['to'] if x.isdigit()}
+                chosen = [u for u in users if u.id in wanted]
+            if not subject or not body:
+                flash('Uzupełnij temat i treść maila.', 'danger')
+            elif not chosen:
+                flash('Zaznacz przynajmniej jednego odbiorcę.', 'danger')
+            else:
+                sent, failed, seen = 0, [], set()
+                try:
+                    with mail.connect() as conn:
+                        for user in chosen:
+                            address = user.email.strip()
+                            if address.lower() in seen:      # jeden e-mail może mieć kilka kont
+                                continue
+                            seen.add(address.lower())
+                            try:
+                                conn.send(Message_(subject=fill(subject, user), recipients=[address], html=fill(body, user)))
+                                sent += 1
+                            except Exception:
+                                app.logger.exception('Mail do %s nie wyszedł', user.username)
+                                failed.append(user.username)
+                except Exception:
+                    app.logger.exception('Brak połączenia z serwerem poczty')
+                    flash('Nie udało się połączyć z serwerem poczty - nic nie wysłano.', 'danger')
+                else:
+                    if request.form.get('action') == 'test':
+                        flash('Wysłano test na Twój adres - sprawdź skrzynkę (i spam).' if sent else 'Test nie wyszedł.',
+                              'success' if sent else 'danger')
+                    else:
+                        flash(f'Wysłano {sent} maili.' + (f' Nie wyszło do: {", ".join(failed)}.' if failed else ''),
+                              'warning' if failed else 'success')
+                        return redirect(url_for('mail_sender'))
+        else:
+            tpl = MAIL_TEMPLATES['gta6']
+            form.update(subject=tpl['subject'], body=tpl['body'], to=[str(u.id) for u in users if u.confirmed])
+        return render_template('panel_maile.html', users=users, form=form, templates=MAIL_TEMPLATES,
+                               preview_nick=current_user.username, links=links)
 
     @app.route("/start_tournament/<int:event_id>", methods=["POST"])
     @login_required

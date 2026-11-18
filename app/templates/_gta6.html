@@ -1,0 +1,33 @@
+{# Licznik premiery GTA VI: przed premierą odlicza, po niej pokazuje, ile już minęło. Włącznik: /panel → gta6_on. #}
+{% if site.gta6_on %}
+<div class="hl-gta6 mb-3" id="hl-gta6" data-release="{{ gta6_release }}">
+    <div class="hl-gta6-logo">GTA VI</div>
+    <div class="hl-gta6-body">
+        <div class="hl-gta6-label" data-before="Do premiery zostało" data-after="GTA VI jest z nami już">Do premiery zostało</div>
+        <div class="hl-gta6-time" aria-live="off">--</div>
+        <div class="hl-gta6-note">
+            Premiera 19.11.2026 o 00:00 · 🔴 dziś na kamerze stream z gry
+            {% if show_camera_link %} · <a href="{{ url_for('camera') }}">oglądaj</a>{% endif %}
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    var box = document.getElementById('hl-gta6');
+    if (!box) return;
+    var release = new Date(box.dataset.release).getTime(),
+        label = box.querySelector('.hl-gta6-label'), out = box.querySelector('.hl-gta6-time');
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function tick() {
+        var diff = Date.now() - release, after = diff >= 0, s = Math.floor(Math.abs(diff) / 1000),
+            d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+        if (after && d >= 7) { box.remove(); return; }          // tydzień po premierze licznik sam znika
+        label.textContent = after ? label.dataset.after : label.dataset.before;
+        box.classList.toggle('is-out', after);
+        out.textContent = (d ? d + ' d ' : '') + pad(h) + ':' + pad(m) + ':' + pad(s % 60);
+    }
+    tick();
+    setInterval(tick, 1000);
+})();
+</script>
+{% endif %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-2"><a href="{{ url_for('control_panel') }}">&larr; Panel sterowania</a></div>
+<h2>✉️ Maile do użytkowników</h2>
+<p class="text-muted small">
+    Każdy odbiorca dostaje osobną wiadomość (nie widzi innych adresów). W temacie i treści możesz użyć
+    <code>{nick}</code>, <code>{link_kamera}</code> i <code>{link_strona}</code>. Wysyłka idzie z support@hlyw.pl.
+</p>
+
+<form method="post" id="mail-form">
+    <div class="row">
+        <div class="col-lg-7 mb-3">
+            <div class="form-group">
+                <label for="mail-template">Szablon</label>
+                <select class="form-control" id="mail-template" name="template">
+                    {% for key, tpl in templates.items() %}
+                    <option value="{{ key }}" {{ 'selected' if form.template == key }}>{{ tpl.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="mail-subject">Temat</label>
+                <input class="form-control" id="mail-subject" name="subject" maxlength="200" value="{{ form.subject }}" required>
+            </div>
+            <div class="form-group">
+                <label for="mail-body">Treść (HTML)</label>
+                <textarea class="form-control" id="mail-body" name="body" rows="10" required style="font-family: monospace; font-size: .85rem">{{ form.body }}</textarea>
+            </div>
+            <label>Podgląd (jako {{ preview_nick }})</label>
+            <iframe id="mail-preview" class="hl-mail-preview" title="Podgląd maila" sandbox></iframe>
+        </div>
+
+        <div class="col-lg-5 mb-3">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+                <label class="mb-0">Odbiorcy (<span id="mail-count">0</span>)</label>
+                <span class="small">
+                    <a href="#" data-pick="all">wszyscy</a> ·
+                    <a href="#" data-pick="confirmed">potwierdzeni</a> ·
+                    <a href="#" data-pick="none">nikt</a>
+                </span>
+            </div>
+            <div class="hl-mail-users">
+                {% for u in users %}
+                <label class="hl-mail-user">
+                    <input type="checkbox" name="to" value="{{ u.id }}" data-confirmed="{{ 1 if u.confirmed else 0 }}"
+                           {{ 'checked' if u.id|string in form.to }}>
+                    {{ u.username }}
+                    {% if not u.confirmed %}<span class="text-muted small">(niepotwierdzone)</span>{% endif %}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" name="action" value="test" class="btn btn-outline-primary w-auto mr-2 mb-2" formnovalidate>Wyślij test do mnie</button>
+    <button type="submit" name="action" value="send" class="btn btn-primary w-auto mb-2" id="mail-send">Wyślij do zaznaczonych</button>
+</form>
+
+<script>
+(function () {
+    var templates = {{ templates|tojson }}, links = {{ links|tojson }}, nick = {{ preview_nick|tojson }};
+    var sel = document.getElementById('mail-template'), subj = document.getElementById('mail-subject'),
+        body = document.getElementById('mail-body'), frame = document.getElementById('mail-preview'),
+        boxes = [].slice.call(document.querySelectorAll('input[name="to"]')), count = document.getElementById('mail-count');
+    function esc(s) { return s.replace(/[&<>"]/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
+    function preview() {
+        var html = body.value.split('{nick}').join(esc(nick));
+        Object.keys(links).forEach(function (k) { html = html.split(k).join(links[k]); });
+        frame.srcdoc = html;
+    }
+    function recount() { count.textContent = boxes.filter(function (b) { return b.checked; }).length; }
+    sel.addEventListener('change', function () {
+        var t = templates[sel.value];
+        if (!t) return;
+        subj.value = t.subject; body.value = t.body; preview();
+    });
+    body.addEventListener('input', preview);
+    boxes.forEach(function (b) { b.addEventListener('change', recount); });
+    document.querySelectorAll('[data-pick]').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+            e.preventDefault();
+            var mode = a.dataset.pick;
+            boxes.forEach(function (b) { b.checked = mode === 'all' || (mode === 'confirmed' && b.dataset.confirmed === '1'); });
+            recount();
+        });
+    });
+    document.getElementById('mail-send').addEventListener('click', function (e) {
+        var n = boxes.filter(function (b) { return b.checked; }).length;
+        if (n && !window.confirm('Wysłać maila do ' + n + ' osób?')) e.preventDefault();
+    });
+    preview(); recount();
+})();
+</script>
+{% endblock %}
