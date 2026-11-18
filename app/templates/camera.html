@@ -75,7 +75,10 @@
                 {% endfor %}
             </div>
             <form id="chat-form">
-                <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość... (Enter wysyła, Shift+Enter nowa linia)" rows="2" maxlength="500"></textarea>
+                <div class="hl-mention-wrap">
+                    <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość... (@nick oznacza, Enter wysyła, Shift+Enter nowa linia)" rows="2" maxlength="500"></textarea>
+                    <div id="hl-mention-list" class="hl-mention-list" role="listbox" hidden></div>
+                </div>
                 <button type="submit" class="btn btn-primary mt-2">Wyślij</button>
             </form>
         </div>
@@ -452,7 +455,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             }
             const text = document.createElement('div');
             text.className = 'message-content';
-            text.textContent = msg.content;
+            if (fillMentions(text, msg.content)) row.classList.add('hl-chat-mentioned');
             body.append(name, text);
             const time = document.createElement('span');
             time.className = 'chat-time';
@@ -462,6 +465,73 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         });
         if (atBottom) chat.scrollTop = chat.scrollHeight;
     }
+
+    // --- oznaczenia @nick: podświetlenie w wiadomościach i podpowiedzi przy pisaniu ---
+    const ME = {{ current_user.username|tojson }};
+    let mentionUsers = [], mentionRe = null;
+    function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    fetch('/czat/uzytkownicy').then(r => r.json()).then(data => {
+        mentionUsers = data.users || [];
+        const names = mentionUsers.slice().sort((a, b) => b.length - a.length).map(escRe);
+        mentionRe = names.length ? new RegExp('@(' + names.join('|') + ')(?![\\p{L}\\p{N}_])', 'giu') : null;
+        loadMessages();
+    }).catch(() => {});
+
+    // wstawia treść jako tekst (bez HTML), z @nickami w <span>; zwraca true, gdy oznaczono mnie
+    function fillMentions(el, content) {
+        if (!mentionRe) { el.textContent = content; return false; }
+        let last = 0, me = false;
+        content.replace(mentionRe, (match, name, offset) => {
+            el.append(document.createTextNode(content.slice(last, offset)));
+            const tag = document.createElement('span');
+            const isMe = name.toLowerCase() === ME.toLowerCase();
+            tag.className = 'hl-mention' + (isMe ? ' hl-mention-me' : '');
+            tag.textContent = match;
+            el.append(tag);
+            me = me || isMe;
+            last = offset + match.length;
+            return match;
+        });
+        el.append(document.createTextNode(content.slice(last)));
+        return me;
+    }
+
+    const mentionList = document.getElementById('hl-mention-list');
+    let mentionItems = [], mentionIndex = 0, mentionStart = -1;
+    function closeMentions() { mentionList.hidden = true; mentionItems = []; mentionStart = -1; }
+    function updateMentions() {
+        const before = input.value.slice(0, input.selectionStart);
+        const m = before.match(/(^|\s)@([^@\n]{0,20})$/);
+        if (!m) { closeMentions(); return; }
+        const q = m[2].toLowerCase();
+        mentionItems = mentionUsers.filter(u => u.toLowerCase().startsWith(q) && u !== ME).slice(0, 6);
+        if (!mentionItems.length) { closeMentions(); return; }
+        mentionStart = before.length - m[2].length - 1;
+        mentionIndex = 0;
+        renderMentionList();
+    }
+    function renderMentionList() {
+        mentionList.innerHTML = '';
+        mentionItems.forEach((name, i) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'hl-mention-item' + (i === mentionIndex ? ' active' : '');
+            b.textContent = '@' + name;
+            b.addEventListener('mousedown', e => { e.preventDefault(); pickMention(name); });
+            mentionList.append(b);
+        });
+        mentionList.hidden = false;
+    }
+    function pickMention(name) {
+        const pos = input.selectionStart;
+        input.value = input.value.slice(0, mentionStart) + '@' + name + ' ' + input.value.slice(pos);
+        const caret = mentionStart + name.length + 2;
+        input.setSelectionRange(caret, caret);
+        closeMentions();
+        input.focus();
+    }
+    input.addEventListener('input', updateMentions);
+    input.addEventListener('blur', () => setTimeout(closeMentions, 150));
 
     function loadMessages() {
         fetch('/get_messages').then(r => r.json()).then(data => renderMessages(data.messages));
@@ -488,6 +558,16 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         input.value = '';
     });
     input.addEventListener('keydown', e => {
+        if (!mentionList.hidden && mentionItems.length) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                mentionIndex = (mentionIndex + (e.key === 'ArrowDown' ? 1 : mentionItems.length - 1)) % mentionItems.length;
+                renderMentionList();
+                return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mentionItems[mentionIndex]); return; }
+            if (e.key === 'Escape') { closeMentions(); return; }
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             document.getElementById('chat-form').requestSubmit();

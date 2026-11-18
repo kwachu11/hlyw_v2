@@ -702,3 +702,18 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .hl-mail-users { max-height: 560px; overflow-y: auto; border: 1px solid #333; border-radius: 6px; padding: 6px 10px; }
 .hl-mail-user { display: block; margin: 0; padding: 3px 0; cursor: pointer; font-family: 'Barlow', sans-serif; }
 .hl-mail-user input { margin-right: 6px; }
+
+/* oznaczenia @nick na czacie */
+.hl-mention-wrap { position: relative; }
+.hl-mention-list {
+    position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; z-index: 30;
+    background: #17171f; border: 1px solid #ff2e88; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+}
+.hl-mention-item {
+    display: block; width: 100%; text-align: left; background: none; border: 0; color: #eee;
+    padding: 6px 10px; font-family: 'Barlow', sans-serif; cursor: pointer;
+}
+.hl-mention-item.active, .hl-mention-item:hover { background: #ff2e88; color: #fff; }
+.hl-mention { color: #ff9d2e; font-weight: 700; }
+.hl-mention-me { background: rgba(255, 46, 136, .25); color: #fff; border-radius: 3px; padding: 0 3px; }
+.chat-message.hl-chat-mentioned { box-shadow: inset 3px 0 0 #ff2e88; }

@@ -126,6 +126,10 @@ SITE_SETTINGS = [
     ('gta6_on', 'bool', True, 'Licznik premiery GTA VI (strona główna i kamera)', 'Efekty'),
 ]
 
+# Oznaczenia @nick na czacie: mail do oznaczonego najwyżej raz na tyle czasu (wpis w MailLog o tym temacie).
+CHAT_MENTION_COOLDOWN = timedelta(minutes=10)
+CHAT_MENTION_LOG = 'czat-oznaczenie'
+
 # Maile do użytkowników (/panel/maile). W temacie i treści: {nick}, {link_kamera}, {link_strona}.
 GTA6_RELEASE = '2026-11-19T00:00:00+01:00'
 MAIL_TEMPLATES = {
@@ -2032,9 +2036,48 @@ def create_app():
             new_message = Message(content=message_content, user_id=user_id)
             db.session.add(new_message)
             db.session.commit()
-
-            return jsonify({"status": "success", "message": message_content})
+            mentioned = notify_chat_mentions(message_content)
+            return jsonify({"status": "success", "message": message_content, "mentioned": mentioned})
         return jsonify({"status": "error"}), 400
+
+    def chat_mentions(content):
+        """Użytkownicy oznaczeni w wiadomości przez @nick (nicki mogą mieć spacje - najpierw najdłuższe)."""
+        text, found = content, []
+        for user in sorted(User.query.filter(User.id != current_user.id).all(), key=lambda u: -len(u.username)):
+            pattern = re.compile('@' + re.escape(user.username) + r'(?!\w)', re.IGNORECASE)
+            if pattern.search(text):
+                found.append(user)
+                text = pattern.sub(' ', text)       # krótszy nick nie złapie się wewnątrz dłuższego
+        return found
+
+    def notify_chat_mentions(content):
+        """Mail „ktoś oznaczył Cię na czacie” - w tle, każdemu najwyżej raz na CHAT_MENTION_COOLDOWN."""
+        users = chat_mentions(content)
+        if not users:
+            return []
+        since = datetime.utcnow() - CHAT_MENTION_COOLDOWN
+        recent = {row.user_id for row in MailLog.query.filter(MailLog.subject == CHAT_MENTION_LOG, MailLog.ok.is_(True),
+                                                              MailLog.created_at >= since)}
+        root = request.url_root
+        if 'hlyw.pl' in root:
+            root = 'https://hlyw.pl/'
+        jobs = []
+        for user in users:
+            address = (user.email or '').strip()
+            if not user.confirmed or not address or user.id in recent:
+                continue
+            html = render_template('mail_oznaczenie.html', nick=user.username, author=current_user.username,
+                                   content=content, camera_url=root + 'camera', site_url=root)
+            jobs.append((user.id, address, f'{current_user.username} oznacza Cię na czacie hlyw.pl', html))
+        if jobs:
+            threading.Thread(target=send_mail_jobs, args=(jobs, CHAT_MENTION_LOG), daemon=True).start()
+        return [u.username for u in users]
+
+    @app.route('/czat/uzytkownicy')
+    @login_required
+    def chat_users():
+        """Nicki do podpowiedzi @oznaczeń na czacie."""
+        return jsonify({"users": sorted((u.username for u in User.query.filter(User.confirmed.is_(True))), key=str.lower)})
 
     @app.route('/get_messages')
     @login_required
