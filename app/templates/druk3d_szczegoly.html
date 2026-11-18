@@ -58,23 +58,31 @@
 
 <dl class="row">
     <dt class="col-sm-3">Jakość</dt><dd class="col-sm-9">{{ qualities[entry.quality] }}</dd>
-    <dt class="col-sm-3">Filament</dt><dd class="col-sm-9">{{ entry.material }}</dd>
-    <dt class="col-sm-3">Kolor</dt>
+    {% set fils = print_filaments(entry) %}
+    <dt class="col-sm-3">{{ 'Filamenty' if fils|length > 1 else 'Filament' }}</dt>
     <dd class="col-sm-9">
-        <span style="display:inline-block; width:12px; height:12px; border-radius:50%; border:1px solid #777; background: {{ print_color_hex(entry) }}"></span>
-        {{ entry.color }}
+        {% for f in fils %}
+        <span class="text-nowrap mr-2"><span class="hl-swatch" style="background: {{ f.hex or 'transparent' }}"></span> {{ f.material }} · {{ f.name }}</span>
+        {% endfor %}
+        {% if fils and fils[0].file %}<small class="text-muted d-block">kolory jak w pliku 3MF</small>{% endif %}
     </dd>
     <dt class="col-sm-3">Liczba sztuk</dt><dd class="col-sm-9">{{ entry.quantity }}</dd>
     {% if profile %}
-    <dt class="col-sm-3">Czas i filament</dt>
+    <dt class="col-sm-3">{{ 'Ustawienia z pliku' if profile.source == '3mf' else 'Czas i filament' }}</dt>
     <dd class="col-sm-9">
+        {% if profile.seconds %}
         ⏱ {{ (profile.seconds * entry.quantity)|print_time }} · 🧵 {{ (profile.grams * entry.quantity)|round|int }} g
         {% if entry.quantity > 1 %}<span class="text-muted">(razem {{ entry.quantity }} szt.)</span>{% endif %}
+        {% endif %}
         {% for f in profile.filaments %}
         <span class="text-nowrap ml-2"><span class="hl-swatch" style="background: {{ f.color or 'transparent' }}"></span> {{ f.type }} {{ (f.grams * entry.quantity)|round|int }} g</span>
         {% endfor %}
         {% if profile.ams %}<span class="badge badge-warning ml-1">AMS</span>{% endif %}
+        {% if profile.source == '3mf' %}
+        <div class="small text-muted">Ustawienia z pliku 3MF („{{ profile.title }}”){% if profile.printer %} - przygotowany dla {{ profile.printer }}{% endif %}{% if not profile.seconds %}; plik nie był pocięty, więc bez czasu i wagi{% endif %}.</div>
+        {% else %}
         <div class="small text-muted">Profil „{{ profile.title }}” z MakerWorld{% if profile.printer %} - policzony dla {{ profile.printer }}{% endif %}.</div>
+        {% endif %}
         {% set facts = (profile.settings_text or []) + ([(profile.plates|length) ~ ' płyty'] if (profile.plates or [])|length > 1 else [])
                        + (['★ ' ~ (profile.rating|string).replace('.', ',') ~ ' (' ~ profile.ratings ~ ' ocen)'] if profile.ratings else [])
                        + ([profile.prints ~ '× wydrukowany'] if profile.prints else []) %}
@@ -145,7 +153,12 @@
         {% for ph in entry.photos %}
         {% set src = ph.file_path|media_url %}
         <figure class="hl-print-photo mb-0">
-            <a href="{{ src }}" class="hl-thumb" data-src="{{ src }}"><img src="{{ url_for('print_photo_thumbnail', photo_id=ph.id) }}" alt="" loading="lazy" decoding="async"></a>
+            {% set like = photo_likes[ph.id] %}
+            <a href="{{ src }}" class="hl-thumb" data-src="{{ src }}" data-like-url="{{ url_for('like_print_photo', photo_id=ph.id) }}"
+               data-likes="{{ like.count }}" data-liked="{{ 1 if like.mine else 0 }}" data-who="{{ like.who }}">
+                <img src="{{ url_for('print_photo_thumbnail', photo_id=ph.id) }}" alt="" loading="lazy" decoding="async">
+                <span class="hl-thumb-likes{% if like.mine %} mine{% endif %}"{% if not like.count %} hidden{% endif %}>&#10084; <b>{{ like.count }}</b></span>
+            </a>
             <figcaption class="small">
                 <span class="badge {{ 'badge-success' if ph.kind == 'wydruk' else 'badge-info' }}">{{ photo_kinds[ph.kind] }}</span>
                 {% if ph.caption %}<span class="d-block">{{ ph.caption }}</span>{% endif %}

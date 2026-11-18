@@ -160,7 +160,9 @@ PRINT_PHOTO_MAX_BYTES = 15 * 1024 * 1024
 OUR_PRINTER = 'H2C'   # nasza drukarka - profil MakerWorld z nią zgodny dostaje znaczek
 FILAMENT_STATUSES = {'dostepny': 'Dostępne od ręki', 'na_zyczenie': 'Na życzenie', 'ukryty': 'Ukryte'}
 FILAMENT_MATERIALS = ['PLA', 'PLA Matte', 'PLA Silk', 'PLA-CF', 'PETG', 'PETG-CF', 'TPU', 'ABS', 'ASA', 'PC', 'PA']  # podpowiedzi
-FILAMENT_ANY, FILAMENT_OTHER, FILAMENT_KEEP = 'obojetnie', 'inny', 'obecny'   # specjalne wartości wyboru w formularzu   # każdy worker gunicorna trzyma ustawienia tyle sekund
+FILAMENT_ANY, FILAMENT_OTHER, FILAMENT_KEEP = 'obojetnie', 'inny', 'obecny'   # specjalne wartości wyboru w formularzu
+FILAMENT_FROM_FILE = 'plik'      # „kolory jak w pliku 3MF”
+FILAMENT_MAX = 8                 # najwięcej filamentów w jednej propozycji (wydruki wielokolorowe)   # każdy worker gunicorna trzyma ustawienia tyle sekund
 # galeria zdjęć ze strony modelu: serwis na Raspberry Pi (headless Chromium), domyślnie obok PRINTER_STATUS_URL
 # (Printables i Cults3D pokazują automatom stronę ochrony przed botami, Creality Cloud się nie doładowuje - pominięte)
 MODEL_IMAGES_SITES = ('makerworld.com', 'thingiverse.com', 'thangs.com', 'myminifactory.com', 'grabcad.com')
@@ -694,6 +696,7 @@ def create_app():
         material = db.Column(db.String(30), nullable=False)
         color = db.Column(db.String(40), nullable=False)
         model_info = db.Column(db.Text)             # JSON z MakerWorld: opis autora, tagi, licencja
+        filaments = db.Column(db.Text)              # JSON [{material, name, hex, file}] - wszystkie wybrane kolory
         color_hex = db.Column(db.String(9))         # kolor wybranego filamentu (starsze: z PRINT_COLORS po nazwie)
         quantity = db.Column(db.Integer, nullable=False, default=1)
         status = db.Column(db.String(20), nullable=False, default='nowa')
@@ -717,6 +720,15 @@ def create_app():
         created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
         author = db.relationship('User', foreign_keys=[created_by], lazy=True)
         request = db.relationship('PrintRequest', backref=db.backref('photos', lazy=True, order_by='PrintPhoto.created_at'))
+
+    class PrintPhotoLike(db.Model):
+        """Polubienie zdjęcia wydruku (❤), jak w galerii."""
+        __tablename__ = 'print_photo_like'
+        id = db.Column(db.Integer, primary_key=True)
+        photo_id = db.Column(db.Integer, db.ForeignKey('print_photo.id'), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        __table_args__ = (db.UniqueConstraint('photo_id', 'user_id'),)
 
     class Comment(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -915,6 +927,7 @@ def create_app():
             ('print_request', 'print_transform', "TEXT"),
             ('print_request', 'color_hex', "VARCHAR(9)"),
             ('print_request', 'model_info', "TEXT"),
+            ('print_request', 'filaments', "TEXT"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -2190,6 +2203,76 @@ def create_app():
             return None
         return url_for('print_thumbnail', request_id=entry.id, v=hashlib.md5(entry.thumb_path.encode()).hexdigest()[:8])
 
+    def decode_paint_state(token):
+        """Kolorowanie trójkąta w 3MF z Bambu/Orca (paint_color): '4' = filament 1, '8' = 2, '0C' = 3, '1C' = 4...
+        Dłuższe ciągi to podzielone trójkąty - pomijamy, ich kolory i tak są w prostych."""
+        token = token.upper()
+        if len(token) == 1 and token in '48':
+            return int(token, 16) >> 2
+        if len(token) == 2 and token[1] == 'C' and token[0] in '0123456789ABCDEF':
+            return 3 + int(token[0], 16)
+        return None
+
+    def read_3mf_info(path):
+        """Ustawienia z pliku 3MF zapisanego w Bambu Studio / Orca: warstwa, ścianki, wypełnienie, podpory, dysza,
+        drukarka, UŻYTE filamenty (z przypisania obiektów i kolorowania), a jeśli plik był pocięty - czas i gramy.
+        Wynik w kształcie profilu z MakerWorld (source='3mf'); None, gdy plik nie ma ustawień."""
+        try:
+            with zipfile.ZipFile(path) as z:
+                names = z.namelist()
+                if 'Metadata/project_settings.config' not in names:
+                    return None
+                ps = json.loads(z.read('Metadata/project_settings.config'))
+                colors = [str(c) for c in ps.get('filament_colour') or []]
+                types = [str(t) for t in ps.get('filament_type') or []]
+                used = set()
+                if 'Metadata/model_settings.config' in names:
+                    text = z.read('Metadata/model_settings.config').decode('utf-8', 'ignore')
+                    used.update(int(v) for v in re.findall(r'key="extruder" value="(\d+)"', text))
+                for name in names:
+                    info = z.getinfo(name)
+                    if name.startswith('3D/') and name.endswith('.model') and info.file_size <= 400 * 1024 * 1024:
+                        with z.open(name) as f:
+                            for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):
+                                for token in set(re.findall(rb'paint_color="([0-9A-Fa-f]{1,2})"', chunk)):
+                                    state = decode_paint_state(token.decode())
+                                    if state:
+                                        used.add(state)
+                slice_xml = z.read('Metadata/slice_info.config').decode('utf-8', 'ignore') \
+                    if 'Metadata/slice_info.config' in names else ''
+        except Exception as e:
+            app.logger.warning('Nie udało się odczytać ustawień z 3MF %s: %s', path, e)
+            return None
+        used = sorted(i for i in used or {1} if 1 <= i <= len(colors)) or ([1] if colors else [])
+        seconds = grams = 0
+        plates, used_g = [], {}
+        for plate in re.findall(r'<plate>(.*?)</plate>', slice_xml, re.S):     # tylko w pociętym pliku
+            meta = dict(re.findall(r'<metadata key="(\w+)" value="([^"]*)"', plate))
+            s, g = to_number(meta.get('prediction'), int), to_number(meta.get('weight'))
+            seconds, grams = seconds + s, grams + g
+            plates.append({'seconds': s, 'grams': g, 'image': ''})
+            for fid, fg in re.findall(r'<filament id="(\d+)"[^>]*used_g="([\d.]+)"', plate):
+                used_g[int(fid)] = used_g.get(int(fid), 0) + to_number(fg)
+        nozzle = (ps.get('nozzle_diameter') or [None])[0] if isinstance(ps.get('nozzle_diameter'), list) else ps.get('nozzle_diameter')
+        return {
+            'source': '3mf', 'title': ' '.join(str(ps.get('print_settings_id') or 'Plik 3MF').split())[:150],
+            'seconds': seconds, 'grams': round(grams, 1), 'plates': plates if len(plates) > 1 else [],
+            'filaments': [{'type': types[i - 1] if i <= len(types) else '', 'color': colors[i - 1],
+                           'grams': round(used_g.get(i, 0), 1)} for i in used],
+            'ams': len(used) > 1, 'printer': str(ps.get('printer_model') or '').replace('Bambu Lab ', '')[:30],
+            'nozzle': nozzle,
+            'settings': {k: str(v) for k, v in (('layerHeight', ps.get('layer_height')), ('wallLoops', ps.get('wall_loops')),
+                                                 ('sparseInfillDensity', ps.get('sparse_infill_density')),
+                                                 ('enableSupport', ps.get('enable_support'))) if v not in (None, '')},
+        }
+
+    def print_file_profile(stored):
+        """Profil z wgranego pliku 3MF (po czyszczeniu jak profile z MakerWorld) albo None."""
+        if not stored or not stored.lower().endswith('.3mf'):
+            return None
+        info = read_3mf_info(print_file_path(stored))
+        return (clean_profiles([info]) or [None])[0] if info else None
+
     def model_images_supported(link):
         host = (urlparse(link or '').hostname or '').lower()
         return any(host == d or host.endswith('.' + d) for d in MODEL_IMAGES_SITES)
@@ -2268,7 +2351,8 @@ def create_app():
                 seconds, grams = int(p.get('seconds') or 0), float(p.get('grams') or 0)
             except (TypeError, ValueError):
                 continue
-            if not 0 < seconds < 30 * 24 * 3600 or not 0 <= grams < 100000:
+            from_file = p.get('source') == '3mf'
+            if not (0 <= seconds if from_file else 0 < seconds) or seconds >= 30 * 24 * 3600 or not 0 <= grams < 100000:
                 continue
             filaments = []
             for f in p.get('filaments') or []:
@@ -2293,7 +2377,8 @@ def create_app():
                     plates.append({'seconds': max(0, to_number(pl.get('seconds'), int)),
                                    'grams': round(max(0.0, to_number(pl.get('grams'))), 1), 'image': (image or '')[:500]})
             ratings = max(0, to_number(p.get('ratings'), int))
-            profiles.append({'title': ' '.join(str(p.get('title') or '').split())[:150], 'seconds': seconds,
+            profiles.append({'source': '3mf' if from_file else 'makerworld',
+                             'title': ' '.join(str(p.get('title') or '').split())[:150], 'seconds': seconds,
                              'grams': round(grams, 1), 'filaments': filaments[:16], 'ams': bool(p.get('ams')),
                              'printer': printer, 'settings': settings, 'nozzle': nozzle,
                              'settings_text': describe_print_settings(settings, nozzle),
@@ -2462,7 +2547,6 @@ def create_app():
             else:
                 form.file.data = None
             image_url = clean_print_link(form.image_url.data) if (form.image_url.data or '').strip() else None
-            chosen = apply_filament(request.form.get('filament'))
             upload = form.file.data if form.file.data and form.file.data.filename else None
             ext = upload.filename.rsplit('.', 1)[-1].lower() if upload and '.' in upload.filename else ''
             link = clean_print_link(form.link.data) if (form.link.data or '').strip() else None
@@ -2474,7 +2558,7 @@ def create_app():
                 flash('To nie wygląda na poprawny link - wklej pełny adres strony z modelem.', 'danger')
             elif (form.image_url.data or '').strip() and not image_url:
                 flash('To nie wygląda na poprawny link do zdjęcia.', 'danger')
-            elif not chosen:
+            elif not request.form.getlist('filament'):
                 flash('Wybierz filament z listy.', 'danger')
             else:
                 stored = None
@@ -2482,6 +2566,15 @@ def create_app():
                     stored = uuid.uuid4().hex + '.' + ext
                     create_directory_if_not_exists(os.path.dirname(print_file_path(stored)))
                     upload.save(print_file_path(stored))
+                file_profile = print_file_profile(stored)          # 3MF: ustawienia, kolory, czas z pliku
+                chosen = apply_filament(request.form.getlist('filament'), file_profile=file_profile)
+                if not chosen:
+                    if stored:
+                        remove_print_file(stored)
+                    flash('Wybierz filament z listy.', 'danger')
+                    return render_template('druk3d_nowa.html', form=form, max_mb=PRINT_MAX_MB, source=source, entry=None,
+                                           filaments=filament_groups(), filament_selected=request.form.getlist('filament'),
+                                           file_colors=None)
                 thumb = extract_3mf_thumbnail(stored) if ext == '3mf' else None
                 if upload and not thumb:
                     # STL / OBJ (i 3MF bez obrazka): zdjęcie podglądu 3D zrobione w przeglądarce przy wysyłaniu
@@ -2505,13 +2598,13 @@ def create_app():
                     except ValueError:
                         transform = None
                 # wybrany w formularzu profil druku z MakerWorld (czas i filament)
-                profile = None
+                profile = file_profile
                 if link:
                     try:
                         profile = (clean_profiles([json.loads(request.form.get('profile') or 'null')]) or [None])[0]
                     except ValueError:
                         profile = None
-                material, color, color_hex = chosen
+                material, color, color_hex, filament_items = chosen
                 model_info = None
                 if link:
                     try:
@@ -2519,6 +2612,7 @@ def create_app():
                     except ValueError:
                         model_info = None
                 entry = PrintRequest(thumb_path=thumb, gallery=json.dumps(gallery) if gallery else None, color_hex=color_hex,
+                                     filaments=json.dumps(filament_items, ensure_ascii=False) if filament_items else None,
                                      model_info=json.dumps(model_info) if model_info else None,
                                      print_profile=json.dumps(profile) if profile else None,
                                      print_transform=json.dumps(transform) if transform else None, title=form.title.data.strip(), description=(form.description.data or '').strip() or None,
@@ -2530,7 +2624,8 @@ def create_app():
                 flash('Propozycja wysłana! Status zobaczysz na tej stronie.', 'success')
                 return redirect(url_for('print_detail', request_id=entry.id))
         return render_template('druk3d_nowa.html', form=form, max_mb=PRINT_MAX_MB, source=source, entry=None,
-                               filaments=filament_groups(), filament_selected=request.form.get('filament') or FILAMENT_ANY)
+                               filaments=filament_groups(), filament_selected=request.form.getlist('filament') or [FILAMENT_ANY],
+                               file_colors=None)
 
     def clean_hex(value):
         """'#f72323', 'F72323FF' -> '#F72323'; None, gdy to nie kolor."""
@@ -2598,27 +2693,69 @@ def create_app():
         return {status: [f for f in items if f.status == status] for status in FILAMENT_STATUSES
                 if include_hidden or status != 'ukryty'}
 
-    def filament_choice(entry):
-        """Która opcja formularza odpowiada propozycji (przy edycji)."""
-        if entry.material == 'Obojętnie' and entry.color == 'Obojętnie':
-            return FILAMENT_ANY
-        f = Filament.query.filter_by(material=entry.material, name=entry.color).first()
-        if f and f.status != 'ukryty':
-            return str(f.id)
-        return FILAMENT_KEEP
+    @app.template_global('print_filaments')
+    def request_filaments(entry):
+        """Wszystkie kolory propozycji [{material, name, hex, file}] - starsze propozycje mają jeden (material/color)."""
+        try:
+            items = json.loads(entry.filaments) if entry.filaments else None
+        except ValueError:
+            items = None
+        if isinstance(items, list) and items:
+            return items
+        return [{'material': entry.material, 'name': entry.color, 'hex': print_color_hex(entry), 'file': False}]
 
-    def apply_filament(value, entry=None):
-        """Wybór z formularza -> (materiał, kolor, hex); None, gdy wybór jest nieprawidłowy."""
-        if value == FILAMENT_ANY:
-            return 'Obojętnie', 'Obojętnie', None
-        if value == FILAMENT_OTHER:
-            return 'Inny', 'Inny (opisz w uwagach)', None
-        if value == FILAMENT_KEEP and entry is not None:
-            return entry.material, entry.color, entry.color_hex
-        f = db.session.get(Filament, int(value)) if (value or '').isdigit() else None
-        if not f or f.status == 'ukryty':
+    def filament_choice(entry):
+        """Które opcje formularza odpowiadają propozycji (przy edycji) - lista wartości."""
+        items = request_filaments(entry)
+        if entry.material == 'Obojętnie' and entry.color == 'Obojętnie':
+            return [FILAMENT_ANY]
+        if any(i.get('file') for i in items):
+            return [FILAMENT_FROM_FILE]
+        chosen = []
+        for i in items:
+            if i.get('material') == 'Inny':
+                chosen.append(FILAMENT_OTHER)
+                continue
+            f = Filament.query.filter_by(material=i.get('material'), name=i.get('name')).first()
+            if not f or f.status == 'ukryty':
+                return [FILAMENT_KEEP]          # coś spoza dzisiejszej listy - zostaje „Bez zmian”
+            chosen.append(str(f.id))
+        return chosen or [FILAMENT_KEEP]
+
+    def apply_filament(values, entry=None, file_profile=None):
+        """Wybór z formularza (jedna albo kilka wartości) -> (materiał, kolor, hex, lista kolorów); None, gdy zły.
+        file_profile - profil z pliku 3MF, z którego bierzemy kolory przy „Kolory jak w pliku”."""
+        values = [v for v in (values if isinstance(values, list) else [values]) if v]
+        if not values:
             return None
-        return f.material, f.name, f.hex
+        if FILAMENT_ANY in values:
+            return 'Obojętnie', 'Obojętnie', None, []
+        if FILAMENT_KEEP in values and entry is not None:
+            return entry.material, entry.color, entry.color_hex, request_filaments(entry)
+        items = []
+        if FILAMENT_FROM_FILE in values:
+            if not file_profile or not file_profile.get('filaments'):
+                return None
+            for f in file_profile['filaments'][:FILAMENT_MAX]:
+                hex_ = clean_hex(f.get('color'))
+                items.append({'material': f.get('type') or 'PLA', 'name': color_name_from_hex(hex_) if hex_ else 'Kolor z pliku',
+                              'hex': hex_, 'file': True})
+        else:
+            for v in values:
+                if v == FILAMENT_OTHER:
+                    continue
+                f = db.session.get(Filament, int(v)) if v.isdigit() else None
+                if not f or f.status == 'ukryty':
+                    return None
+                if not any(i['material'] == f.material and i['name'] == f.name for i in items):
+                    items.append({'material': f.material, 'name': f.name, 'hex': f.hex, 'file': False})
+            if FILAMENT_OTHER in values:
+                items.append({'material': 'Inny', 'name': 'Inny (opisz w uwagach)', 'hex': None, 'file': False})
+        if not items or len(items) > FILAMENT_MAX:
+            return None
+        materials = list(dict.fromkeys(i['material'] for i in items))
+        return (' + '.join(materials)[:100], ' + '.join(i['name'] for i in items)[:200],
+                next((i['hex'] for i in items if i['hex']), None), items)
 
     @app.template_global('print_color_hex')
     def print_color_hex(entry):
@@ -2706,7 +2843,7 @@ def create_app():
             image_text = (form.image_url.data or '').strip() if source == 'link' else ''
             link = clean_print_link(link_text) if link_text else None
             image_url = clean_print_link(image_text) if image_text else None
-            chosen = apply_filament(request.form.get('filament'), entry)
+            chosen = None if not request.form.getlist('filament') else True    # właściwy wybór niżej, po ewentualnym nowym pliku
             if source == 'link' and not link:
                 flash('Wklej poprawny link do strony z modelem.', 'danger')
             elif upload and ext not in PRINT_EXTENSIONS:
@@ -2727,6 +2864,10 @@ def create_app():
                         entry.file_name = upload.filename.replace('\\', '/').rsplit('/', 1)[-1][:200]
                         if ext == '3mf':
                             entry.thumb_path = extract_3mf_thumbnail(stored)
+                        entry.print_profile = None                       # profil z poprzedniego pliku nie pasuje
+                    file_profile = print_file_profile(entry.file_path)
+                    if file_profile:
+                        entry.print_profile = json.dumps(file_profile)
                     try:
                         transform = clean_print_transform(json.loads(request.form.get('transform') or 'null'))
                     except ValueError:
@@ -2769,13 +2910,21 @@ def create_app():
                         entry.image_url = image_url or entry.image_url
                 entry.title = form.title.data.strip()
                 entry.description = (form.description.data or '').strip() or None
+                chosen = apply_filament(request.form.getlist('filament'), entry,
+                                        file_profile=print_file_profile(entry.file_path) if source == 'plik' else None)
+                if not chosen:
+                    db.session.rollback()
+                    flash('Wybierz filament z listy.', 'danger')
+                    return redirect(url_for('print_edit', request_id=entry.id))
                 entry.quality, entry.quantity = form.quality.data, form.quantity.data
-                entry.material, entry.color, entry.color_hex = chosen
+                entry.material, entry.color, entry.color_hex, filament_items = chosen
+                entry.filaments = json.dumps(filament_items, ensure_ascii=False) if filament_items else None
                 db.session.commit()
                 flash('Zmiany zapisane.', 'success')
                 return redirect(url_for('print_detail', request_id=entry.id))
         return render_template('druk3d_nowa.html', form=form, max_mb=PRINT_MAX_MB, source=source,
-                               filaments=filament_groups(), filament_selected=request.form.get('filament') or filament_choice(entry),
+                               filaments=filament_groups(), filament_selected=request.form.getlist('filament') or filament_choice(entry),
+                               file_colors=[f['color'] for f in (print_file_profile(entry.file_path) or {}).get('filaments', [])],
                                entry=entry, gallery=print_gallery(entry), transform=print_transform(entry),
                                file_ext=(entry.file_name or '').rsplit('.', 1)[-1].lower())
 
@@ -2790,6 +2939,7 @@ def create_app():
         return render_template('druk3d_szczegoly.html', entry=entry, can_delete=can_delete, can_edit=can_edit, file_size=file_size, print_statuses=PRINT_STATUSES,
                                gallery=print_gallery(entry), profile=print_profile(entry), model_info=print_model_info(entry),
                                photo_kinds=PRINT_PHOTO_KINDS, camera_ready=bool(printer_frame_url()),
+                               photo_likes=print_photo_likes([ph.id for ph in entry.photos]),
                                cloud_ready=bool(os.getenv('BAMBU_TOKEN')),
                                transform=print_transform(entry), transform_text=describe_print_transform(print_transform(entry)),
                                gallery_possible=bool(entry.link and model_images_supported(entry.link)),
@@ -2963,6 +3113,38 @@ def create_app():
         flash('Zdjęcie dodane.', 'success')
         return back
 
+    def print_photo_likes(photo_ids):
+        """{photo_id: {'count', 'mine', 'who'}} - jak image_likes w galerii."""
+        result = {i: {'count': 0, 'mine': False, 'who': []} for i in photo_ids}
+        if photo_ids:
+            rows = db.session.query(PrintPhotoLike.photo_id, PrintPhotoLike.user_id, User.username) \
+                .join(User, User.id == PrintPhotoLike.user_id).filter(PrintPhotoLike.photo_id.in_(photo_ids)) \
+                .order_by(PrintPhotoLike.created_at).all()
+            for photo_id, user_id, username in rows:
+                r = result[photo_id]
+                r['count'] += 1
+                r['mine'] = r['mine'] or user_id == current_user.id
+                r['who'].append(username)
+        for r in result.values():
+            r['who'] = ', '.join(r['who'])
+        return result
+
+    @app.route('/druk3d/zdjecie/<int:photo_id>/like', methods=['POST'])
+    @login_required
+    def like_print_photo(photo_id):
+        """Przełącza ❤ pod zdjęciem wydruku."""
+        PrintPhoto.query.get_or_404(photo_id)
+        existing = PrintPhotoLike.query.filter_by(photo_id=photo_id, user_id=current_user.id).first()
+        if existing:
+            db.session.delete(existing)
+        else:
+            db.session.add(PrintPhotoLike(photo_id=photo_id, user_id=current_user.id))
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+        return jsonify({'status': 'success', **print_photo_likes([photo_id])[photo_id]})
+
     @app.route('/druk3d/zdjecie/<int:photo_id>/usun', methods=['POST'])
     @login_required
     def print_photo_delete(photo_id):
@@ -2972,6 +3154,7 @@ def create_app():
             flash('Usunąć zdjęcie może ten, kto je dodał, albo admin.', 'danger')
         else:
             remove_print_photo_file(photo)
+            PrintPhotoLike.query.filter_by(photo_id=photo.id).delete()
             db.session.delete(photo)
             db.session.commit()
             flash('Zdjęcie usunięte.', 'success')
@@ -3027,6 +3210,7 @@ def create_app():
                 remove_print_file(name)
             for photo in list(entry.photos):
                 remove_print_photo_file(photo)
+                PrintPhotoLike.query.filter_by(photo_id=photo.id).delete()
                 db.session.delete(photo)
             db.session.delete(entry)
             db.session.commit()
@@ -3522,6 +3706,15 @@ def create_app():
                 add('like', '❤️', user_id,
                     f'polubienie: {plural(count, "zdjęcie", "zdjęcia", "zdjęć")}' + (f' w albumie {album.name}' if album else ' w galerii'),
                     url_for('album', album_id=album_id) if album else url_for('albums'), at)
+        if want('like'):
+            rows = db.session.query(PrintPhotoLike.user_id, PrintPhoto.request_id, func.count(), func.max(PrintPhotoLike.created_at)) \
+                .join(PrintPhoto, PrintPhoto.id == PrintPhotoLike.photo_id) \
+                .filter(PrintPhotoLike.created_at > since).group_by(PrintPhotoLike.user_id, PrintPhoto.request_id).all()
+            for user_id, request_id, count, at in rows:
+                pr = db.session.get(PrintRequest, request_id)
+                if pr:
+                    add('like', '❤️', user_id, f'polubienie zdjęcia wydruku: {pr.title}',
+                        url_for('print_detail', request_id=pr.id) + '#zdjecia', at)
         if want('reaction'):
             rows = db.session.query(NewsReaction.user_id, NewsReaction.news_id,
                                     func.group_concat(NewsReaction.emoji, ''), func.max(NewsReaction.created_at)) \

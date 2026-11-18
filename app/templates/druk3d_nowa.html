@@ -8,6 +8,8 @@
     .hl-color input:focus-visible + span { outline: 2px solid #fff; }
     .hl-color i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #777; }
     .hl-profile-summary { white-space: pre-line; max-height: 4.5em; overflow: hidden; }
+    .hl-file-swatches i { margin-left: 2px; }
+    .hl-file-info { font-size: .85rem; margin: -6px 0 12px; }
     .hl-filament-group { font-size: .85rem; color: var(--gta-muted, #9c9ca6); margin: 12px 0 6px; }
 </style>
 
@@ -96,6 +98,7 @@
         <div class="form-group col-md-8">
             {{ form.quality.label }}
             {{ form.quality(class="form-control") }}
+            <small class="text-muted d-block hl-file-info" id="hl-file-info" hidden></small>
         </div>
         <div class="form-group col-md-4">
             {{ form.quantity.label }}
@@ -103,21 +106,29 @@
         </div>
     </div>
     {# filament = materiał + kolor; lista z panelu admina (/druk3d/filamenty) #}
-    {% macro filament_option(value, label, hex='transparent', material='') -%}
+    {# wybór kilku kolorów naraz (wydruki wielokolorowe); „Obojętnie”, „Bez zmian” i „Kolory jak w pliku” wykluczają resztę #}
+    {% macro filament_option(value, label, hex='transparent', material='', solo=false) -%}
     <label class="hl-color mb-0">
-        <input type="radio" name="filament" value="{{ value }}" data-hex="{{ hex }}" data-material="{{ material }}"
-               {{ 'checked' if filament_selected == value|string }} required>
+        <input type="checkbox" name="filament" value="{{ value }}" data-hex="{{ hex }}" data-material="{{ material }}"
+               {% if solo %}data-solo="1"{% endif %} {{ 'checked' if value|string in filament_selected }}>
         <span><i style="background: {{ hex }}"></i>{{ label }}</span>
     </label>
     {%- endmacro %}
-    <fieldset class="form-group">
-        <legend class="col-form-label pt-0">Filament i kolor</legend>
+    <fieldset class="form-group" id="hl-filaments">
+        <legend class="col-form-label pt-0">Filament i kolor <small class="text-muted">- przy wydruku wielokolorowym zaznacz kilka</small></legend>
         <div class="hl-colors">
-            {{ filament_option('obojetnie', 'Obojętnie') }}
-            {% if entry and filament_selected == 'obecny' %}
-            {{ filament_option('obecny', 'Bez zmian: ' ~ entry.material ~ ' · ' ~ entry.color, print_color_hex(entry), entry.material) }}
+            {{ filament_option('obojetnie', 'Obojętnie', solo=true) }}
+            {% if entry and 'obecny' in filament_selected %}
+            {{ filament_option('obecny', 'Bez zmian: ' ~ entry.material ~ ' · ' ~ entry.color, print_color_hex(entry), entry.material, solo=true) }}
             {% endif %}
+            {# kolory zapisane w pliku 3MF - pokazuje się po wybraniu pliku (i przy edycji propozycji z 3MF) #}
+            <label class="hl-color mb-0" id="hl-file-colors" {% if not file_colors %}hidden{% endif %}>
+                <input type="checkbox" name="filament" value="plik" data-solo="1" data-hex="{{ file_colors[0] if file_colors else 'transparent' }}"
+                       data-material="PLA" {{ 'checked' if 'plik' in filament_selected }}>
+                <span>🎨 Kolory jak w pliku <span class="hl-file-swatches">{% for c in file_colors or [] %}<i style="background: {{ c }}"></i>{% endfor %}</span></span>
+            </label>
         </div>
+        <div class="small text-danger" id="hl-filament-error" hidden>Wybierz przynajmniej jeden filament.</div>
         {% if filaments.dostepny %}
         <div class="hl-filament-group">✅ Dostępne od ręki - jest w drukarce albo na półce</div>
         <div class="hl-colors">
@@ -405,17 +416,111 @@ let viewer = null, VIEWABLE = [];
 const transformInput = document.getElementById('print-transform'), transformInfo = document.getElementById('print-transform-info');
 const transformDefault = transformInfo.innerHTML;
 
+const FILAMENT_MAX = 8;
+const boxes = () => Array.from(document.querySelectorAll('input[name="filament"]'));
 function options() {
-    // wybrany filament: kolor modelu w podglądzie i materiał do szacowania wagi
-    const f = document.querySelector('input[name="filament"]:checked');
+    // pierwszy zaznaczony kolor - kolor modelu w podglądzie i materiał do szacowania wagi
+    const f = boxes().find(b => b.checked && b.dataset.hex && b.dataset.hex !== 'transparent') || boxes().find(b => b.checked);
     return { quality: quality.value, quantity: quantity.value,
              material: (f && f.dataset.material) || 'PLA', color: (f && f.dataset.hex) || 'transparent' };
 }
 [quality, quantity].forEach(el => el.addEventListener('input', () => viewer && viewer.setOptions(options())));
-document.querySelectorAll('input[name="filament"]').forEach(el => el.addEventListener('change', () => viewer && viewer.setOptions(options())));
+// „Obojętnie” / „Bez zmian” / „Kolory jak w pliku” wykluczają wybór konkretnych kolorów i odwrotnie
+document.getElementById('hl-filaments').addEventListener('change', e => {
+    const box = e.target;
+    if (box.name !== 'filament') return;
+    if (box.checked) {
+        boxes().forEach(b => { if (b !== box && (box.dataset.solo || b.dataset.solo)) b.checked = false; });
+        if (boxes().filter(b => b.checked).length > FILAMENT_MAX) { box.checked = false; alert('Najwyżej ' + FILAMENT_MAX + ' kolorów.'); }
+    }
+    document.getElementById('hl-filament-error').hidden = true;
+    if (viewer) viewer.setOptions(options());
+});
+input.form.addEventListener('submit', e => {
+    if (!boxes().some(b => b.checked)) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        const err = document.getElementById('hl-filament-error');
+        err.hidden = false; err.scrollIntoView({block: 'center'});
+    }
+}, true);
+
+// ---- plik 3MF z Bambu Studio / Orca: ustawienia i kolory zapisane w pliku (to samo liczy serwer przy zapisie) ----
+const qualityFile = quality.querySelector('option[value="plik"]');
+const qualityFileLabel = qualityFile ? qualityFile.textContent : '';
+const fileInfoEl = document.getElementById('hl-file-info'), fileColorsEl = document.getElementById('hl-file-colors');
+function paintState(t) {
+    t = t.toUpperCase();
+    if (t.length === 1 && (t === '4' || t === '8')) return parseInt(t, 16) >> 2;
+    if (t.length === 2 && t[1] === 'C') return 3 + parseInt(t[0], 16);
+    return null;
+}
+async function read3mf(buffer) {
+    const { unzipSync, strFromU8 } = await import('three/addons/libs/fflate.module.js');
+    const files = unzipSync(new Uint8Array(buffer), { filter: f => f.name.startsWith('Metadata/') && f.name.endsWith('.config')
+                                                                  || (f.name.startsWith('3D/') && f.name.endsWith('.model')) });
+    const ps = files['Metadata/project_settings.config'];
+    if (!ps) return null;
+    const cfg = JSON.parse(strFromU8(ps));
+    const colors = cfg.filament_colour || [], types = cfg.filament_type || [];
+    const used = new Set();
+    const ms = files['Metadata/model_settings.config'];
+    if (ms) for (const m of strFromU8(ms).matchAll(/key="extruder" value="(\d+)"/g)) used.add(+m[1]);
+    for (const [name, data] of Object.entries(files)) {
+        if (!name.endsWith('.model')) continue;
+        for (const m of new Set([...strFromU8(data).matchAll(/paint_color="([0-9A-Fa-f]{1,2})"/g)].map(x => x[1]))) {
+            const st = paintState(m); if (st) used.add(st);
+        }
+    }
+    const idx = [...used].filter(i => i >= 1 && i <= colors.length).sort((a, b) => a - b);
+    const list = (idx.length ? idx : colors.length ? [1] : []).map(i => ({ color: colors[i - 1], type: types[i - 1] || 'PLA' }));
+    let seconds = 0, grams = 0;
+    const si = files['Metadata/slice_info.config'];
+    if (si) for (const pl of strFromU8(si).matchAll(/<plate>([\s\S]*?)<\/plate>/g)) {
+        const get = k => (pl[1].match(new RegExp('key="' + k + '" value="([^"]*)"')) || [])[1];
+        seconds += parseInt(get('prediction') || 0, 10) || 0; grams += parseFloat(get('weight') || 0) || 0;
+    }
+    return { layer: cfg.layer_height, walls: cfg.wall_loops, infill: cfg.sparse_infill_density, printer: (cfg.printer_model || '').replace('Bambu Lab ', ''),
+             filaments: list, seconds, grams };
+}
+function applyFileInfo(info, fresh) {
+    // fresh = nowo wybrany plik: od razu „jak w pliku”; przy edycji zostaje to, co zapisane
+    if (!info || !info.filaments.length) { clearFileInfo(); return; }
+    if (qualityFile) {
+        qualityFile.hidden = false;
+        qualityFile.textContent = qualityFileLabel + (info.layer ? ' (warstwa ' + String(info.layer).replace('.', ',') + ' mm)' : '');
+        if (fresh) quality.value = 'plik';
+    }
+    const box = fileColorsEl.querySelector('input');
+    fileColorsEl.hidden = false;
+    fileColorsEl.querySelector('.hl-file-swatches').innerHTML = info.filaments.map(f => '<i style="background:' + f.color + '"></i>').join('');
+    box.dataset.hex = info.filaments[0].color; box.dataset.material = info.filaments[0].type;
+    if (fresh) { box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); }
+    const bits = [];
+    if (info.layer) bits.push('warstwa ' + String(info.layer).replace('.', ',') + ' mm');
+    if (info.walls) bits.push(info.walls + ' ścianki');
+    if (info.infill) bits.push('wypełnienie ' + info.infill);
+    bits.push(info.filaments.length === 1 ? '1 kolor' : info.filaments.length + ' kolory');
+    if (info.seconds) bits.push('⏱ ' + Math.round(info.seconds / 60) + ' min, ' + Math.round(info.grams) + ' g');
+    if (info.printer) bits.push('profil dla ' + info.printer);
+    fileInfoEl.textContent = '📄 Z pliku: ' + bits.join(' · ') + '. Możesz to zmienić.';
+    fileInfoEl.hidden = false;
+}
+function clearFileInfo() {
+    if (qualityFile) { qualityFile.hidden = true; if (quality.value === 'plik') quality.value = 'obojetnie'; }
+    const box = fileColorsEl.querySelector('input');
+    if (box.checked) { box.checked = false; boxes()[0].checked = true; }
+    fileColorsEl.hidden = true;
+    fileInfoEl.hidden = true;
+}
+if (qualityFile && !{{ 'true' if file_colors else 'false' }}) qualityFile.hidden = true;
 
 let mod = null;
-async function showModel(getBuffer, ext, transform) {
+async function showModel(getBuffer, ext, transform, fresh) {
+    let buffer = null;
+    if (ext === '3mf') {
+        try { buffer = await getBuffer(); applyFileInfo(await read3mf(buffer), fresh); }
+        catch (e) { console.error(e); clearFileInfo(); }
+    } else if (fresh) clearFileInfo();
     try {
         status.textContent = 'Ładuję podgląd…';
         if (!viewer) {
@@ -433,7 +538,7 @@ async function showModel(getBuffer, ext, transform) {
         }
         if (!VIEWABLE.includes(ext)) { status.textContent = 'Dla tego formatu nie ma podglądu - plik i tak zostanie wysłany.'; return; }
         viewer.setOptions(options());
-        viewer.load(await getBuffer(), ext);
+        viewer.load(buffer || await getBuffer(), ext);
         if (transform) {
             viewer.setTransform(transform);
             transformInfo.textContent = 'Ustawienie: ' + mod.describeTransform(transform) + '.';
@@ -455,7 +560,7 @@ input.addEventListener('change', async () => {
     const file = input.files[0];
     if (!file) return;
     status.textContent = 'Ładuję podgląd…';
-    await showModel(() => file.arrayBuffer(), file.name.split('.').pop().toLowerCase(), null);
+    await showModel(() => file.arrayBuffer(), file.name.split('.').pop().toLowerCase(), null, true);
 });
 
 // przy wysyłaniu zdjęcie podglądu (z kolorem i ustawieniem) zostaje miniaturą propozycji

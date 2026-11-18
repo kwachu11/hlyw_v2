@@ -11,6 +11,7 @@ PRINT_QUALITIES = {
     'szkic': 'Szkic - 0,28 mm (szybko)',
     'standard': 'Standard - 0,20 mm',
     'dokladna': 'Dokładna - 0,12 mm (wolno)',
+    'plik': 'Jak w pliku 3MF',      # ustawienia zapisane w pliku z Bambu Studio
 }
 PRINT_COLORS = {   # dawne kolory: kółko przy starszych propozycjach i startowa lista filamentów (PLA „na życzenie”)
     'Obojętnie': 'transparent', 'Czarny': '#111111', 'Biały': '#f5f5f5', 'Szary': '#8a8a8a', 'Czerwony': '#d32f2f',

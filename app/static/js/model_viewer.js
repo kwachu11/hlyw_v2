@@ -8,6 +8,7 @@ import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 
 export const VIEWABLE = ['stl', '3mf', 'obj'];
 
@@ -26,9 +27,87 @@ function density(material) {
     return key ? DENSITY[key] : DENSITY.PLA;
 }
 
+// 3MF z Bambu Studio / Orca: obiekty w osobnych plikach (3D/Objects/*.model), sklejane przez <component p:path=...>.
+// Wbudowany ThreeMFLoader tego nie obsługuje (błąd „reading 'mesh'”), więc czytamy sami: build -> obiekty -> siatki.
+function parseBambu3mf(buffer) {
+    const files = unzipSync(new Uint8Array(buffer), { filter: f => /\.model$/i.test(f.name) });
+    const parser = new DOMParser(), docs = {}, geometries = new Map();
+    const key = path => String(path || '').replace(/^\//, '');
+    const doc = path => {
+        const k = key(path);
+        if (!(k in docs)) docs[k] = files[k] ? parser.parseFromString(strFromU8(files[k]), 'application/xml') : null;
+        return docs[k];
+    };
+    // transform 3MF: "m00 m01 m02 m10 m11 m12 m20 m21 m22 m30 m31 m32" (wiersze), three.js: kolumny
+    const matrix = t => {
+        if (!t) return new THREE.Matrix4();
+        const m = t.trim().split(/\s+/).map(Number);
+        return new THREE.Matrix4().set(m[0], m[3], m[6], m[9], m[1], m[4], m[7], m[10], m[2], m[5], m[8], m[11], 0, 0, 0, 1);
+    };
+    const findObject = (path, id) => {
+        const d = doc(path);
+        if (!d) return null;
+        for (const o of d.getElementsByTagName('object')) if (o.getAttribute('id') === id) return o;
+        return null;
+    };
+    const geometry = (path, id, meshEl) => {
+        const k = key(path) + '#' + id;
+        if (geometries.has(k)) return geometries.get(k);
+        const vs = meshEl.getElementsByTagName('vertex'), ts = meshEl.getElementsByTagName('triangle');
+        const pos = new Float32Array(vs.length * 3), idx = new Uint32Array(ts.length * 3);
+        for (let i = 0; i < vs.length; i++) {
+            pos[i * 3] = +vs[i].getAttribute('x'); pos[i * 3 + 1] = +vs[i].getAttribute('y'); pos[i * 3 + 2] = +vs[i].getAttribute('z');
+        }
+        for (let i = 0; i < ts.length; i++) {
+            idx[i * 3] = +ts[i].getAttribute('v1'); idx[i * 3 + 1] = +ts[i].getAttribute('v2'); idx[i * 3 + 2] = +ts[i].getAttribute('v3');
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        g.setIndex(new THREE.BufferAttribute(idx, 1));
+        geometries.set(k, g);
+        return g;
+    };
+    const build = (path, id, depth) => {
+        const o = depth < 12 && findObject(path, id);
+        if (!o) return null;
+        const group = new THREE.Group();
+        for (const child of o.children) {
+            if (child.localName === 'mesh') group.add(new THREE.Mesh(geometry(path, id, child)));
+            if (child.localName === 'components') {
+                for (const c of child.children) {
+                    if (c.localName !== 'component') continue;
+                    const part = build(c.getAttribute('p:path') || path, c.getAttribute('objectid'), depth + 1);
+                    if (part) { part.applyMatrix4(matrix(c.getAttribute('transform'))); group.add(part); }
+                }
+            }
+        }
+        return group;
+    };
+    const main = Object.keys(files).find(n => /^3D\/3dmodel\.model$/i.test(n));
+    if (!main) throw new Error('W pliku 3MF nie ma 3D/3dmodel.model');
+    const root = new THREE.Group();
+    for (const item of doc(main).getElementsByTagName('item')) {
+        const obj = build(main, item.getAttribute('objectid'), 0);
+        if (obj) { obj.applyMatrix4(matrix(item.getAttribute('transform'))); root.add(obj); }
+    }
+    return root;
+}
+
+function hasMesh(root) {
+    let found = false;
+    root.traverse(o => { if (o.isMesh) found = true; });
+    return found;
+}
+
 function parseModel(buffer, ext) {
     if (ext === 'stl') return new THREE.Mesh(new STLLoader().parse(buffer));
-    if (ext === '3mf') return new ThreeMFLoader().parse(buffer);
+    if (ext === '3mf') {
+        try {
+            const root = new ThreeMFLoader().parse(buffer);
+            if (hasMesh(root)) return root;
+        } catch (e) { /* plik z Bambu Studio - niżej własny odczyt */ }
+        return parseBambu3mf(buffer);
+    }
     if (ext === 'obj') return new OBJLoader().parse(new TextDecoder().decode(buffer));
     throw new Error('Nieobsługiwany format: ' + ext);
 }

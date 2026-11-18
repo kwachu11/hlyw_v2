@@ -1,7 +1,7 @@
 {% set src = image.file_path|media_url %}
 {% set like = (likes or {}).get(image.id) %}
 <a href="{{ src }}" class="hl-thumb" data-src="{{ src }}" {% if image.file_path|is_video %}data-video="1"{% endif %}
-   {% if like %}data-like-id="{{ image.id }}" data-likes="{{ like.count }}" data-liked="{{ 1 if like.mine else 0 }}" data-who="{{ like.who }}"{% endif %}>
+   {% if like %}data-like-url="{{ url_for('like_image', image_id=image.id) }}" data-likes="{{ like.count }}" data-liked="{{ 1 if like.mine else 0 }}" data-who="{{ like.who }}"{% endif %}>
     {% if image.file_path|is_video %}
     <video src="{{ src }}#t=0.5" preload="metadata" muted playsinline></video>
     <span class="hl-play">&#9654;</span>

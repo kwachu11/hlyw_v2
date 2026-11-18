@@ -66,11 +66,11 @@
         renderLike();
     }
 
-    // ---- ❤ pod zdjęciem z galerii (tylko miniatury z data-like-id) ----
+    // ---- ❤ pod zdjęciem (miniatury z data-like-url: galeria, zdjęcia wydruków) ----
     const likeBtn = document.getElementById('hlLightboxLike');
     function renderLike() {
         const t = thumbs[index];
-        likeBtn.hidden = !t || !t.dataset.likeId;
+        likeBtn.hidden = !t || !t.dataset.likeUrl;
         if (likeBtn.hidden) return;
         const n = +t.dataset.likes || 0;
         likeBtn.classList.toggle('mine', t.dataset.liked === '1');
@@ -86,9 +86,9 @@
     }
     likeBtn.addEventListener('click', () => {
         const t = thumbs[index];
-        if (!t || !t.dataset.likeId || likeBtn.disabled) return;
+        if (!t || !t.dataset.likeUrl || likeBtn.disabled) return;
         likeBtn.disabled = true;
-        fetch('/zdjecie/' + t.dataset.likeId + '/like', { method: 'POST' })
+        fetch(t.dataset.likeUrl, { method: 'POST' })
             .then(r => r.json())
             .then(data => {
                 if (data.status !== 'success') return;

@@ -32,10 +32,10 @@
                     <span class="badge {{ badge }} badge-pill">{{ name }}</span>
                 </div>
                 <small class="text-muted">
-                    {{ r.user.username }}{{ crown(r.user.id) }} · {{ r.created_at|when }} · {{ qualities[r.quality] }} · {{ r.material }} · <span class="hl-swatch" style="background: {{ print_color_hex(r) }}"></span> {{ r.color }}
+                    {{ r.user.username }}{{ crown(r.user.id) }} · {{ r.created_at|when }} · {{ qualities[r.quality] }} · {% for f in print_filaments(r) %}<span class="hl-swatch" style="background: {{ f.hex or 'transparent' }}"></span>{% endfor %} {{ r.material }} · {{ r.color }}
                     · {{ '📎 plik' if r.file_path else '🔗 link' }}
                     {% set prof = profile_of(r) %}
-                    {% if prof %}· ⏱ {{ (prof.seconds * r.quantity)|print_time }} · 🧵 {{ (prof.grams * r.quantity)|round|int }} g{% endif %}
+                    {% if prof and prof.seconds %}· ⏱ {{ (prof.seconds * r.quantity)|print_time }} · 🧵 {{ (prof.grams * r.quantity)|round|int }} g{% endif %}
                 </small>
             </div>
         </div>
