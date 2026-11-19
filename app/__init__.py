@@ -133,6 +133,29 @@ CHAT_MENTION_LOG = 'czat-oznaczenie'
 # Maile do użytkowników (/panel/maile). W temacie i treści: {nick}, {link_kamera}, {link_strona}.
 GTA6_RELEASE = '2026-11-19T00:00:00+01:00'
 MAIL_TEMPLATES = {
+    'gta6_po': {
+        'name': '🎮 GTA VI już jest - stream',
+        'subject': 'GTA VI już jest - wbijaj na stream na hlyw.pl!',
+        'body': '''<div style="background:#0d0d12;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#eee">
+<div style="max-width:560px;margin:0 auto;background:#17171f;border-radius:10px;overflow:hidden">
+<div style="background:linear-gradient(90deg,#1fbf75,#0f8f9e,#ff2e88);padding:22px;text-align:center">
+<div style="font-size:30px;font-weight:bold;color:#fff;letter-spacing:2px">GRAND THEFT AUTO VI</div>
+<div style="color:#fff;font-size:15px;margin-top:4px">już jest! 🌴</div>
+</div>
+<div style="padding:22px;font-size:15px;line-height:1.6">
+<p>Cześć <b>{nick}</b>!</p>
+<p>Stało się - <b>GTA VI wyszło</b> 19.11.2026 o północy. Tyle czasu już gramy:</p>
+<p style="text-align:center;margin:18px 0"><img src="{link_strona}gta6/licznik.gif" width="516" alt="Licznik od premiery GTA VI" style="max-width:100%;height:auto;border-radius:8px;display:block;margin:0 auto"></p>
+<p>Na kamerze hlyw.pl leci <b>stream z gry</b> - wbijaj oglądać i pisz na czacie (możesz oznaczyć znajomych przez <b>@nick</b>).</p>
+<p style="text-align:center;margin:26px 0">
+<a href="{link_kamera}" style="background:#ff2e88;color:#fff;text-decoration:none;padding:12px 26px;border-radius:6px;font-weight:bold;display:inline-block">🔴 Oglądaj stream</a>
+</p>
+<p>Jeśli w nocy przyszedł już do Ciebie od nas mail o premierze - sorry za powtórkę, serwer się zadyszał. 😅</p>
+<p>Do zobaczenia w Vice City!<br>Ekipa hlyw.pl</p>
+</div>
+<div style="padding:12px 22px;font-size:12px;color:#888;border-top:1px solid #2a2a35">Dostajesz tę wiadomość, bo masz konto na <a href="{link_strona}" style="color:#ff9d2e">hlyw.pl</a>.</div>
+</div></div>''',
+    },
     'gta6': {
         'name': '🎮 GTA VI - zaproszenie na stream',
         'subject': 'GTA VI wychodzi o północy - oglądamy razem na hlyw.pl!',
@@ -4307,7 +4330,7 @@ def create_app():
                 text = text.replace(key, value)
             return text
 
-        form = {'template': request.form.get('template', 'gta6'), 'subject': request.form.get('subject', ''),
+        form = {'template': request.form.get('template', 'gta6_po'), 'subject': request.form.get('subject', ''),
                 'body': request.form.get('body', ''), 'to': request.form.getlist('to')}
         if request.method == 'POST':
             subject, body = form['subject'].strip(), form['body'].strip()
@@ -4348,7 +4371,7 @@ def create_app():
                           + '. Postęp widać niżej - odśwież stronę.', 'success')
                     return redirect(url_for('mail_sender', temat=subject[:200]))
         else:
-            tpl = MAIL_TEMPLATES['gta6']
+            tpl = MAIL_TEMPLATES['gta6_po']
             form.update(subject=request.args.get('temat') or tpl['subject'], body=tpl['body'],
                         to=[str(u.id) for u in users if u.confirmed])
         progress = None
