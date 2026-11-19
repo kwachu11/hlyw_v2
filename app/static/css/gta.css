@@ -806,3 +806,4 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 @keyframes hl-chat-flash { from { box-shadow: 0 0 0 2px #ff9d2e; } to { box-shadow: 0 0 0 2px transparent; } }
 .chat-message.hl-chat-flash { animation: hl-chat-flash 1.6s ease-out; }
 .hl-chat-attachment[hidden] { display: none; }
+.hl-mail-user[hidden] { display: none; }

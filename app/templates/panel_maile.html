@@ -3,29 +3,74 @@
 <div class="mb-2"><a href="{{ url_for('control_panel') }}">&larr; Panel sterowania</a></div>
 <h2>✉️ Maile do użytkowników</h2>
 <p class="text-muted small">
-    Każdy odbiorca dostaje osobną wiadomość (nie widzi innych adresów). W temacie i treści możesz użyć
-    <code>{nick}</code>, <code>{link_kamera}</code> i <code>{link_strona}</code>. Wysyłka idzie z support@hlyw.pl.
+    Każdy odbiorca dostaje osobną wiadomość (nie widzi innych adresów). <code>{nick}</code> zamienia się na nick odbiorcy.
+    Wysyłka idzie z support@hlyw.pl.
 </p>
 
 <form method="post" id="mail-form">
+    <input type="hidden" name="mode" id="mail-mode" value="{{ form.mode }}">
+    <div class="hl-source-switch mb-3" role="tablist" aria-label="Rodzaj maila">
+        <button type="button" role="tab" data-mode="prosty" class="{{ 'active' if form.mode == 'prosty' }}" aria-selected="{{ 'true' if form.mode == 'prosty' else 'false' }}">✉️ Prosty</button>
+        <button type="button" role="tab" data-mode="html" class="{{ 'active' if form.mode == 'html' }}" aria-selected="{{ 'true' if form.mode == 'html' else 'false' }}">🧩 HTML (szablony)</button>
+    </div>
     <div class="row">
         <div class="col-lg-7 mb-3">
             <div class="form-group">
-                <label for="mail-template">Szablon</label>
-                <select class="form-control" id="mail-template" name="template">
-                    {% for key, tpl in templates.items() %}
-                    <option value="{{ key }}" {{ 'selected' if form.template == key }}>{{ tpl.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group">
                 <label for="mail-subject">Temat</label>
-                <input class="form-control" id="mail-subject" name="subject" maxlength="200" value="{{ form.subject }}" required>
+                <input class="form-control" id="mail-subject" name="subject" maxlength="200" value="{{ form.subject }}" required
+                       placeholder="np. W piątek turniej FIFA - zapisz się!">
             </div>
-            <div class="form-group">
-                <label for="mail-body">Treść (HTML)</label>
-                <textarea class="form-control" id="mail-body" name="body" rows="10" required style="font-family: monospace; font-size: .85rem">{{ form.body }}</textarea>
-            </div>
+
+            {# --- tryb prosty: zwykły tekst, strona sama robi z niego ładnego maila --- #}
+            <fieldset id="mode-prosty" {{ 'disabled hidden' if form.mode != 'prosty' }}>
+                <div class="form-group">
+                    <label for="mail-text">Treść</label>
+                    <textarea class="form-control" id="mail-text" name="text" rows="9" maxlength="5000"
+                              placeholder="Pisz normalnie. Pusta linia = nowy akapit, linki same będą klikalne.">{{ form.text }}</textarea>
+                    <small class="form-text text-muted">Pusta linia = nowy akapit · linki (https://…) same staną się klikalne · <code>{nick}</code> = nick odbiorcy</small>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-sm-6">
+                        <label for="mail-btn-text">Przycisk - napis <span class="text-muted small">(puste = bez przycisku)</span></label>
+                        <input class="form-control" id="mail-btn-text" name="button_text" maxlength="60" value="{{ form.button_text }}">
+                    </div>
+                    <div class="form-group col-sm-6">
+                        <label for="mail-btn-url">Przycisk - dokąd</label>
+                        <input class="form-control" id="mail-btn-url" name="button_url" maxlength="300" value="{{ form.button_url }}" list="mail-btn-urls"
+                               placeholder="/camera albo https://…">
+                        <datalist id="mail-btn-urls">
+                            <option value="/">Strona główna</option>
+                            <option value="/camera">Kamera i czat</option>
+                            <option value="/calendar">Kalendarz</option>
+                            <option value="/games">Gry</option>
+                            <option value="/albums">Galeria</option>
+                            <option value="/druk3d">Druk 3D</option>
+                        </datalist>
+                    </div>
+                </div>
+                <div class="custom-control custom-checkbox mb-3">
+                    <input type="checkbox" class="custom-control-input" id="mail-counter" name="counter" value="1" {{ 'checked' if form.counter }}>
+                    <label class="custom-control-label" for="mail-counter">Dodaj licznik (ustawiony w panelu - grupa „Licznik”)</label>
+                </div>
+            </fieldset>
+
+            {# --- tryb HTML: gotowe szablony do ręcznej edycji --- #}
+            <fieldset id="mode-html" {{ 'disabled hidden' if form.mode != 'html' }}>
+                <div class="form-group">
+                    <label for="mail-template">Szablon</label>
+                    <select class="form-control" id="mail-template" name="template">
+                        {% for key, tpl in templates.items() %}
+                        <option value="{{ key }}" {{ 'selected' if form.template == key }}>{{ tpl.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="mail-body">Treść (HTML)</label>
+                    <textarea class="form-control" id="mail-body" name="body" rows="10" style="font-family: monospace; font-size: .85rem">{{ form.body }}</textarea>
+                    <small class="form-text text-muted">Wstawki: <code>{nick}</code>, <code>{link_kamera}</code>, <code>{link_strona}</code></small>
+                </div>
+            </fieldset>
+
             <label>Podgląd (jako {{ preview_nick }})</label>
             <iframe id="mail-preview" class="hl-mail-preview" title="Podgląd maila" sandbox></iframe>
         </div>
@@ -39,9 +84,10 @@
                     <a href="#" data-pick="none">nikt</a>
                 </span>
             </div>
+            <input type="search" class="form-control form-control-sm mb-1" id="mail-filter" placeholder="Szukaj nicku…" aria-label="Szukaj nicku">
             <div class="hl-mail-users">
                 {% for u in users %}
-                <label class="hl-mail-user">
+                <label class="hl-mail-user" data-name="{{ u.username|lower }}">
                     <input type="checkbox" name="to" value="{{ u.id }}" data-confirmed="{{ 1 if u.confirmed else 0 }}"
                            {{ 'checked' if u.id|string in form.to }}>
                     {{ u.username }}
@@ -56,7 +102,7 @@
         <input type="checkbox" class="custom-control-input" id="mail-skip" name="skip_sent" value="1" checked>
         <label class="custom-control-label" for="mail-skip">Pomiń osoby, które już dostały mail z tym samym tematem</label>
     </div>
-    <button type="submit" name="action" value="test" class="btn btn-outline-primary w-auto mr-2 mb-2" formnovalidate>Wyślij test do mnie</button>
+    <button type="submit" name="action" value="test" class="btn btn-outline-primary w-auto mr-2 mb-2">Wyślij test do mnie</button>
     <button type="submit" name="action" value="send" class="btn btn-primary w-auto mb-2" id="mail-send">Wyślij do zaznaczonych</button>
 </form>
 
@@ -71,23 +117,58 @@
 
 <script>
 (function () {
-    var templates = {{ templates|tojson }}, links = {{ links|tojson }}, nick = {{ preview_nick|tojson }};
-    var sel = document.getElementById('mail-template'), subj = document.getElementById('mail-subject'),
+    var templates = {{ templates|tojson }}, links = {{ links|tojson }}, nick = {{ preview_nick|tojson }},
+        previewUrl = {{ url_for('mail_preview')|tojson }};
+    var form = document.getElementById('mail-form'), modeInput = document.getElementById('mail-mode'),
+        sel = document.getElementById('mail-template'), subj = document.getElementById('mail-subject'),
         body = document.getElementById('mail-body'), frame = document.getElementById('mail-preview'),
         boxes = [].slice.call(document.querySelectorAll('input[name="to"]')), count = document.getElementById('mail-count');
     function esc(s) { return s.replace(/[&<>"]/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
+
+    // podgląd: HTML liczymy u siebie, prosty mail składa serwer (ten sam kod, który wysyła)
+    var timer = null;
     function preview() {
-        var html = body.value.split('{nick}').join(esc(nick));
-        Object.keys(links).forEach(function (k) { html = html.split(k).join(links[k]); });
-        frame.srcdoc = html;
+        if (modeInput.value === 'html') {
+            var html = body.value.split('{nick}').join(esc(nick));
+            Object.keys(links).forEach(function (k) { html = html.split(k).join(links[k]); });
+            frame.srcdoc = html;
+            return;
+        }
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+            var data = new FormData();
+            ['text', 'button_text', 'button_url'].forEach(function (k) { data.append(k, form.elements[k].value); });
+            if (document.getElementById('mail-counter').checked) data.append('counter', '1');
+            fetch(previewUrl, { method: 'POST', body: data }).then(function (r) { return r.text(); })
+                .then(function (html) { frame.srcdoc = html; });
+        }, 350);
     }
-    function recount() { count.textContent = boxes.filter(function (b) { return b.checked; }).length; }
+    function setMode(mode) {
+        modeInput.value = mode;
+        document.querySelectorAll('[data-mode]').forEach(function (b) {
+            b.classList.toggle('active', b.dataset.mode === mode);
+            b.setAttribute('aria-selected', b.dataset.mode === mode ? 'true' : 'false');
+        });
+        ['prosty', 'html'].forEach(function (m) {
+            var fs = document.getElementById('mode-' + m);
+            fs.disabled = fs.hidden = m !== mode;      // wyłączone pola nie idą w formularzu
+        });
+        preview();
+    }
+    document.querySelectorAll('[data-mode]').forEach(function (b) {
+        b.addEventListener('click', function () { setMode(b.dataset.mode); });
+    });
     sel.addEventListener('change', function () {
         var t = templates[sel.value];
         if (!t) return;
         subj.value = t.subject; body.value = t.body; preview();
     });
-    body.addEventListener('input', preview);
+    ['mail-text', 'mail-btn-text', 'mail-btn-url', 'mail-body'].forEach(function (id) {
+        document.getElementById(id).addEventListener('input', preview);
+    });
+    document.getElementById('mail-counter').addEventListener('change', preview);
+
+    function recount() { count.textContent = boxes.filter(function (b) { return b.checked; }).length; }
     boxes.forEach(function (b) { b.addEventListener('change', recount); });
     document.querySelectorAll('[data-pick]').forEach(function (a) {
         a.addEventListener('click', function (e) {
@@ -97,9 +178,18 @@
             recount();
         });
     });
-    document.getElementById('mail-send').addEventListener('click', function (e) {
-        var n = boxes.filter(function (b) { return b.checked; }).length;
-        if (n && !window.confirm('Wysłać maila do ' + n + ' osób?')) e.preventDefault();
+    document.getElementById('mail-filter').addEventListener('input', function (e) {
+        var q = e.target.value.trim().toLowerCase();
+        document.querySelectorAll('.hl-mail-user').forEach(function (l) { l.hidden = q && l.dataset.name.indexOf(q) === -1; });
+    });
+    form.addEventListener('submit', function (e) {
+        if (modeInput.value === 'prosty' && !document.getElementById('mail-text').value.trim()) {
+            e.preventDefault(); alert('Wpisz treść maila.'); return;
+        }
+        if (e.submitter && e.submitter.id === 'mail-send') {
+            var n = boxes.filter(function (b) { return b.checked; }).length;
+            if (n && !window.confirm('Wysłać maila do ' + n + ' osób?')) e.preventDefault();
+        }
     });
     preview(); recount();
 })();

@@ -4563,8 +4563,8 @@ def create_app():
             root = 'https://hlyw.pl/'
         links = {'{link_kamera}': root + 'camera', '{link_strona}': root}
 
-        def fill(text, user):
-            text = text.replace('{nick}', str(escape(user.username)))
+        def fill(text, user, html=True):
+            text = text.replace('{nick}', str(escape(user.username)) if html else user.username)
             for key, value in links.items():
                 text = text.replace(key, value)
             # Gmail trzyma obrazek pod danym adresem w swoim proxy dla wszystkich odbiorców - każdy mail dostaje
@@ -4572,8 +4572,13 @@ def create_app():
             return re.sub(r'gta6/licznik\.gif(?:\?m=\w+)?', lambda m: 'gta6/licznik.gif?m=' + os.urandom(6).hex(), text)
 
         form = {'template': request.form.get('template', 'gta6_po'), 'subject': request.form.get('subject', ''),
-                'body': request.form.get('body', ''), 'to': request.form.getlist('to')}
+                'body': request.form.get('body', ''), 'to': request.form.getlist('to'),
+                'mode': 'html' if request.form.get('mode') == 'html' else 'prosty', 'text': request.form.get('text', ''),
+                'button_text': request.form.get('button_text', ''), 'button_url': request.form.get('button_url', ''),
+                'counter': bool(request.form.get('counter'))}
         if request.method == 'POST':
+            if form['mode'] == 'prosty':
+                form['body'] = simple_mail_html(form, root) if form['text'].strip() else ''
             subject, body = form['subject'].strip(), form['body'].strip()
             if request.form.get('action') == 'test':
                 chosen = [current_user]
@@ -4598,7 +4603,7 @@ def create_app():
                     address = user.email.strip()
                     if address.lower() not in seen:
                         seen.add(address.lower())
-                        jobs.append((user.id, address, fill(subject, user), fill(body, user)))
+                        jobs.append((user.id, address, fill(subject, user, html=False), fill(body, user)))
                 log_subject = None if is_test else subject[:200]
                 if is_test:
                     send_mail_jobs(jobs, log_subject)          # jeden mail - od razu, z wynikiem
@@ -4613,8 +4618,8 @@ def create_app():
                     return redirect(url_for('mail_sender', temat=subject[:200]))
         else:
             tpl = MAIL_TEMPLATES['gta6_po']
-            form.update(subject=request.args.get('temat') or tpl['subject'], body=tpl['body'],
-                        to=[str(u.id) for u in users if u.confirmed])
+            form.update(subject=request.args.get('temat') or '', body=tpl['body'], text='Cześć {nick}!\n\n',
+                        button_text='Wejdź na hlyw.pl', button_url='/', to=[str(u.id) for u in users if u.confirmed])
         progress = None
         if form['subject'].strip():
             rows = MailLog.query.filter_by(subject=form['subject'].strip()[:200]).all()
@@ -4623,6 +4628,37 @@ def create_app():
                         'failed': sorted(names.get(r.user_id, '?') for r in rows if not r.ok)}
         return render_template('panel_maile.html', users=users, form=form, templates=MAIL_TEMPLATES,
                                preview_nick=current_user.username, links=links, progress=progress)
+
+    def simple_mail_html(form, root):
+        """Prosty mail: zwykły tekst (akapity, linki klikalne) w szacie hlyw.pl + opcjonalny przycisk i licznik.
+        {nick} i pozostałe wstawki zostają - podmienia je fill() dla każdego odbiorcy."""
+        def paragraph(block):
+            html = str(escape(block.strip()))
+            html = re.sub(r'(https?://[^\s<]+[^\s<.,;:!?)\]])',
+                          r'<a href="\1" style="color:#ff9d2e">\1</a>', html)
+            return html.replace('\n', '<br>')
+        paragraphs = [paragraph(b) for b in re.split(r'\n\s*\n', form['text'].replace('\r\n', '\n')) if b.strip()]
+        url = form['button_url'].strip()
+        if url.startswith('/'):
+            url = root.rstrip('/') + url
+        elif url and not re.match(r'https?://', url):
+            url = ''
+        return render_template('mail_prosty.html', paragraphs=paragraphs, button_text=form['button_text'].strip(),
+                               button_url=url, counter=form['counter'], site_url=root)
+
+    @app.route('/panel/maile/podglad', methods=['POST'])
+    @login_required
+    def mail_preview():
+        """Podgląd prostego maila (ten sam HTML, który pójdzie do odbiorców) - z nickiem admina."""
+        if current_user.is_admin == "0":
+            abort(403)
+        root = request.url_root
+        if 'hlyw.pl' in root:
+            root = 'https://hlyw.pl/'
+        form = {k: request.form.get(k, '') for k in ('text', 'button_text', 'button_url')}
+        form['counter'] = bool(request.form.get('counter'))
+        html = simple_mail_html(form, root).replace('{nick}', str(escape(current_user.username)))
+        return html.replace('{link_kamera}', root + 'camera').replace('{link_strona}', root)
 
     def send_mail_jobs(jobs, log_subject):
         """Wysyła przygotowane maile [(user_id, adres, temat, html)] jednym połączeniem SMTP i zapisuje wynik w MailLog."""
