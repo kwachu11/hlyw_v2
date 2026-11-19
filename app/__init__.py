@@ -4328,7 +4328,9 @@ def create_app():
             text = text.replace('{nick}', str(escape(user.username)))
             for key, value in links.items():
                 text = text.replace(key, value)
-            return text
+            # Gmail trzyma obrazek pod danym adresem w swoim proxy dla wszystkich odbiorców - każdy mail dostaje
+            # własny adres licznika, żeby pokazywał czas z chwili otwarcia, a nie z pierwszego pobrania
+            return re.sub(r'gta6/licznik\.gif(?:\?m=\w+)?', lambda m: 'gta6/licznik.gif?m=' + os.urandom(6).hex(), text)
 
         form = {'template': request.form.get('template', 'gta6_po'), 'subject': request.form.get('subject', ''),
                 'body': request.form.get('body', ''), 'to': request.form.getlist('to')}
