@@ -23,7 +23,7 @@ from flask import Flask, render_template, redirect, url_for, request, flash, jso
 from markupsafe import Markup, escape
 from flask_login import login_user, logout_user, login_required, current_user, LoginManager, UserMixin
 from .forms import LoginForm, RegistrationForm
-from itsdangerous import URLSafeTimedSerializer
+from itsdangerous import URLSafeTimedSerializer, URLSafeSerializer, BadSignature
 
 from app.fifa_teams import FIFA_LEAGUES, FIFA_OTHER, FIFA_CLUB_MAX, club_league, resolve_club
 from app.forms import AlbumForm, ImageForm, NewsForm, CalendarForm, UserSettingsForm, ReportForm, CommentForm, TestEmail, \
@@ -150,6 +150,17 @@ CHAT_FILE_MAX = 50 * 1024 * 1024 - 64 * 1024   # zapas na resztę formularza
 CHAT_FILE_EXTENSIONS = {ext: kind for kind, exts in CHAT_FILE_TYPES.items() for ext in exts}
 CHAT_REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👍']   # reakcje na wiadomości czatu (kolejność = w okienku wyboru)
 
+# Rodzaje maili, które użytkownik może wyłączyć (ustawienia konta albo link z maila, bez logowania).
+# Maile konta (potwierdzenie rejestracji, reset hasła) przychodzą zawsze.
+MAIL_CATEGORIES = [
+    ('mention', '💬 Oznaczenia na czacie', 'gdy ktoś oznaczy Cię na czacie przez @nick'),
+    ('events', '📅 Wydarzenia i turnieje', 'zaproszenia na wydarzenia z kalendarza i turnieje FIFA'),
+    ('news', '📰 Newsy i nowości', 'nowe newsy, albumy w galerii i ulepszenia strony'),
+    ('other', '📣 Inne ogłoszenia', 'stream na kamerze, premiery, gry, druk 3D'),
+]
+MAIL_CATEGORY_KEYS = [key for key, _, _ in MAIL_CATEGORIES]
+MAIL_CATEGORY_NAMES = {key: name for key, name, _ in MAIL_CATEGORIES}
+
 # Oznaczenia @nick na czacie: mail do oznaczonego najwyżej raz na tyle czasu (wpis w MailLog o tym temacie).
 CHAT_MENTION_COOLDOWN = timedelta(minutes=10)
 CHAT_MENTION_LOG = 'czat-oznaczenie'
@@ -176,7 +187,7 @@ MAIL_TEMPLATES = {
 <p>Jeśli w nocy przyszedł już do Ciebie od nas mail o premierze - sorry za powtórkę, serwer się zadyszał. 😅</p>
 <p>Do zobaczenia w Vice City!<br>Ekipa hlyw.pl</p>
 </div>
-<div style="padding:12px 22px;font-size:12px;color:#888;border-top:1px solid #2a2a35">Dostajesz tę wiadomość, bo masz konto na <a href="{link_strona}" style="color:#ff9d2e">hlyw.pl</a>.</div>
+<div style="padding:12px 22px;font-size:12px;color:#888;border-top:1px solid #2a2a35">Dostajesz tę wiadomość, bo masz konto na <a href="{link_strona}" style="color:#ff9d2e">hlyw.pl</a>. <a href="{link_ustawienia}" style="color:#ff9d2e">Zmień, jakie maile dostajesz</a>.</div>
 </div></div>''',
     },
     'gta6': {
@@ -198,10 +209,11 @@ MAIL_TEMPLATES = {
 </p>
 <p>Do zobaczenia w Vice City!<br>Ekipa hlyw.pl</p>
 </div>
-<div style="padding:12px 22px;font-size:12px;color:#888;border-top:1px solid #2a2a35">Dostajesz tę wiadomość, bo masz konto na <a href="{link_strona}" style="color:#ff9d2e">hlyw.pl</a>.</div>
+<div style="padding:12px 22px;font-size:12px;color:#888;border-top:1px solid #2a2a35">Dostajesz tę wiadomość, bo masz konto na <a href="{link_strona}" style="color:#ff9d2e">hlyw.pl</a>. <a href="{link_ustawienia}" style="color:#ff9d2e">Zmień, jakie maile dostajesz</a>.</div>
 </div></div>''',
     },
     'news': {
+        'category': 'news',
         'name': '📰 Nowość na stronie',
         'subject': 'Coś nowego na hlyw.pl',
         'body': '''<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#222">
@@ -633,6 +645,7 @@ def create_app():
         confirmed = db.Column(db.Boolean, default=False)
         confirmed_on = db.Column(db.DateTime, nullable=True)
         is_admin = db.Column(db.String(10), default="0")
+        mail_prefs = db.Column(db.Text)      # JSON: lista wyłączonych rodzajów maili (MAIL_CATEGORIES); puste = wszystkie
 
     class Albums(db.Model):
         __tablename__ = 'albums'
@@ -1048,6 +1061,7 @@ def create_app():
             ('message', 'file_kind', "VARCHAR(10)"),
             ('message', 'file_size', "INTEGER"),
             ('message', 'reply_to_id', "INTEGER"),
+            ('user', 'mail_prefs', "TEXT"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -2224,11 +2238,12 @@ def create_app():
         jobs = []
         for user in users:
             address = (user.email or '').strip()
-            if not user.confirmed or not address or user.id in recent:
+            if not user.confirmed or not address or user.id in recent or not wants_mail(user, 'mention'):
                 continue
+            prefs = mail_prefs_url(user, root, 'mention')
             html = render_template('mail_oznaczenie.html', nick=user.username, author=current_user.username,
-                                   content=content, camera_url=root + 'camera', site_url=root)
-            jobs.append((user.id, address, f'{current_user.username} oznacza Cię na czacie hlyw.pl', html))
+                                   content=content, camera_url=root + 'camera', site_url=root, prefs_url=prefs)
+            jobs.append((user.id, address, f'{current_user.username} oznacza Cię na czacie hlyw.pl', html, prefs))
         if jobs:
             threading.Thread(target=send_mail_jobs, args=(jobs, CHAT_MENTION_LOG), daemon=True).start()
         return [u.username for u in users]
@@ -2522,6 +2537,8 @@ def create_app():
     app.jinja_env.globals['chat_file_extensions'] = sorted(CHAT_FILE_EXTENSIONS)   # załączniki na czacie (camera.html)
     app.jinja_env.globals['chat_file_max'] = CHAT_FILE_MAX
     app.jinja_env.globals['chat_reactions'] = CHAT_REACTIONS
+    app.jinja_env.globals['mail_categories'] = MAIL_CATEGORIES                 # ustawienia maili (user_settings.html)
+    app.jinja_env.globals['mail_disabled_for'] = lambda user: mail_disabled(user)
 
     @app.template_global('print_thumb_url')
     def print_thumb_url(entry):
@@ -4563,10 +4580,15 @@ def create_app():
             root = 'https://hlyw.pl/'
         links = {'{link_kamera}': root + 'camera', '{link_strona}': root}
 
-        def fill(text, user, html=True):
+        def fill(text, user, html=True, prefs_url=''):
             text = text.replace('{nick}', str(escape(user.username)) if html else user.username)
             for key, value in links.items():
                 text = text.replace(key, value)
+            if html:
+                # każdy mail ma osobisty link do ustawień maili (działa bez logowania)
+                if '{link_ustawienia}' not in text:
+                    text += '{link_ustawienia_stopka}'
+                text = text.replace('{link_ustawienia_stopka}', mail_footer(prefs_url)).replace('{link_ustawienia}', prefs_url)
             # Gmail trzyma obrazek pod danym adresem w swoim proxy dla wszystkich odbiorców - każdy mail dostaje
             # własny adres licznika, żeby pokazywał czas z chwili otwarcia, a nie z pierwszego pobrania
             return re.sub(r'gta6/licznik\.gif(?:\?m=\w+)?', lambda m: 'gta6/licznik.gif?m=' + os.urandom(6).hex(), text)
@@ -4576,7 +4598,8 @@ def create_app():
                 'mode': 'html' if request.form.get('mode') == 'html' else 'prosty', 'text': request.form.get('text', ''),
                 'simple_template': request.form.get('simple_template', ''),
                 'button_text': request.form.get('button_text', ''), 'button_url': request.form.get('button_url', ''),
-                'counter': bool(request.form.get('counter'))}
+                'counter': bool(request.form.get('counter')),
+                'category': request.form.get('category') if request.form.get('category') in MAIL_CATEGORY_KEYS else 'other'}
         if request.method == 'POST':
             if form['mode'] == 'prosty':
                 form['body'] = simple_mail_html(form, root) if form['text'].strip() else ''
@@ -4588,6 +4611,9 @@ def create_app():
                 chosen = [u for u in users if u.id in wanted]
             is_test = request.form.get('action') == 'test'
             skipped = 0
+            # kto wyłączył ten rodzaj maili (ustawienia konta / link z maila) - nie dostaje go; test do siebie zawsze idzie
+            unwanted = [] if is_test else [u for u in chosen if not wants_mail(u, form['category'])]
+            chosen = [u for u in chosen if u not in unwanted]
             if subject and chosen and not is_test and request.form.get('skip_sent'):
                 done = {row.user_id for row in MailLog.query.filter_by(subject=subject[:200], ok=True)}
                 skipped = sum(1 for u in chosen if u.id in done)
@@ -4595,8 +4621,9 @@ def create_app():
             if not subject or not body:
                 flash('Uzupełnij temat i treść maila.', 'danger')
             elif not chosen:
-                flash('Wszyscy zaznaczeni już dostali mail z tym tematem.' if skipped else 'Zaznacz przynajmniej jednego odbiorcę.',
-                      'warning' if skipped else 'danger')
+                flash('Wszyscy zaznaczeni już dostali mail z tym tematem.' if skipped else
+                      'Nikt z zaznaczonych nie chce maili tego rodzaju.' if unwanted else 'Zaznacz przynajmniej jednego odbiorcę.',
+                      'warning' if skipped or unwanted else 'danger')
             else:
                 # jeden e-mail może mieć kilka kont - wysyłamy raz
                 jobs, seen = [], set()
@@ -4604,7 +4631,9 @@ def create_app():
                     address = user.email.strip()
                     if address.lower() not in seen:
                         seen.add(address.lower())
-                        jobs.append((user.id, address, fill(subject, user, html=False), fill(body, user)))
+                        prefs = mail_prefs_url(user, root)
+                        jobs.append((user.id, address, fill(subject, user, html=False), fill(body, user, prefs_url=prefs),
+                                     mail_prefs_url(user, root, form['category'])))
                 log_subject = None if is_test else subject[:200]
                 if is_test:
                     send_mail_jobs(jobs, log_subject)          # jeden mail - od razu, z wynikiem
@@ -4615,6 +4644,7 @@ def create_app():
                     # dhosting potrzebuje ~1-2 s na mail, a gunicorn ubija zapytanie po 30 s - wysyłka idzie w tle
                     threading.Thread(target=send_mail_jobs, args=(jobs, log_subject), daemon=True).start()
                     flash(f'Wysyłka ruszyła w tle: {len(jobs)} maili' + (f' (pominięto {skipped}, którzy już dostali)' if skipped else '')
+                          + (f' · bez {len(unwanted)} os., które nie chcą maili „{MAIL_CATEGORY_NAMES[form["category"]]}”' if unwanted else '')
                           + '. Postęp widać niżej - odśwież stronę.', 'success')
                     return redirect(url_for('mail_sender', temat=subject[:200]))
         else:
@@ -4628,15 +4658,16 @@ def create_app():
             progress = {'ok': sorted(names.get(r.user_id, '?') for r in rows if r.ok),
                         'failed': sorted(names.get(r.user_id, '?') for r in rows if not r.ok)}
         return render_template('panel_maile.html', users=users, form=form, templates=MAIL_TEMPLATES,
-                               simple_templates=simple_mail_templates(),
+                               simple_templates=simple_mail_templates(), categories=MAIL_CATEGORIES,
+                               disabled_by={u.id: sorted(mail_disabled(u)) for u in users},
                                preview_nick=current_user.username, links=links, progress=progress)
 
     def simple_mail_templates():
         """Szablony prostego maila: ogólne + gotowe maile o rzeczach ze strony (wydarzenia, newsy, albumy).
         Każdy: {id, name, subject, text, button_text, button_url, counter}, pogrupowane do <optgroup>."""
-        def tpl(tid, name, subject, text, button_text='', button_url='', counter=False):
+        def tpl(tid, name, subject, text, button_text='', button_url='', counter=False, category='other'):
             return {'id': tid, 'name': name, 'subject': subject, 'text': text, 'button_text': button_text,
-                    'button_url': button_url, 'counter': counter}
+                    'button_url': button_url, 'counter': counter, 'category': category}
         hello = 'Cześć {nick}!\n\n'
         cd = countdown_info()
         general = [
@@ -4647,7 +4678,7 @@ def create_app():
                 '🔴 Oglądaj stream', '/camera'),
             tpl('nowosc', '🚀 Nowość na stronie', 'Coś nowego na hlyw.pl',
                 hello + 'Na hlyw.pl pojawiło się coś nowego: ...\n\nWejdź, sprawdź i daj znać na czacie, co o tym myślisz!',
-                'Zobacz ulepszenia', '/ostatnie-ulepszenia'),
+                'Zobacz ulepszenia', '/ostatnie-ulepszenia', category='news'),
             tpl('gry', '🎮 Gry i rankingi', 'Ktoś czai się na Twój rekord na hlyw.pl',
                 hello + 'W rankingach gier na hlyw.pl sporo się dzieje - sprawdź, czy dalej jesteś na szczycie, '
                         'i zgarnij punkty do Hall of Fame.\n\nPowodzenia!', 'Zagraj', '/games'),
@@ -4674,20 +4705,22 @@ def create_app():
             text += ('\n\nZapisz się jako gracz (wybierz klub) albo kibic - im nas więcej, tym lepiej!' if fifa
                      else '\n\nZapisz się w kalendarzu, żebyśmy wiedzieli, ile osób będzie.')
             events.append(tpl(f'event{e.id}', f'📅 {e.date:%d.%m} - {e.title}', f'{e.title} - {e.date:%d.%m} ({days[e.date.weekday()]})',
-                              text, 'Zobacz i zapisz się', url_for('event', day=e.date.day, month=e.date.month, year=e.date.year)))
+                              text, 'Zobacz i zapisz się', url_for('event', day=e.date.day, month=e.date.month, year=e.date.year),
+                              category='events'))
         news = []
         for n in News.query.order_by(News.created_at.desc()).limit(10):
             body = (n.description or '').strip()
             body = body if len(body) <= 700 else body[:700].rstrip() + '…'
             news.append(tpl(f'news{n.id}', f'📰 {n.title}', f'Breaking News: {n.title}',
-                            hello + f'Na hlyw.pl nowy news: {n.title}\n\n{body}', 'Czytaj na hlyw.pl', '/news'))
+                            hello + f'Na hlyw.pl nowy news: {n.title}\n\n{body}', 'Czytaj na hlyw.pl', '/news', category='news'))
         albums = []
         for a in Albums.query.order_by(Albums.created_at.desc()).limit(10):
             count = Images.query.filter_by(album_id=a.id).count()
             desc = f' - {a.description.strip()}' if (a.description or '').strip() else ''
             albums.append(tpl(f'album{a.id}', f'📷 {a.name}', f'Nowe zdjęcia: {a.name}',
                               hello + f'W galerii jest album „{a.name}”{desc} - {plural(count, "zdjęcie", "zdjęcia", "zdjęć")}. '
-                                      'Zobacz, polub najlepsze i dorzuć swoje!', 'Zobacz zdjęcia', url_for('album', album_id=a.id)))
+                                      'Zobacz, polub najlepsze i dorzuć swoje!', 'Zobacz zdjęcia', url_for('album', album_id=a.id),
+                              category='news'))
         groups = [('Ogólne', general), ('Wydarzenia z kalendarza', events), ('Newsy', news), ('Albumy w galerii', albums)]
         return [{'group': g, 'items': items} for g, items in groups if items]
 
@@ -4720,17 +4753,79 @@ def create_app():
         form = {k: request.form.get(k, '') for k in ('text', 'button_text', 'button_url')}
         form['counter'] = bool(request.form.get('counter'))
         html = simple_mail_html(form, root).replace('{nick}', str(escape(current_user.username)))
-        return html.replace('{link_kamera}', root + 'camera').replace('{link_strona}', root)
+        return html.replace('{link_kamera}', root + 'camera').replace('{link_strona}', root).replace('{link_ustawienia}', '#')
+
+    # ---------- które maile użytkownik chce dostawać ----------
+    def mail_disabled(user):
+        """Zbiór wyłączonych rodzajów maili (MAIL_CATEGORIES)."""
+        try:
+            return {k for k in json.loads(user.mail_prefs or '[]') if k in MAIL_CATEGORY_KEYS}
+        except (TypeError, ValueError):
+            return set()
+
+    def wants_mail(user, category):
+        return category not in mail_disabled(user)
+
+    def mail_prefs_serializer():
+        return URLSafeSerializer(app.config['SECRET_KEY'], salt='maile-ustawienia')
+
+    def mail_prefs_url(user, root, category=None):
+        """Osobisty link do ustawień maili - działa bez logowania (podpisany id użytkownika)."""
+        url = root.rstrip('/') + '/maile/ustawienia/' + mail_prefs_serializer().dumps(user.id)
+        return url + (f'?rodzaj={category}' if category else '')
+
+    def save_mail_prefs(user, enabled):
+        user.mail_prefs = json.dumps([k for k in MAIL_CATEGORY_KEYS if k not in enabled]) if set(enabled) != set(MAIL_CATEGORY_KEYS) else None
+        db.session.commit()
+
+    def mail_footer(prefs_url):
+        """Stopka z linkiem do ustawień - dokładana do maili HTML, które jej nie mają."""
+        return ('<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;text-align:center;padding:12px">'
+                f'Nie chcesz takich maili? <a href="{prefs_url}" style="color:#ff9d2e">Zmień, jakie maile dostajesz</a> '
+                '- bez logowania.</div>')
+
+    @app.route('/maile/ustawienia/<token>', methods=['GET', 'POST'])
+    def mail_prefs_public(token):
+        """Ustawienia maili z linku w mailu (bez logowania). Obsługuje też „Anuluj subskrypcję” w Gmailu
+        (List-Unsubscribe-Post: POST z List-Unsubscribe=One-Click wyłącza rodzaj z ?rodzaj=, a bez niego wszystkie)."""
+        try:
+            user = db.session.get(User, int(mail_prefs_serializer().loads(token)))
+        except (BadSignature, TypeError, ValueError):
+            user = None
+        if not user:
+            abort(404)
+        category = request.args.get('rodzaj') if request.args.get('rodzaj') in MAIL_CATEGORY_KEYS else None
+        if request.method == 'POST' and request.form.get('List-Unsubscribe') == 'One-Click':
+            enabled = set(MAIL_CATEGORY_KEYS) - mail_disabled(user) - ({category} if category else set(MAIL_CATEGORY_KEYS))
+            save_mail_prefs(user, enabled)
+            return '', 204
+        if request.method == 'POST':
+            save_mail_prefs(user, set(request.form.getlist('rodzaj')))
+            flash('Zapisano - od teraz dostajesz tylko zaznaczone maile.', 'success')
+            return redirect(url_for('mail_prefs_public', token=token))
+        return render_template('maile_ustawienia.html', user=user, disabled=mail_disabled(user), categories=MAIL_CATEGORIES,
+                               highlight=category, action=url_for('mail_prefs_public', token=token))
+
+    @app.route('/user_settings/maile', methods=['POST'])
+    @login_required
+    def mail_prefs_save():
+        save_mail_prefs(current_user, set(request.form.getlist('rodzaj')))
+        flash('Zapisano ustawienia maili.', 'success')
+        return redirect(url_for('user_settings') + '#maile')
 
     def send_mail_jobs(jobs, log_subject):
-        """Wysyła przygotowane maile [(user_id, adres, temat, html)] jednym połączeniem SMTP i zapisuje wynik w MailLog."""
+        """Wysyła przygotowane maile [(user_id, adres, temat, html[, link do ustawień])] jednym połączeniem SMTP
+        i zapisuje wynik w MailLog. Link do ustawień idzie też w nagłówku List-Unsubscribe (przycisk w Gmailu)."""
         send_mail_jobs.last_ok = 0
         with app.app_context():
             try:
                 with mail.connect() as conn:
-                    for user_id, address, subject, html in jobs:
+                    for user_id, address, subject, html, *rest in jobs:
+                        headers = {}
+                        if rest and rest[0]:
+                            headers = {'List-Unsubscribe': f'<{rest[0]}>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'}
                         try:
-                            conn.send(Message_(subject=subject, recipients=[address], html=html))
+                            conn.send(Message_(subject=subject, recipients=[address], html=html, extra_headers=headers or None))
                             ok = True
                             send_mail_jobs.last_ok += 1
                         except Exception:

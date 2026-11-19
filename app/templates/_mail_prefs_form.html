@@ -1,0 +1,15 @@
+{# Wybór rodzajów maili - w ustawieniach konta i na stronie z linku w mailu. Zaznaczone = przychodzą. #}
+<form method="POST" action="{{ action }}" class="hl-mail-prefs">
+    {% for key, name, desc in categories %}
+    <div class="custom-control custom-switch mb-2 {{ 'hl-mail-prefs-hl' if highlight == key }}">
+        <input type="checkbox" class="custom-control-input" id="mp-{{ key }}" name="rodzaj" value="{{ key }}" {{ 'checked' if key not in disabled }}>
+        <label class="custom-control-label" for="mp-{{ key }}"><b>{{ name }}</b><br><span class="text-muted small">{{ desc }}</span></label>
+    </div>
+    {% endfor %}
+    <p class="small text-muted mb-2">Maile dotyczące konta (potwierdzenie rejestracji, reset hasła) przychodzą zawsze.</p>
+    <div class="d-flex flex-wrap align-items-center">
+        <button type="submit" class="btn btn-primary w-auto mr-2 mb-1">Zapisz</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm w-auto mr-2 mb-1" onclick="this.form.querySelectorAll('input[name=rodzaj]').forEach(function (c) { c.checked = true; })">Zaznacz wszystkie</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm w-auto mb-1" onclick="this.form.querySelectorAll('input[name=rodzaj]').forEach(function (c) { c.checked = false; })">Nie chcę żadnych</button>
+    </div>
+</form>

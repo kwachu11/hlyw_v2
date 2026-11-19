@@ -30,6 +30,15 @@
                 <small class="form-text text-muted">Szablon wypełni temat, treść i przycisk - potem możesz wszystko poprawić. Wydarzenia, newsy i albumy biorą dane prosto ze strony.</small>
             </div>
             <div class="form-group">
+                <label for="mail-category">Rodzaj maila</label>
+                <select class="form-control" id="mail-category" name="category">
+                    {% for key, name, desc in categories %}
+                    <option value="{{ key }}" {{ 'selected' if form.category == key }}>{{ name }} - {{ desc }}</option>
+                    {% endfor %}
+                </select>
+                <small class="form-text text-muted">Osoby, które wyłączyły ten rodzaj w ustawieniach, nie dostaną maila (są wyszarzone na liście). Każdy mail ma link do zmiany ustawień.</small>
+            </div>
+            <div class="form-group">
                 <label for="mail-subject">Temat</label>
                 <input class="form-control" id="mail-subject" name="subject" maxlength="200" value="{{ form.subject }}" required
                        placeholder="np. W piątek turniej FIFA - zapisz się!">
@@ -101,11 +110,12 @@
             <input type="search" class="form-control form-control-sm mb-1" id="mail-filter" placeholder="Szukaj nicku…" aria-label="Szukaj nicku">
             <div class="hl-mail-users">
                 {% for u in users %}
-                <label class="hl-mail-user" data-name="{{ u.username|lower }}">
+                <label class="hl-mail-user" data-name="{{ u.username|lower }}" data-off="{{ disabled_by[u.id]|join(',') }}">
                     <input type="checkbox" name="to" value="{{ u.id }}" data-confirmed="{{ 1 if u.confirmed else 0 }}"
                            {{ 'checked' if u.id|string in form.to }}>
                     {{ u.username }}
                     {% if not u.confirmed %}<span class="text-muted small">(niepotwierdzone)</span>{% endif %}
+                    <span class="text-muted small hl-mail-off" hidden>(nie chce tych maili)</span>
                 </label>
                 {% endfor %}
             </div>
@@ -143,7 +153,7 @@
     var timer = null;
     function preview() {
         if (modeInput.value === 'html') {
-            var html = body.value.split('{nick}').join(esc(nick));
+            var html = body.value.split('{nick}').join(esc(nick)).split('{link_ustawienia}').join('#');
             Object.keys(links).forEach(function (k) { html = html.split(k).join(links[k]); });
             frame.srcdoc = html;
             return;
@@ -187,6 +197,7 @@
         document.getElementById('mail-btn-text').value = t.button_text;
         document.getElementById('mail-btn-url').value = t.button_url;
         document.getElementById('mail-counter').checked = !!t.counter;
+        setCategory(t.category || 'other');
         lastFilled = t;
         preview();
         text.focus();
@@ -199,8 +210,24 @@
     sel.addEventListener('change', function () {
         var t = templates[sel.value];
         if (!t) return;
-        subj.value = t.subject; body.value = t.body; preview();
+        subj.value = t.subject; body.value = t.body; setCategory(t.category || 'other'); preview();
     });
+
+    // rodzaj maila: kto go wyłączył - wyszarzony i odznaczony (serwer i tak go pominie)
+    var catSel = document.getElementById('mail-category');
+    function applyCategory() {
+        var cat = catSel.value;
+        document.querySelectorAll('.hl-mail-user').forEach(function (l) {
+            var off = (l.dataset.off || '').split(',').indexOf(cat) !== -1, box = l.querySelector('input');
+            box.disabled = off;
+            if (off) box.checked = false;
+            l.classList.toggle('is-off', off);
+            l.querySelector('.hl-mail-off').hidden = !off;
+        });
+        recount();
+    }
+    function setCategory(cat) { catSel.value = cat; applyCategory(); }
+    catSel.addEventListener('change', applyCategory);
     ['mail-text', 'mail-btn-text', 'mail-btn-url', 'mail-body'].forEach(function (id) {
         document.getElementById(id).addEventListener('input', preview);
     });
@@ -212,7 +239,7 @@
         a.addEventListener('click', function (e) {
             e.preventDefault();
             var mode = a.dataset.pick;
-            boxes.forEach(function (b) { b.checked = mode === 'all' || (mode === 'confirmed' && b.dataset.confirmed === '1'); });
+            boxes.forEach(function (b) { b.checked = !b.disabled && (mode === 'all' || (mode === 'confirmed' && b.dataset.confirmed === '1')); });
             recount();
         });
     });
@@ -229,7 +256,7 @@
             if (n && !window.confirm('Wysłać maila do ' + n + ' osób?')) e.preventDefault();
         }
     });
-    preview(); recount();
+    applyCategory(); preview(); recount();
 })();
 </script>
 {% endblock %}

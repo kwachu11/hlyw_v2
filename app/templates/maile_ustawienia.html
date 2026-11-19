@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container" style="max-width: 640px">
+    <h2>✉️ Jakie maile chcesz dostawać?</h2>
+    <p>Ustawienia dla konta <b>{{ user.username }}</b>. Zaznacz te, które chcesz dostawać - resztę wyłącz.
+        {% for k, n, _ in categories if k == highlight %}Link jest z maila rodzaju „{{ n }}” - ten rodzaj jest podświetlony niżej.{% endfor %}</p>
+    {% include '_mail_prefs_form.html' %}
+    <p class="small text-muted mt-4">Ten link jest osobisty i działa bez logowania - nie przekazuj go dalej.
+        Ustawienia znajdziesz też w <a href="{{ url_for('user_settings') }}#maile">ustawieniach konta</a>.</p>
+</div>
+{% endblock %}

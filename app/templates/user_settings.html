@@ -47,5 +47,10 @@
             {{ password_form.submit(class="btn btn-primary") }}
         </div>
     </form>
+
+    <h3 class="mt-5" id="maile">Powiadomienia mailowe</h3>
+    <p class="text-muted small">Wybierz, jakie maile z hlyw.pl chcesz dostawać na {{ current_user.email }}.</p>
+    {% with categories = mail_categories, disabled = mail_disabled_for(current_user), highlight = None,
+            action = url_for('mail_prefs_save') %}{% include '_mail_prefs_form.html' %}{% endwith %}
 </div>
 {% endblock %}

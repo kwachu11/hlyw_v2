@@ -807,3 +807,6 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .chat-message.hl-chat-flash { animation: hl-chat-flash 1.6s ease-out; }
 .hl-chat-attachment[hidden] { display: none; }
 .hl-mail-user[hidden] { display: none; }
+.hl-mail-user.is-off { opacity: .45; cursor: not-allowed; }
+.hl-mail-prefs .custom-control-label { cursor: pointer; }
+.hl-mail-prefs-hl { background: rgba(255, 46, 136, .12); border-left: 3px solid #ff2e88; border-radius: 4px; padding: 6px 8px 6px 2.6rem; }
