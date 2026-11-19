@@ -3943,9 +3943,29 @@ def create_app():
                 add('event', '📅', e.created_by, f'nowe wydarzenie: {e.title} ({e.date.strftime("%d.%m")})',
                     url_for('event', day=e.date.day, month=e.date.month, year=e.date.year), e.created_at)
         if want('chat'):
-            for m in Message.query.filter(Message.timestamp > since).order_by(Message.timestamp.desc()).limit(limit).all():
+            chat_rows = Message.query.filter(Message.timestamp > since).order_by(Message.timestamp.desc()).limit(limit).all()
+            replied = {m.id: m for m in Message.query.filter(Message.id.in_({m.reply_to_id for m in chat_rows if m.reply_to_id}))}
+            file_words = {'image': ('🖼️', 'zdjęcie'), 'video': ('🎬', 'film'), 'file': ('📎', 'plik')}
+            for m in chat_rows:
                 text = m.content if len(m.content) <= 100 else m.content[:100] + '…'
-                add('chat', '💬', m.user_id, f'na czacie: „{text}”', url_for('camera'), m.timestamp)
+                icon, what = '💬', 'na czacie'
+                if m.file_path:
+                    icon, word = file_words.get(m.file_kind, file_words['file'])
+                    what = f'{word} na czacie'
+                    text = m.file_name if m.content == chat_file_caption(m.file_name) else f'{m.file_name} - {text}'
+                original = replied.get(m.reply_to_id)
+                if original and original.user:
+                    what = f'odpowiedź dla {original.user.username}' + (f' ({word})' if m.file_path else '')
+                    icon = '↩️' if not m.file_path else icon
+                add('chat', icon, m.user_id, f'{what}: „{text}”', url_for('camera'), m.timestamp)
+        if want('reaction'):
+            # reakcje na czacie - osobno dla każdej wiadomości (jedna reakcja na osobę)
+            for reaction in ChatReaction.query.filter(ChatReaction.created_at > since).all():
+                m = db.session.get(Message, reaction.message_id)
+                if m and m.user:
+                    add('reaction', reaction.emoji, reaction.user_id,
+                        f'reakcja {reaction.emoji} na wiadomość {m.user.username}: „{chat_snippet(m, 60)}”',
+                        url_for('camera'), reaction.created_at)
         if want('photos'):
             for album_id, user_id, count, at in db.session.query(Images.album_id, Images.created_by, func.count(),
                                                                  func.max(Images.created_at)) \
