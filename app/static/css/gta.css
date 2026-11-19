@@ -707,12 +707,16 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .hl-mention-wrap { position: relative; }
 .hl-mention-list {
     position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; z-index: 30;
-    background: #17171f; border: 1px solid #ff2e88; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+    background: #17171f; border: 1px solid #ff2e88; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+    max-height: 230px; overflow-y: auto; overscroll-behavior: contain;
 }
 .hl-mention-item {
     display: block; width: 100%; text-align: left; background: none; border: 0; color: #eee;
-    padding: 6px 10px; font-family: 'Barlow', sans-serif; cursor: pointer;
+    padding: 8px 10px; font-family: 'Barlow', sans-serif; cursor: pointer; touch-action: manipulation;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
 }
+.hl-mention-item small { color: #1fbf75; font-size: .75rem; }
+.hl-mention-item.active small, .hl-mention-item:hover small { color: #fff; }
 .hl-mention-item.active, .hl-mention-item:hover { background: #ff2e88; color: #fff; }
 .hl-mention { color: #ff9d2e; font-weight: 700; }
 .hl-mention-me { background: rgba(255, 46, 136, .25); color: #fff; border-radius: 3px; padding: 0 3px; }

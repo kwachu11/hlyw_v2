@@ -436,6 +436,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         // przewijamy w dół tylko, gdy użytkownik już był na dole - nie przeszkadzamy w czytaniu starszych
         const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
         chat.innerHTML = '';
+        recentChatters = new Set(messages.map(msg => msg.username));   // do kolejności podpowiedzi @nick
         messages.slice().reverse().forEach(msg => {
             const row = document.createElement('div');
             row.className = 'chat-message';
@@ -468,7 +469,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
 
     // --- oznaczenia @nick: podświetlenie w wiadomościach i podpowiedzi przy pisaniu ---
     const ME = {{ current_user.username|tojson }};
-    let mentionUsers = [], mentionRe = null;
+    let mentionUsers = [], mentionRe = null, recentChatters = new Set();
     function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
     fetch('/czat/uzytkownicy').then(r => r.json()).then(data => {
         mentionUsers = data.users || [];
@@ -504,7 +505,11 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         const m = before.match(/(^|\s)@([^@\n]{0,20})$/);
         if (!m) { closeMentions(); return; }
         const q = m[2].toLowerCase();
-        mentionItems = mentionUsers.filter(u => u.toLowerCase().startsWith(q) && u !== ME).slice(0, 6);
+        // pasuje początek nicka albo dowolny jego fragment; kolejność: początek nicka, ostatnio piszący na czacie, alfabet
+        const score = u => (u.toLowerCase().startsWith(q) ? 0 : 2) + (recentChatters.has(u) ? 0 : 1);
+        mentionItems = mentionUsers
+            .filter(u => u !== ME && u.toLowerCase().includes(q))
+            .sort((a, b) => score(a) - score(b) || a.localeCompare(b, 'pl', { sensitivity: 'base' }));
         if (!mentionItems.length) { closeMentions(); return; }
         mentionStart = before.length - m[2].length - 1;
         mentionIndex = 0;
@@ -517,21 +522,35 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             b.type = 'button';
             b.className = 'hl-mention-item' + (i === mentionIndex ? ' active' : '');
             b.textContent = '@' + name;
-            b.addEventListener('mousedown', e => { e.preventDefault(); pickMention(name); });
+            if (recentChatters.has(name)) {
+                const hint = document.createElement('small');
+                hint.textContent = 'na czacie';
+                b.append(hint);
+            }
+            // pointerdown + preventDefault: textarea nie traci fokusu (także na telefonie), lista się nie zamyka
+            b.addEventListener('pointerdown', e => e.preventDefault());
+            b.addEventListener('mousedown', e => e.preventDefault());
+            b.addEventListener('click', e => { e.preventDefault(); pickMention(name); });
             mentionList.append(b);
         });
         mentionList.hidden = false;
+        const active = mentionList.children[mentionIndex];
+        if (active) active.scrollIntoView({ block: 'nearest' });
     }
     function pickMention(name) {
+        // początek „@…” liczymy od nowa - nie polegamy na stanie, który mógł wyczyścić blur
         const pos = input.selectionStart;
-        input.value = input.value.slice(0, mentionStart) + '@' + name + ' ' + input.value.slice(pos);
-        const caret = mentionStart + name.length + 2;
-        input.setSelectionRange(caret, caret);
+        const m = input.value.slice(0, pos).match(/(^|\s)@([^@\n]{0,20})$/);
+        const start = m ? pos - m[2].length - 1 : (mentionStart >= 0 ? mentionStart : pos);
+        input.value = input.value.slice(0, start) + '@' + name + ' ' + input.value.slice(pos);
+        const caret = start + name.length + 2;
         closeMentions();
         input.focus();
+        input.setSelectionRange(caret, caret);
     }
     input.addEventListener('input', updateMentions);
-    input.addEventListener('blur', () => setTimeout(closeMentions, 150));
+    input.addEventListener('click', updateMentions);
+    input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) closeMentions(); }, 250));
 
     function loadMessages() {
         fetch('/get_messages').then(r => r.json()).then(data => renderMessages(data.messages));
