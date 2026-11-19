@@ -75,6 +75,11 @@
                 {% endfor %}
             </div>
             <form id="chat-form">
+                <div id="chat-reply" class="hl-chat-reply" hidden>
+                    <span>↩ Odpowiadasz <b class="hl-chat-reply-who"></b></span>
+                    <span class="hl-chat-reply-text"></span>
+                    <button type="button" class="close" aria-label="Anuluj odpowiedź">&times;</button>
+                </div>
                 <div id="chat-attachment" class="hl-chat-attachment" hidden>
                     <span class="hl-chat-att-icon" aria-hidden="true">📎</span>
                     <img alt="" hidden>
@@ -454,6 +459,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         if (ids === renderedIds) {
             const times = chat.querySelectorAll('.chat-time');
             messages.slice().reverse().forEach((msg, i) => { if (times[i]) times[i].textContent = msg.time || ''; });
+            messages.forEach(msg => updateReactions(msg.id, msg.reactions));   // reakcje innych - w miejscu
             return;
         }
         renderedIds = ids;
@@ -462,6 +468,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         messages.slice().reverse().forEach(msg => {
             const row = document.createElement('div');
             row.className = 'chat-message';
+            row.dataset.id = msg.id;
             const img = document.createElement('img');
             img.src = photoUrl(msg.photo);
             img.className = 'user-photo';
@@ -479,14 +486,20 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             const text = document.createElement('div');
             text.className = 'message-content';
             if (fillMentions(text, msg.content)) row.classList.add('hl-chat-mentioned');
+            body.className = 'hl-chat-body';
             body.append(name);
+            if (msg.reply) body.append(renderQuote(msg.reply));
             if (msg.file) body.append(renderAttachment(msg.file));
             if (!(msg.file && msg.file.auto_text)) body.append(text);
+            const bar = document.createElement('div');
+            bar.className = 'hl-chat-reactions';
+            body.append(bar);
             const time = document.createElement('span');
             time.className = 'chat-time';
             time.textContent = msg.time || '';
-            row.append(img, body, time);
+            row.append(img, body, time, renderActions(msg));
             chat.appendChild(row);
+            updateReactions(msg.id, msg.reactions);
         });
         if (atBottom) chat.scrollTop = chat.scrollHeight;
     }
@@ -575,6 +588,109 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
     input.addEventListener('input', updateMentions);
     input.addEventListener('click', updateMentions);
     input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) closeMentions(); }, 250));
+
+    // --- reakcje i odpowiedzi (jak na Messengerze) ---
+    const REACTIONS = {{ chat_reactions|tojson }};
+    let replyTo = null;
+    const replyBar = document.getElementById('chat-reply');
+
+    function renderQuote(reply) {
+        const q = document.createElement('button');
+        q.type = 'button';
+        q.className = 'hl-chat-quote';
+        q.title = 'Pokaż wiadomość';
+        const who = document.createElement('b');
+        who.textContent = '↩ ' + reply.username;
+        const t = document.createElement('span');
+        t.textContent = reply.text;
+        q.append(who, t);
+        q.addEventListener('click', () => {
+            const target = chat.querySelector('.chat-message[data-id="' + reply.id + '"]');
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.remove('hl-chat-flash'); void target.offsetWidth; target.classList.add('hl-chat-flash');
+        });
+        return q;
+    }
+
+    function renderActions(msg) {
+        const box = document.createElement('div');
+        box.className = 'hl-chat-actions';
+        const react = document.createElement('button');
+        react.type = 'button';
+        react.textContent = '😊';
+        react.title = 'Zareaguj';
+        react.setAttribute('aria-label', 'Zareaguj');
+        react.addEventListener('click', e => { e.stopPropagation(); openPicker(react, msg.id); });
+        const reply = document.createElement('button');
+        reply.type = 'button';
+        reply.textContent = '↩';
+        reply.title = 'Odpowiedz';
+        reply.setAttribute('aria-label', 'Odpowiedz');
+        reply.addEventListener('click', () => startReply(msg));
+        box.append(react, reply);
+        return box;
+    }
+
+    function updateReactions(id, reactions) {
+        const bar = chat.querySelector('.chat-message[data-id="' + id + '"] .hl-chat-reactions');
+        if (!bar) return;
+        const key = JSON.stringify(reactions || []);
+        if (bar.dataset.key === key) return;
+        bar.dataset.key = key;
+        bar.innerHTML = '';
+        (reactions || []).forEach(r => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'hl-chat-reaction' + (r.mine ? ' mine' : '');
+            chip.textContent = r.emoji + (r.count > 1 ? ' ' + r.count : '');
+            chip.title = r.users.join(', ') + (r.mine ? ' (kliknij, żeby cofnąć)' : '');
+            chip.addEventListener('click', () => react(id, r.emoji));
+            bar.append(chip);
+        });
+    }
+
+    function react(id, emoji) {
+        closePicker();
+        fetch('/czat/reakcja', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message_id: id, emoji: emoji })
+        }).then(r => r.json()).then(data => { if (data.status === 'success') updateReactions(id, data.reactions); });
+    }
+
+    const picker = document.createElement('div');
+    picker.className = 'hl-chat-picker';
+    picker.hidden = true;
+    REACTIONS.forEach(emoji => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = emoji;
+        b.addEventListener('click', e => { e.stopPropagation(); react(Number(picker.dataset.id), emoji); });
+        picker.append(b);
+    });
+    document.querySelector('.hl-chat').append(picker);
+    function openPicker(anchor, id) {
+        if (!picker.hidden && picker.dataset.id === String(id)) { closePicker(); return; }
+        picker.dataset.id = id;
+        picker.hidden = false;
+        const box = document.querySelector('.hl-chat').getBoundingClientRect(), a = anchor.getBoundingClientRect();
+        picker.style.top = Math.max(4, a.top - box.top - picker.offsetHeight - 4) + 'px';
+        picker.style.left = Math.max(4, Math.min(a.right - box.left - picker.offsetWidth, box.width - picker.offsetWidth - 4)) + 'px';
+    }
+    function closePicker() { picker.hidden = true; }
+    document.addEventListener('click', e => { if (!picker.contains(e.target)) closePicker(); });
+    chat.addEventListener('scroll', closePicker);
+
+    function startReply(msg) {
+        replyTo = msg.id;
+        replyBar.querySelector('.hl-chat-reply-who').textContent = msg.username;
+        replyBar.querySelector('.hl-chat-reply-text').textContent = msg.file && msg.file.auto_text ? msg.content : msg.content.replace(/\s+/g, ' ').slice(0, 90);
+        replyBar.hidden = false;
+        input.focus();
+    }
+    function cancelReply() { replyTo = null; replyBar.hidden = true; }
+    replyBar.querySelector('.close').addEventListener('click', cancelReply);
 
     // --- załączniki: wyświetlanie w wiadomościach ---
     function formatSize(bytes) {
@@ -703,6 +819,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         const data = new FormData();
         data.append('file', pendingFile);
         data.append('message', message);
+        if (replyTo) data.append('reply_to', replyTo);
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/czat/plik');
         progress.hidden = false;
@@ -723,6 +840,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             try { res = JSON.parse(xhr.responseText); } catch (e) {}
             if (xhr.status === 200 && res.status === 'success') {
                 setPendingFile(null);
+                cancelReply();
                 input.value = '';
                 loadMessages();
                 setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 300);
@@ -742,11 +860,12 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
         fetch('/send_message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message })
+            body: JSON.stringify({ message: message, reply_to: replyTo })
         })
             .then(r => r.json())
             .then(data => {
                 if (data.status !== 'success') { alert('Błąd podczas wysyłania wiadomości!'); return; }
+                cancelReply();
                 chat.scrollTop = chat.scrollHeight;
                 loadMessages();
             });
@@ -769,6 +888,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mentionItems[mentionIndex]); return; }
             if (e.key === 'Escape') { closeMentions(); return; }
         }
+        if (e.key === 'Escape' && replyTo) { cancelReply(); return; }
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             document.getElementById('chat-form').requestSubmit();

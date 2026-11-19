@@ -135,6 +135,7 @@ CHAT_FILE_TYPES = {
 }
 CHAT_FILE_MAX = 50 * 1024 * 1024 - 64 * 1024   # zapas na resztę formularza
 CHAT_FILE_EXTENSIONS = {ext: kind for kind, exts in CHAT_FILE_TYPES.items() for ext in exts}
+CHAT_REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👍']   # reakcje na wiadomości czatu (kolejność = w okienku wyboru)
 
 # Oznaczenia @nick na czacie: mail do oznaczonego najwyżej raz na tyle czasu (wpis w MailLog o tym temacie).
 CHAT_MENTION_COOLDOWN = timedelta(minutes=10)
@@ -681,6 +682,17 @@ def create_app():
         file_name = db.Column(db.String(200))
         file_kind = db.Column(db.String(10))      # image / video / file
         file_size = db.Column(db.Integer)
+        reply_to_id = db.Column(db.Integer)      # odpowiedź na wiadomość (cytat nad tekstem)
+
+    class ChatReaction(db.Model):
+        """Reakcja na wiadomość czatu - jedna na osobę i wiadomość (jak na Messengerze)."""
+        __tablename__ = 'chat_reaction'
+        id = db.Column(db.Integer, primary_key=True)
+        message_id = db.Column(db.Integer, db.ForeignKey('message.id'), nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        emoji = db.Column(db.String(16), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        __table_args__ = (db.UniqueConstraint('message_id', 'user_id'),)
 
     class NewsReaction(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -1023,6 +1035,7 @@ def create_app():
             ('message', 'file_name', "VARCHAR(200)"),
             ('message', 'file_kind', "VARCHAR(10)"),
             ('message', 'file_size', "INTEGER"),
+            ('message', 'reply_to_id', "INTEGER"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -2075,7 +2088,7 @@ def create_app():
 
         if message_content:
             # Zapisz wiadomość w bazie danych
-            new_message = Message(content=message_content, user_id=user_id)
+            new_message = Message(content=message_content[:500], user_id=user_id, reply_to_id=chat_reply_target(data.get('reply_to')))
             db.session.add(new_message)
             db.session.commit()
             mentioned = notify_chat_mentions(message_content)
@@ -2111,7 +2124,8 @@ def create_app():
         stored = uuid.uuid4().hex + '.' + ext        # nazwy od użytkownika nie używamy na dysku
         upload.save(os.path.join(folder, stored))
         message = Message(content=text or chat_file_caption(original), user_id=current_user.id,
-                          file_path=stored, file_name=original, file_kind=kind, file_size=size)
+                          file_path=stored, file_name=original, file_kind=kind, file_size=size,
+                          reply_to_id=chat_reply_target(request.form.get('reply_to')))
         db.session.add(message)
         db.session.commit()
         mentioned = notify_chat_mentions(text) if text else []
@@ -2199,8 +2213,17 @@ def create_app():
         # Pobierz wszystkie wiadomości z bazy danych
         messages = Message.query.order_by(Message.timestamp.desc()).limit(30).all()
         messages_data = []
+        ids = [m.id for m in messages]
+        reactions = chat_reaction_summary(ids)
+        # cytowane wiadomości (mogą być starsze niż ostatnie 30)
+        quoted = {m.id: m for m in Message.query.filter(Message.id.in_({m.reply_to_id for m in messages if m.reply_to_id}))}
 
         for msg in messages:
+            reply = None
+            original = quoted.get(msg.reply_to_id)
+            if original:
+                reply = {"id": original.id, "username": original.user.username,
+                         "text": chat_snippet(original)}
             user = msg.user  # Dostęp do użytkownika powiązanego z wiadomością
             place = standings().get(user.id, {}).get('place')
             attachment = None
@@ -2213,6 +2236,8 @@ def create_app():
             messages_data.append({
                 "id": msg.id,
                 "file": attachment,
+                "reply": reply,
+                "reactions": reactions.get(msg.id, []),
                 "content": msg.content,
                 "timestamp": msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                 "time": when_label(msg.timestamp),
@@ -2221,7 +2246,59 @@ def create_app():
                 "photo": user.photo  # Dodajemy zdjęcie użytkownika
             })
 
-        return jsonify({"messages": messages_data})
+        return jsonify({"messages": messages_data, "reaction_choices": CHAT_REACTIONS})
+
+    def chat_snippet(message, length=90):
+        """Krótki fragment wiadomości do cytatu w odpowiedzi."""
+        text = (message.content or '').replace('\n', ' ').strip()
+        return text if len(text) <= length else text[:length - 1].rstrip() + '…'
+
+    def chat_reply_target(value):
+        """Id wiadomości, na którą ktoś odpowiada - tylko jeśli taka istnieje."""
+        try:
+            message_id = int(value)
+        except (TypeError, ValueError):
+            return None
+        return message_id if db.session.get(Message, message_id) else None
+
+    def chat_reaction_summary(message_ids):
+        """{id wiadomości: [{emoji, count, mine, users}]} w kolejności CHAT_REACTIONS."""
+        if not message_ids:
+            return {}
+        rows = (db.session.query(ChatReaction, User.username).join(User, User.id == ChatReaction.user_id)
+                .filter(ChatReaction.message_id.in_(message_ids)).order_by(ChatReaction.created_at).all())
+        grouped = {}
+        for reaction, username in rows:
+            item = grouped.setdefault(reaction.message_id, {}).setdefault(
+                reaction.emoji, {"emoji": reaction.emoji, "count": 0, "mine": False, "users": []})
+            item["count"] += 1
+            item["users"].append(username)
+            item["mine"] = item["mine"] or reaction.user_id == current_user.id
+        order = {e: i for i, e in enumerate(CHAT_REACTIONS)}
+        return {mid: sorted(items.values(), key=lambda r: order.get(r["emoji"], 99)) for mid, items in grouped.items()}
+
+    @app.route('/czat/reakcja', methods=['POST'])
+    @login_required
+    def chat_react():
+        """Reakcja na wiadomość: ta sama drugi raz = cofnięcie, inna = zamiana (jedna na osobę)."""
+        data = request.get_json(silent=True) or {}
+        emoji = data.get('emoji')
+        message = db.session.get(Message, data.get('message_id') if isinstance(data.get('message_id'), int) else -1)
+        if not message or emoji not in CHAT_REACTIONS:
+            return jsonify({"status": "error"}), 400
+        existing = ChatReaction.query.filter_by(message_id=message.id, user_id=current_user.id).first()
+        if existing and existing.emoji == emoji:
+            db.session.delete(existing)
+        elif existing:
+            existing.emoji = emoji
+            existing.created_at = datetime.utcnow()
+        else:
+            db.session.add(ChatReaction(message_id=message.id, user_id=current_user.id, emoji=emoji))
+        try:
+            db.session.commit()
+        except IntegrityError:          # podwójne kliknięcie - druga próba dodania tej samej reakcji
+            db.session.rollback()
+        return jsonify({"status": "success", "reactions": chat_reaction_summary([message.id]).get(message.id, [])})
 
     @app.route('/ostatnie-ulepszenia', methods=['GET', 'POST'])
     def ostatnie_ulepszenia():
@@ -2413,6 +2490,7 @@ def create_app():
     app.jinja_env.globals['gta6_release'] = GTA6_RELEASE  # licznik premiery GTA VI (_gta6.html)
     app.jinja_env.globals['chat_file_extensions'] = sorted(CHAT_FILE_EXTENSIONS)   # załączniki na czacie (camera.html)
     app.jinja_env.globals['chat_file_max'] = CHAT_FILE_MAX
+    app.jinja_env.globals['chat_reactions'] = CHAT_REACTIONS
 
     @app.template_global('print_thumb_url')
     def print_thumb_url(entry):
