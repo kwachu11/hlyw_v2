@@ -4574,6 +4574,7 @@ def create_app():
         form = {'template': request.form.get('template', 'gta6_po'), 'subject': request.form.get('subject', ''),
                 'body': request.form.get('body', ''), 'to': request.form.getlist('to'),
                 'mode': 'html' if request.form.get('mode') == 'html' else 'prosty', 'text': request.form.get('text', ''),
+                'simple_template': request.form.get('simple_template', ''),
                 'button_text': request.form.get('button_text', ''), 'button_url': request.form.get('button_url', ''),
                 'counter': bool(request.form.get('counter'))}
         if request.method == 'POST':
@@ -4627,7 +4628,68 @@ def create_app():
             progress = {'ok': sorted(names.get(r.user_id, '?') for r in rows if r.ok),
                         'failed': sorted(names.get(r.user_id, '?') for r in rows if not r.ok)}
         return render_template('panel_maile.html', users=users, form=form, templates=MAIL_TEMPLATES,
+                               simple_templates=simple_mail_templates(),
                                preview_nick=current_user.username, links=links, progress=progress)
+
+    def simple_mail_templates():
+        """Szablony prostego maila: ogólne + gotowe maile o rzeczach ze strony (wydarzenia, newsy, albumy).
+        Każdy: {id, name, subject, text, button_text, button_url, counter}, pogrupowane do <optgroup>."""
+        def tpl(tid, name, subject, text, button_text='', button_url='', counter=False):
+            return {'id': tid, 'name': name, 'subject': subject, 'text': text, 'button_text': button_text,
+                    'button_url': button_url, 'counter': counter}
+        hello = 'Cześć {nick}!\n\n'
+        cd = countdown_info()
+        general = [
+            tpl('pusty', '✏️ Pusty', '', hello, 'Wejdź na hlyw.pl', '/'),
+            tpl('stream', '🔴 Stream na kamerze', 'Leci stream na hlyw.pl - wbijaj!',
+                hello + 'Właśnie leci stream na kamerze hlyw.pl. Wbijaj oglądać i pisz na czacie - '
+                        'możesz oznaczyć znajomych przez @nick, wrzucić zdjęcie albo film.\n\nDo zobaczenia na czacie!',
+                '🔴 Oglądaj stream', '/camera'),
+            tpl('nowosc', '🚀 Nowość na stronie', 'Coś nowego na hlyw.pl',
+                hello + 'Na hlyw.pl pojawiło się coś nowego: ...\n\nWejdź, sprawdź i daj znać na czacie, co o tym myślisz!',
+                'Zobacz ulepszenia', '/ostatnie-ulepszenia'),
+            tpl('gry', '🎮 Gry i rankingi', 'Ktoś czai się na Twój rekord na hlyw.pl',
+                hello + 'W rankingach gier na hlyw.pl sporo się dzieje - sprawdź, czy dalej jesteś na szczycie, '
+                        'i zgarnij punkty do Hall of Fame.\n\nPowodzenia!', 'Zagraj', '/games'),
+            tpl('druk', '🖨️ Druk 3D', 'Masz pomysł, co wydrukować?',
+                hello + 'Na drukarce HLYW można drukować Wasze pomysły. Wklej link do modelu z MakerWorld albo wrzuć plik '
+                        'STL / 3MF - czas druku i zużycie filamentu policzą się same, a my damy znać, kiedy będzie gotowe.',
+                'Zaproponuj wydruk', '/druk3d/nowa'),
+            tpl('wroc', '👋 Dawno Cię nie było', 'Tęsknimy na hlyw.pl!',
+                hello + 'Dawno Cię nie było na hlyw.pl, a sporo się zmieniło: czat z oznaczeniami i zdjęciami, nowe gry, '
+                        'druk 3D i turnieje FIFA.\n\nWpadnij zobaczyć!', 'Wróć na hlyw.pl', '/'),
+        ]
+        if cd:
+            general.insert(1, tpl('licznik', f'⏳ Licznik: {cd["title"]}', f'{cd["title"]} - {cd["at"]:%d.%m.%Y, %H:%M}',
+                                  hello + f'{cd["title"]}: {cd["at"]:%d.%m.%Y} o {cd["at"]:%H:%M}. Licznik niżej pokazuje, '
+                                          'ile zostało (albo ile już minęło).\n\nBądźcie z nami!',
+                                  cd['link_text'].capitalize() if cd['link_text'] else '', cd['link_url'] if cd['link_text'] else '',
+                                  counter=True))
+        days = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela']
+        events = []
+        for e in Calendar.query.filter(Calendar.date >= datetime.now() - timedelta(days=1)).order_by(Calendar.date).limit(15):
+            when = f'{days[e.date.weekday()]}, {e.date:%d.%m.%Y}' + (f' o {e.date:%H:%M}' if (e.date.hour, e.date.minute) != (0, 0) else '')
+            fifa = 'fifa' in e.title.lower()
+            text = hello + f'{when}: {e.title}.' + (f'\n\n{e.description.strip()}' if (e.description or '').strip() else '')
+            text += ('\n\nZapisz się jako gracz (wybierz klub) albo kibic - im nas więcej, tym lepiej!' if fifa
+                     else '\n\nZapisz się w kalendarzu, żebyśmy wiedzieli, ile osób będzie.')
+            events.append(tpl(f'event{e.id}', f'📅 {e.date:%d.%m} - {e.title}', f'{e.title} - {e.date:%d.%m} ({days[e.date.weekday()]})',
+                              text, 'Zobacz i zapisz się', url_for('event', day=e.date.day, month=e.date.month, year=e.date.year)))
+        news = []
+        for n in News.query.order_by(News.created_at.desc()).limit(10):
+            body = (n.description or '').strip()
+            body = body if len(body) <= 700 else body[:700].rstrip() + '…'
+            news.append(tpl(f'news{n.id}', f'📰 {n.title}', f'Breaking News: {n.title}',
+                            hello + f'Na hlyw.pl nowy news: {n.title}\n\n{body}', 'Czytaj na hlyw.pl', '/news'))
+        albums = []
+        for a in Albums.query.order_by(Albums.created_at.desc()).limit(10):
+            count = Images.query.filter_by(album_id=a.id).count()
+            desc = f' - {a.description.strip()}' if (a.description or '').strip() else ''
+            albums.append(tpl(f'album{a.id}', f'📷 {a.name}', f'Nowe zdjęcia: {a.name}',
+                              hello + f'W galerii jest album „{a.name}”{desc} - {plural(count, "zdjęcie", "zdjęcia", "zdjęć")}. '
+                                      'Zobacz, polub najlepsze i dorzuć swoje!', 'Zobacz zdjęcia', url_for('album', album_id=a.id)))
+        groups = [('Ogólne', general), ('Wydarzenia z kalendarza', events), ('Newsy', news), ('Albumy w galerii', albums)]
+        return [{'group': g, 'items': items} for g, items in groups if items]
 
     def simple_mail_html(form, root):
         """Prosty mail: zwykły tekst (akapity, linki klikalne) w szacie hlyw.pl + opcjonalny przycisk i licznik.

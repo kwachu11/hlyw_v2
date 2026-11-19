@@ -15,6 +15,20 @@
     </div>
     <div class="row">
         <div class="col-lg-7 mb-3">
+            <div class="form-group" id="simple-template-box" {{ 'hidden' if form.mode != 'prosty' }}>
+                <label for="mail-simple-template">Co chcesz wysłać?</label>
+                <select class="form-control" id="mail-simple-template" name="simple_template">
+                    <option value="">— wybierz szablon albo pisz od zera —</option>
+                    {% for g in simple_templates %}
+                    <optgroup label="{{ g.group }}">
+                        {% for t in g['items'] %}
+                        <option value="{{ t.id }}" {{ 'selected' if form.simple_template == t.id }}>{{ t.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    {% endfor %}
+                </select>
+                <small class="form-text text-muted">Szablon wypełni temat, treść i przycisk - potem możesz wszystko poprawić. Wydarzenia, newsy i albumy biorą dane prosto ze strony.</small>
+            </div>
             <div class="form-group">
                 <label for="mail-subject">Temat</label>
                 <input class="form-control" id="mail-subject" name="subject" maxlength="200" value="{{ form.subject }}" required
@@ -153,8 +167,32 @@
             var fs = document.getElementById('mode-' + m);
             fs.disabled = fs.hidden = m !== mode;      // wyłączone pola nie idą w formularzu
         });
+        document.getElementById('simple-template-box').hidden = mode !== 'prosty';
         preview();
     }
+
+    // szablony prostego maila: wybór wypełnia temat, treść, przycisk i licznik
+    var simpleTemplates = {};
+    {{ simple_templates|tojson }}.forEach(function (g) { g.items.forEach(function (t) { simpleTemplates[t.id] = t; }); });
+    var simpleSel = document.getElementById('mail-simple-template'), lastFilled = null;
+    simpleSel.addEventListener('change', function () {
+        var t = simpleTemplates[simpleSel.value];
+        if (!t) return;
+        var text = document.getElementById('mail-text');
+        // nie kasujemy po cichu własnego tekstu - tylko gdy pole jest puste, niezmienione od szablonu albo ktoś potwierdzi
+        var untouched = !text.value.trim() || text.value.trim() === 'Cześć {nick}!' || (lastFilled && text.value === lastFilled.text);
+        if (!untouched && !window.confirm('Zastąpić wpisaną treść szablonem „' + t.name + '”?')) return;
+        subj.value = t.subject;
+        text.value = t.text;
+        document.getElementById('mail-btn-text').value = t.button_text;
+        document.getElementById('mail-btn-url').value = t.button_url;
+        document.getElementById('mail-counter').checked = !!t.counter;
+        lastFilled = t;
+        preview();
+        text.focus();
+        var dots = text.value.indexOf('...');       // „...” w szablonie = miejsce do uzupełnienia
+        if (dots !== -1) text.setSelectionRange(dots, dots + 3);
+    });
     document.querySelectorAll('[data-mode]').forEach(function (b) {
         b.addEventListener('click', function () { setMode(b.dataset.mode); });
     });
