@@ -90,7 +90,8 @@ CAROUSEL_SIZE = 1600  # dłuższy bok zdjęcia w karuzeli na stronie głównej (
 PRINT_THUMB_MAX_BYTES = 10 * 1024 * 1024  # większego obrazka z pliku 3MF nie rozpakowujemy
 
 # Panel sterowania (/panel, tylko admin): ustawienia trzymane w tabeli site_setting.
-# (klucz, typ, wartość domyślna, etykieta, grupa). Typy: bool, text, textarea, date (RRRR-MM-DD, puste = bez limitu), int.
+# (klucz, typ, wartość domyślna, etykieta, grupa). Typy: bool, text, textarea, date (RRRR-MM-DD, puste = bez limitu), int,
+# datetime (RRRR-MM-DDTGG:MM, czas polski = czas serwera).
 SITE_SETTINGS = [
     ('marquee_on', 'bool', True, 'Pokazuj pasek', 'Pasek przewijany na górze strony głównej'),
     ('marquee_text', 'text', '🔥 Witaj na hlyw.pl v2! 🔥 | Nowy wygląd, nowe gry i stare rankingi wróciły — sprawdź, '
@@ -123,7 +124,19 @@ SITE_SETTINGS = [
     ('loading_on', 'bool', True, 'Ekran ładowania (raz na sesję)', 'Efekty'),
     ('loading_seconds', 'int', 6, 'Czas ekranu ładowania (s)', 'Efekty'),
     ('notify_on', 'bool', True, 'Powiadomienia SMS o aktywności innych', 'Efekty'),
-    ('gta6_on', 'bool', True, 'Licznik premiery GTA VI (strona główna i kamera)', 'Efekty'),
+    # licznik do wydarzenia (premiera, turniej...): przed datą odlicza, po niej pokazuje, ile minęło; też obrazek do maili
+    ('gta6_on', 'bool', True, 'Pokazuj licznik', 'Licznik (premiera, turniej...)'),
+    ('countdown_title', 'text', 'GTA VI', 'Nazwa - duży napis', 'Licznik (premiera, turniej...)'),
+    ('countdown_at', 'datetime', '2026-11-19T00:00', 'Data i godzina (czas polski)', 'Licznik (premiera, turniej...)'),
+    ('countdown_before', 'text', 'Do premiery zostało', 'Napis przed datą', 'Licznik (premiera, turniej...)'),
+    ('countdown_after', 'text', 'GTA VI jest z nami już', 'Napis po dacie', 'Licznik (premiera, turniej...)'),
+    ('countdown_note', 'text', 'Premiera 19.11.2026 o 00:00 · 🔴 dziś na kamerze stream z gry', 'Dopisek pod licznikiem',
+     'Licznik (premiera, turniej...)'),
+    ('countdown_link_text', 'text', 'oglądaj', 'Link w dopisku - napis (puste = bez linku)', 'Licznik (premiera, turniej...)'),
+    ('countdown_link_url', 'text', '/camera', 'Link w dopisku - adres', 'Licznik (premiera, turniej...)'),
+    ('countdown_home', 'bool', True, 'Na stronie głównej', 'Licznik (premiera, turniej...)'),
+    ('countdown_camera', 'bool', True, 'Na stronie kamery', 'Licznik (premiera, turniej...)'),
+    ('countdown_hide_days', 'int', 7, 'Schowaj po tylu dniach od daty', 'Licznik (premiera, turniej...)'),
 ]
 
 # Załączniki na czacie (jak na Messengerze): rodzaj -> rozszerzenia. Limit = client_max_body_size w nginx (50 MB).
@@ -142,7 +155,6 @@ CHAT_MENTION_COOLDOWN = timedelta(minutes=10)
 CHAT_MENTION_LOG = 'czat-oznaczenie'
 
 # Maile do użytkowników (/panel/maile). W temacie i treści: {nick}, {link_kamera}, {link_strona}.
-GTA6_RELEASE = '2026-11-19T00:00:00+01:00'
 MAIL_TEMPLATES = {
     'gta6_po': {
         'name': '🎮 GTA VI już jest - stream',
@@ -1204,6 +1216,20 @@ def create_app():
             raw = None
         return clean_menu_layout(raw if raw else {'layout': MENU_DEFAULT_LAYOUT})
 
+    def countdown_info():
+        """Licznik z panelu (grupa „Licznik”): teksty i moment w ms od 1970 - data z panelu to czas serwera (polski)."""
+        s = site_settings()
+        try:
+            at = datetime.fromisoformat(s['countdown_at'])
+        except (TypeError, ValueError):
+            return None
+        return {'title': s['countdown_title'], 'at': at, 'ms': int(at.timestamp() * 1000),
+                'before': s['countdown_before'], 'after': s['countdown_after'], 'note': s['countdown_note'],
+                'link_text': s['countdown_link_text'], 'link_url': s['countdown_link_url'],
+                'hide_days': max(1, s['countdown_hide_days'])}
+
+    app.jinja_env.globals['countdown_info'] = countdown_info
+
     def site_settings_raw(key):
         """Surowa wartość z site_setting spoza listy SITE_SETTINGS (np. układ menu) - z tą samą pamięcią podręczną."""
         site_settings()
@@ -1294,6 +1320,12 @@ def create_app():
                             date.fromisoformat(value)
                         except ValueError:
                             flash(f'„{label}”: zła data - zostawiam poprzednią wartość.', 'warning')
+                            continue
+                    if kind == 'datetime':
+                        try:
+                            value = datetime.fromisoformat(value).strftime('%Y-%m-%dT%H:%M')
+                        except ValueError:
+                            flash(f'„{label}”: zła data lub godzina - zostawiam poprzednią wartość.', 'warning')
                             continue
                 row = stored.get(key)
                 if row is None:
@@ -2487,7 +2519,6 @@ def create_app():
             os.remove(print_file_path(name))
 
     app.jinja_env.globals['our_printer'] = OUR_PRINTER   # znaczek „✓ H2C” przy zgodnych profilach MakerWorld
-    app.jinja_env.globals['gta6_release'] = GTA6_RELEASE  # licznik premiery GTA VI (_gta6.html)
     app.jinja_env.globals['chat_file_extensions'] = sorted(CHAT_FILE_EXTENSIONS)   # załączniki na czacie (camera.html)
     app.jinja_env.globals['chat_file_max'] = CHAT_FILE_MAX
     app.jinja_env.globals['chat_reactions'] = CHAT_REACTIONS
@@ -4483,13 +4514,21 @@ def create_app():
     def gta6_counter_gif():
         """Licznik do maili (bez JS): animacja na 60 s liczona od chwili otwarcia maila - publiczna, bez cache."""
         from PIL import Image, ImageDraw
-        release = datetime.fromisoformat(GTA6_RELEASE)
-        now = datetime.now(release.tzinfo)
+        cd = countdown_info()
+        if not cd:
+            abort(404)
         width, height = 560, 150
-        logo_font, time_font, label_font = gta6_font(54, logo=True), gta6_font(40), gta6_font(17)
+        time_font, label_font = gta6_font(40), gta6_font(17)
+        logo_size = 54                       # długa nazwa - mniejsza czcionka, żeby zmieściła się przed licznikiem
+        while logo_size > 18 and ImageDraw.Draw(Image.new('RGB', (1, 1))).textlength(cd['title'], font=gta6_font(logo_size, logo=True)) > 190:
+            logo_size -= 4
+        logo_font = gta6_font(logo_size, logo=True)
+        before, after_text = cd['before'].upper(), cd['after'].upper()
+        when = cd['at'].strftime('%d.%m.%Y, %H:%M')
         frames = []
+        base = int(time.time() - cd['ms'] / 1000)
         for step in range(60):
-            diff = int((now - release).total_seconds()) + step
+            diff = base + step
             after = diff >= 0
             s = abs(diff)
             d, h, m, sec = s // 86400, s % 86400 // 3600, s % 3600 // 60, s % 60
@@ -4500,10 +4539,10 @@ def create_app():
             for x in range(width):           # poziomy gradient jak na stronie
                 t = x / (width - 1)
                 draw.line([(x, 0), (x, height)], fill=tuple(int(left[i] + (right[i] - left[i]) * t) for i in range(3)))
-            draw.text((24, 44), 'GTA VI', font=logo_font, fill=(255, 255, 255), stroke_width=3, stroke_fill=(0, 0, 0))
-            draw.text((230, 34), 'GTA VI JEST Z NAMI JUŻ' if after else 'DO PREMIERY ZOSTAŁO', font=label_font, fill=(255, 255, 255))
+            draw.text((24, height // 2), cd['title'], font=logo_font, fill=(255, 255, 255), stroke_width=3, stroke_fill=(0, 0, 0), anchor='lm')
+            draw.text((230, 34), after_text if after else before, font=label_font, fill=(255, 255, 255))
             draw.text((230, 60), text, font=time_font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
-            draw.text((230, 112), 'premiera 19.11.2026, 00:00', font=label_font, fill=(255, 255, 255))
+            draw.text((230, 112), when, font=label_font, fill=(255, 255, 255))
             frames.append(img.convert('P', palette=Image.ADAPTIVE, colors=64))
         out = io.BytesIO()
         frames[0].save(out, format='GIF', save_all=True, append_images=frames[1:], duration=1000, optimize=True)

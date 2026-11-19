@@ -1,27 +1,31 @@
-{# Licznik premiery GTA VI: przed premierą odlicza, po niej pokazuje, ile już minęło. Włącznik: /panel → gta6_on. #}
-{% if site.gta6_on %}
-<div class="hl-gta6 mb-3" id="hl-gta6" data-release="{{ gta6_release }}">
-    <div class="hl-gta6-logo">GTA VI</div>
+{# Licznik z panelu (/panel → „Licznik”): przed datą odlicza, po niej pokazuje, ile minęło.
+   Dołącza się z `where` = 'home' albo 'camera' (osobne włączniki). #}
+{% set cd = countdown_info() if site.gta6_on else None %}
+{% if cd and ((where == 'home' and site.countdown_home) or (where == 'camera' and site.countdown_camera)) %}
+<div class="hl-gta6 mb-3" id="hl-gta6" data-release="{{ cd.ms }}" data-hide-days="{{ cd.hide_days }}">
+    <div class="hl-gta6-logo">{{ cd.title }}</div>
     <div class="hl-gta6-body">
-        <div class="hl-gta6-label" data-before="Do premiery zostało" data-after="GTA VI jest z nami już">Do premiery zostało</div>
+        <div class="hl-gta6-label" data-before="{{ cd.before }}" data-after="{{ cd.after }}">{{ cd.before }}</div>
         <div class="hl-gta6-time" aria-live="off">--</div>
+        {% if cd.note or cd.link_text %}
         <div class="hl-gta6-note">
-            Premiera 19.11.2026 o 00:00 · 🔴 dziś na kamerze stream z gry
-            {% if show_camera_link %} · <a href="{{ url_for('camera') }}">oglądaj</a>{% endif %}
+            {{ cd.note }}
+            {% if cd.link_text and cd.link_url and current_user.is_authenticated %}{{ ' · ' if cd.note }}<a href="{{ cd.link_url }}">{{ cd.link_text }}</a>{% endif %}
         </div>
+        {% endif %}
     </div>
 </div>
 <script>
 (function () {
     var box = document.getElementById('hl-gta6');
     if (!box) return;
-    var release = new Date(box.dataset.release).getTime(),
+    var release = Number(box.dataset.release), hideDays = Number(box.dataset.hideDays) || 7,
         label = box.querySelector('.hl-gta6-label'), out = box.querySelector('.hl-gta6-time');
     function pad(n) { return (n < 10 ? '0' : '') + n; }
     function tick() {
         var diff = Date.now() - release, after = diff >= 0, s = Math.floor(Math.abs(diff) / 1000),
             d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-        if (after && d >= 7) { box.remove(); return; }          // tydzień po premierze licznik sam znika
+        if (after && d >= hideDays) { box.remove(); return; }      // po ustawionej liczbie dni licznik sam znika
         label.textContent = after ? label.dataset.after : label.dataset.before;
         box.classList.toggle('is-out', after);
         out.textContent = (d ? d + ' d ' : '') + pad(h) + ':' + pad(m) + ':' + pad(s % 60);

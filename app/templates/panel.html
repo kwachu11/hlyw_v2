@@ -37,6 +37,8 @@
                             <input type="date" class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ value }}">
                             <button type="button" class="btn btn-outline-secondary btn-sm w-auto text-nowrap" onclick="document.getElementById('s-{{ f.key }}').value = ''">bez końca</button>
                         </div>
+                        {% elif f.kind == 'datetime' %}
+                        <input type="datetime-local" class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ value }}" required>
                         {% elif f.kind == 'int' %}
                         <input type="number" min="1" max="60" class="form-control" id="s-{{ f.key }}" name="{{ f.key }}" value="{{ value }}">
                         {% else %}

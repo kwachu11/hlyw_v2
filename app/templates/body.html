@@ -26,7 +26,7 @@
         {% endif %}
     </div>
 
-    {% with show_camera_link = current_user.is_authenticated %}{% include '_gta6.html' %}{% endwith %}
+    {% with where = 'home' %}{% include '_gta6.html' %}{% endwith %}
 
     {% if promo_version and current_user.is_authenticated %}
     <div class="hl-promo mb-3" id="hl-promo" data-version="{{ promo_version }}" hidden>
