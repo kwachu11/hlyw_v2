@@ -810,3 +810,9 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .hl-mail-user.is-off { opacity: .45; cursor: not-allowed; }
 .hl-mail-prefs .custom-control-label { cursor: pointer; }
 .hl-mail-prefs-hl { background: rgba(255, 46, 136, .12); border-left: 3px solid #ff2e88; border-radius: 4px; padding: 6px 8px 6px 2.6rem; }
+/* ustawienia maili i dłuższe opcje w panelu maili - opisy czytelną czcionką, Pricedown tylko na krótkie nazwy */
+.hl-mail-prefs .custom-control-label, #mail-form .custom-control-label {
+    font-family: var(--gta-font-text); letter-spacing: normal; font-size: 1rem;
+}
+.hl-mail-prefs .custom-control-label b { font-family: var(--gta-font-ui); font-weight: normal; letter-spacing: .04em; font-size: 1.08rem; }
+.hl-mail-prefs .custom-control-label .small { font-size: .85rem; }
