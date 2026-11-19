@@ -721,3 +721,34 @@ a.hl-profile-cash:hover { text-decoration: none; color: #9cf09c; }
 .hl-mention { color: #ff9d2e; font-weight: 700; }
 .hl-mention-me { background: rgba(255, 46, 136, .25); color: #fff; border-radius: 3px; padding: 0 3px; }
 .chat-message.hl-chat-mentioned { box-shadow: inset 3px 0 0 #ff2e88; }
+
+/* załączniki na czacie */
+.hl-chat { position: relative; }
+.hl-chat-file { margin: 4px 0 2px; max-width: 100%; }
+.hl-chat-file-image img { display: block; max-width: 100%; max-height: 220px; border-radius: 8px; cursor: zoom-in; }
+.hl-chat-file-video video { display: block; width: 100%; max-height: 260px; border-radius: 8px; background: #000; }
+.hl-chat-file-card {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); color: inherit; max-width: 100%;
+}
+.hl-chat-file-card:hover { background: rgba(255, 46, 136, .15); border-color: #ff2e88; color: inherit; text-decoration: none; }
+.hl-chat-file-icon { font-size: 1.6rem; line-height: 1; }
+.hl-chat-file-info { display: flex; flex-direction: column; min-width: 0; }
+.hl-chat-file-info b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hl-chat-file-info small { opacity: .7; }
+.hl-chat-attachment {
+    position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 30px 6px 8px;
+    border: 1px dashed #ff2e88; border-radius: 8px; background: rgba(255, 46, 136, .08); overflow: hidden;
+}
+.hl-chat-attachment img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
+.hl-chat-att-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.hl-chat-att-remove { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: #fff; }
+.hl-chat-att-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, .1); }
+.hl-chat-att-progress i { display: block; height: 100%; width: 0; background: #ff2e88; transition: width .2s; }
+.hl-chat-attach { font-size: 1.1rem; line-height: 1; padding: .375rem .6rem; }
+.hl-chat-drop {
+    position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+    background: rgba(13, 13, 18, .85); border: 2px dashed #ff2e88; border-radius: 8px;
+    font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 1.1rem; pointer-events: none;
+}
+.hl-chat-drop[hidden] { display: none; }

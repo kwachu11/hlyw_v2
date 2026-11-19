@@ -126,6 +126,16 @@ SITE_SETTINGS = [
     ('gta6_on', 'bool', True, 'Licznik premiery GTA VI (strona główna i kamera)', 'Efekty'),
 ]
 
+# Załączniki na czacie (jak na Messengerze): rodzaj -> rozszerzenia. Limit = client_max_body_size w nginx (50 MB).
+CHAT_FILE_TYPES = {
+    'image': {'jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'bmp'},
+    'video': {'mp4', 'webm', 'mov', 'm4v'},
+    'file': {'pdf', 'xls', 'xlsx', 'xlsm', 'csv', 'ods', 'doc', 'docx', 'odt', 'rtf', 'ppt', 'pptx', 'odp', 'txt',
+             'zip', 'rar', '7z', 'stl', '3mf', 'obj', 'step', 'stp', 'mp3', 'wav', 'ogg', 'm4a', 'heic', 'apk', 'json', 'gpx'},
+}
+CHAT_FILE_MAX = 50 * 1024 * 1024 - 64 * 1024   # zapas na resztę formularza
+CHAT_FILE_EXTENSIONS = {ext: kind for kind, exts in CHAT_FILE_TYPES.items() for ext in exts}
+
 # Oznaczenia @nick na czacie: mail do oznaczonego najwyżej raz na tyle czasu (wpis w MailLog o tym temacie).
 CHAT_MENTION_COOLDOWN = timedelta(minutes=10)
 CHAT_MENTION_LOG = 'czat-oznaczenie'
@@ -666,6 +676,11 @@ def create_app():
         timestamp = db.Column(db.DateTime, default=datetime.utcnow)
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Powiązanie z User
         user = db.relationship('User', backref=db.backref('messages', lazy=True))  # Powiązanie odwrotne do User
+        # załącznik (instance/czat): zdjęcie, film albo dowolny obsługiwany plik - CHAT_FILE_TYPES
+        file_path = db.Column(db.String(200))
+        file_name = db.Column(db.String(200))
+        file_kind = db.Column(db.String(10))      # image / video / file
+        file_size = db.Column(db.Integer)
 
     class NewsReaction(db.Model):
         id = db.Column(db.Integer, primary_key=True)
@@ -1004,6 +1019,10 @@ def create_app():
             ('print_request', 'color_hex', "VARCHAR(9)"),
             ('print_request', 'model_info', "TEXT"),
             ('print_request', 'filaments', "TEXT"),
+            ('message', 'file_path', "VARCHAR(200)"),
+            ('message', 'file_name', "VARCHAR(200)"),
+            ('message', 'file_kind', "VARCHAR(10)"),
+            ('message', 'file_size', "INTEGER"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -2063,6 +2082,78 @@ def create_app():
             return jsonify({"status": "success", "message": message_content, "mentioned": mentioned})
         return jsonify({"status": "error"}), 400
 
+    def chat_file_caption(name):
+        """Treść wiadomości z samym plikiem - widać ją na stronie głównej, w „Co się dzieje” i w powiadomieniach."""
+        return ('📎 ' + (name or 'plik'))[:500]
+
+    @app.route('/czat/plik', methods=['POST'])
+    @login_required
+    def chat_upload():
+        """Wiadomość na czacie z załącznikiem (zdjęcie, film, Excel, PDF, ...) i opcjonalnym tekstem."""
+        upload = request.files.get('file')
+        text = (request.form.get('message') or '').strip()[:500]
+        if not upload or not upload.filename:
+            return jsonify({"status": "error", "error": "Nie wybrano pliku."}), 400
+        original = os.path.basename(upload.filename.replace('\\', '/')).strip()[:150] or 'plik'
+        ext = original.rsplit('.', 1)[-1].lower() if '.' in original else ''
+        kind = CHAT_FILE_EXTENSIONS.get(ext)
+        if not kind:
+            return jsonify({"status": "error", "error": f'Tego typu pliku (.{ext or "?"}) nie obsługujemy.'}), 400
+        upload.stream.seek(0, os.SEEK_END)
+        size = upload.stream.tell()
+        upload.stream.seek(0)
+        if size > CHAT_FILE_MAX:
+            return jsonify({"status": "error", "error": "Plik jest za duży - maksymalnie 50 MB."}), 400
+        if not size:
+            return jsonify({"status": "error", "error": "Plik jest pusty."}), 400
+        folder = os.path.join(app.instance_path, 'czat')
+        create_directory_if_not_exists(folder)
+        stored = uuid.uuid4().hex + '.' + ext        # nazwy od użytkownika nie używamy na dysku
+        upload.save(os.path.join(folder, stored))
+        message = Message(content=text or chat_file_caption(original), user_id=current_user.id,
+                          file_path=stored, file_name=original, file_kind=kind, file_size=size)
+        db.session.add(message)
+        db.session.commit()
+        mentioned = notify_chat_mentions(text) if text else []
+        return jsonify({"status": "success", "mentioned": mentioned})
+
+    def chat_file_disk_path(message):
+        if not message.file_path or '/' in message.file_path or '\\' in message.file_path:
+            abort(404)
+        path = os.path.join(app.instance_path, 'czat', message.file_path)
+        if not os.path.exists(path):
+            abort(404)
+        return path
+
+    @app.route('/czat/plik/<int:message_id>')
+    @login_required
+    def chat_file(message_id):
+        """Załącznik z czatu: zdjęcia i filmy w przeglądarce (z przewijaniem filmu), resztę pobiera się pod oryginalną nazwą."""
+        message = Message.query.get_or_404(message_id)
+        path = chat_file_disk_path(message)
+        inline = message.file_kind in ('image', 'video')
+        response = send_file(path, as_attachment=not inline, download_name=message.file_name or message.file_path,
+                             conditional=True, max_age=7 * 24 * 3600)
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    @app.route('/czat/plik/<int:message_id>/miniatura')
+    @login_required
+    def chat_file_thumbnail(message_id):
+        message = Message.query.get_or_404(message_id)
+        if message.file_kind != 'image':
+            abort(404)
+        path = chat_file_disk_path(message)
+        thumb = thumbnail_path(f'c{message.id}')
+        if not os.path.exists(thumb):
+            create_directory_if_not_exists(os.path.dirname(thumb))
+            try:
+                save_jpeg_thumbnail(path, thumb)
+            except Exception as e:
+                app.logger.warning('Nie udało się utworzyć miniatury załącznika %s: %s', message.id, e)
+                return redirect(url_for('chat_file', message_id=message.id))
+        return send_file(thumb, mimetype='image/jpeg', max_age=30 * 24 * 3600)
+
     def chat_mentions(content):
         """Użytkownicy oznaczeni w wiadomości przez @nick (nicki mogą mieć spacje - najpierw najdłuższe)."""
         text, found = content, []
@@ -2112,7 +2203,16 @@ def create_app():
         for msg in messages:
             user = msg.user  # Dostęp do użytkownika powiązanego z wiadomością
             place = standings().get(user.id, {}).get('place')
+            attachment = None
+            if msg.file_path:
+                attachment = {"name": msg.file_name, "kind": msg.file_kind, "size": msg.file_size,
+                              "url": url_for('chat_file', message_id=msg.id),
+                              "thumb": url_for('chat_file_thumbnail', message_id=msg.id) if msg.file_kind == 'image' else None,
+                              # sam podpis „📎 nazwa” (wiadomość bez tekstu) nie jest pokazywany drugi raz
+                              "auto_text": msg.content == chat_file_caption(msg.file_name)}
             messages_data.append({
+                "id": msg.id,
+                "file": attachment,
                 "content": msg.content,
                 "timestamp": msg.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
                 "time": when_label(msg.timestamp),
@@ -2311,6 +2411,8 @@ def create_app():
 
     app.jinja_env.globals['our_printer'] = OUR_PRINTER   # znaczek „✓ H2C” przy zgodnych profilach MakerWorld
     app.jinja_env.globals['gta6_release'] = GTA6_RELEASE  # licznik premiery GTA VI (_gta6.html)
+    app.jinja_env.globals['chat_file_extensions'] = sorted(CHAT_FILE_EXTENSIONS)   # załączniki na czacie (camera.html)
+    app.jinja_env.globals['chat_file_max'] = CHAT_FILE_MAX
 
     @app.template_global('print_thumb_url')
     def print_thumb_url(entry):

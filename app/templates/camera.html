@@ -75,12 +75,26 @@
                 {% endfor %}
             </div>
             <form id="chat-form">
+                <div id="chat-attachment" class="hl-chat-attachment" hidden>
+                    <span class="hl-chat-att-icon" aria-hidden="true">📎</span>
+                    <img alt="" hidden>
+                    <span class="hl-chat-att-name"></span>
+                    <span class="hl-chat-att-size text-muted small"></span>
+                    <button type="button" class="close hl-chat-att-remove" aria-label="Usuń załącznik">&times;</button>
+                    <div class="hl-chat-att-progress" hidden><i></i></div>
+                </div>
                 <div class="hl-mention-wrap">
-                    <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość... (@nick oznacza, Enter wysyła, Shift+Enter nowa linia)" rows="2" maxlength="500"></textarea>
+                    <textarea id="chat-message" class="form-control" placeholder="Napisz wiadomość... (@nick oznacza, 📎 albo przeciągnij plik, Enter wysyła)" rows="2" maxlength="500"></textarea>
                     <div id="hl-mention-list" class="hl-mention-list" role="listbox" hidden></div>
                 </div>
-                <button type="submit" class="btn btn-primary mt-2">Wyślij</button>
+                <div class="d-flex align-items-center mt-2">
+                    <button type="button" class="btn btn-outline-secondary w-auto mr-2 hl-chat-attach" id="chat-attach-btn" title="Dodaj zdjęcie, film albo plik (do 50 MB)" aria-label="Dodaj plik">📎</button>
+                    <input type="file" id="chat-file" hidden
+                           accept="{% for ext in chat_file_extensions %}.{{ ext }}{{ ',' if not loop.last }}{% endfor %}">
+                    <button type="submit" class="btn btn-primary flex-grow-1" id="chat-send-btn">Wyślij</button>
+                </div>
             </form>
+            <div class="hl-chat-drop" id="chat-drop" hidden>Upuść plik, żeby go wysłać 📎</div>
         </div>
     </div>
 </div>
@@ -435,6 +449,14 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
     function renderMessages(messages) {
         // przewijamy w dół tylko, gdy użytkownik już był na dole - nie przeszkadzamy w czytaniu starszych
         const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
+        // te same wiadomości co ostatnio -> tylko odświeżamy „x min temu” (nie przerywamy oglądanego filmu)
+        const ids = messages.map(m => m.id).join(',') + '|' + (mentionRe ? 1 : 0);
+        if (ids === renderedIds) {
+            const times = chat.querySelectorAll('.chat-time');
+            messages.slice().reverse().forEach((msg, i) => { if (times[i]) times[i].textContent = msg.time || ''; });
+            return;
+        }
+        renderedIds = ids;
         chat.innerHTML = '';
         recentChatters = new Set(messages.map(msg => msg.username));   // do kolejności podpowiedzi @nick
         messages.slice().reverse().forEach(msg => {
@@ -457,7 +479,9 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
             const text = document.createElement('div');
             text.className = 'message-content';
             if (fillMentions(text, msg.content)) row.classList.add('hl-chat-mentioned');
-            body.append(name, text);
+            body.append(name);
+            if (msg.file) body.append(renderAttachment(msg.file));
+            if (!(msg.file && msg.file.auto_text)) body.append(text);
             const time = document.createElement('span');
             time.className = 'chat-time';
             time.textContent = msg.time || '';
@@ -469,7 +493,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
 
     // --- oznaczenia @nick: podświetlenie w wiadomościach i podpowiedzi przy pisaniu ---
     const ME = {{ current_user.username|tojson }};
-    let mentionUsers = [], mentionRe = null, recentChatters = new Set();
+    let mentionUsers = [], mentionRe = null, recentChatters = new Set(), renderedIds = '';
     function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
     fetch('/czat/uzytkownicy').then(r => r.json()).then(data => {
         mentionUsers = data.users || [];
@@ -552,6 +576,163 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
     input.addEventListener('click', updateMentions);
     input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) closeMentions(); }, 250));
 
+    // --- załączniki: wyświetlanie w wiadomościach ---
+    function formatSize(bytes) {
+        if (!bytes) return '';
+        if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0).replace('.', ',') + ' MB';
+    }
+    function fileIcon(name) {
+        const ext = (name.split('.').pop() || '').toLowerCase();
+        if (['xls', 'xlsx', 'xlsm', 'csv', 'ods'].includes(ext)) return '📊';
+        if (['doc', 'docx', 'odt', 'rtf', 'txt'].includes(ext)) return '📝';
+        if (['ppt', 'pptx', 'odp'].includes(ext)) return '📽️';
+        if (ext === 'pdf') return '📕';
+        if (['zip', 'rar', '7z'].includes(ext)) return '🗜️';
+        if (['stl', '3mf', 'obj', 'step', 'stp'].includes(ext)) return '🧊';
+        if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) return '🎵';
+        return '📄';
+    }
+    function renderAttachment(file) {
+        const box = document.createElement('div');
+        box.className = 'hl-chat-file hl-chat-file-' + file.kind;
+        if (file.kind === 'image') {
+            const a = document.createElement('a');
+            a.href = file.url;
+            a.className = 'hl-thumb';               // otwiera się w przeglądarce zdjęć (_lightbox)
+            a.dataset.src = file.url;
+            a.addEventListener('click', e => e.preventDefault());
+            const img = document.createElement('img');
+            img.src = file.thumb;
+            img.alt = file.name;
+            img.loading = 'lazy';
+            a.append(img);
+            box.append(a);
+        } else if (file.kind === 'video') {
+            const v = document.createElement('video');
+            v.src = file.url;
+            v.controls = true;
+            v.preload = 'metadata';
+            v.playsInline = true;
+            box.append(v);
+        } else {
+            const a = document.createElement('a');
+            a.href = file.url;
+            a.className = 'hl-chat-file-card';
+            a.setAttribute('download', file.name);
+            const icon = document.createElement('span');
+            icon.className = 'hl-chat-file-icon';
+            icon.textContent = fileIcon(file.name);
+            const info = document.createElement('span');
+            info.className = 'hl-chat-file-info';
+            const n = document.createElement('b');
+            n.textContent = file.name;
+            const s = document.createElement('small');
+            s.textContent = formatSize(file.size) + ' · pobierz';
+            info.append(n, s);
+            a.append(icon, info);
+            box.append(a);
+        }
+        return box;
+    }
+
+    // --- załączniki: wybór, przeciąganie, wklejanie i wysyłka ---
+    const FILE_MAX = {{ chat_file_max }};
+    const FILE_EXT = new Set({{ chat_file_extensions|tojson }});
+    const fileInput = document.getElementById('chat-file');
+    const attBox = document.getElementById('chat-attachment');
+    const attImg = attBox.querySelector('img');
+    const sendBtn = document.getElementById('chat-send-btn');
+    const progress = attBox.querySelector('.hl-chat-att-progress');
+    let pendingFile = null, uploading = false;
+
+    function setPendingFile(file) {
+        if (attImg.src) URL.revokeObjectURL(attImg.src);
+        pendingFile = null;
+        attBox.hidden = true;
+        attImg.hidden = true;
+        attImg.removeAttribute('src');
+        if (!file) return;
+        let name = file.name || '';
+        if (!name.includes('.') && file.type.startsWith('image/')) name = 'zdjecie.' + (file.type.split('/')[1] || 'png');
+        const ext = (name.split('.').pop() || '').toLowerCase();
+        if (!FILE_EXT.has(ext)) { gtaToast('Tego typu pliku (.' + (ext || '?') + ') nie obsługujemy.'); return; }
+        if (file.size > FILE_MAX) { gtaToast('Plik jest za duży - maksymalnie 50 MB.'); return; }
+        pendingFile = name === file.name ? file : new File([file], name, { type: file.type });
+        attBox.querySelector('.hl-chat-att-name').textContent = name;
+        attBox.querySelector('.hl-chat-att-size').textContent = formatSize(file.size);
+        attBox.querySelector('.hl-chat-att-icon').textContent = file.type.startsWith('video/') ? '🎬' : fileIcon(name);
+        if (file.type.startsWith('image/')) {
+            attImg.src = URL.createObjectURL(file);
+            attImg.hidden = false;
+        }
+        attBox.hidden = false;
+        input.focus();
+    }
+    function gtaToast(text) {
+        attBox.hidden = false;
+        attBox.querySelector('.hl-chat-att-name').textContent = '⚠️ ' + text;
+        attBox.querySelector('.hl-chat-att-size').textContent = '';
+        attBox.querySelector('.hl-chat-att-icon').textContent = '';
+        setTimeout(() => { if (!pendingFile) attBox.hidden = true; }, 4000);
+    }
+    document.getElementById('chat-attach-btn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => { setPendingFile(fileInput.files[0]); fileInput.value = ''; });
+    attBox.querySelector('.hl-chat-att-remove').addEventListener('click', () => { if (!uploading) setPendingFile(null); });
+    input.addEventListener('paste', e => {
+        const item = [...(e.clipboardData || {}).items || []].find(i => i.kind === 'file');
+        if (item) { e.preventDefault(); setPendingFile(item.getAsFile()); }
+    });
+    const chatBox = document.querySelector('.hl-chat'), dropHint = document.getElementById('chat-drop');
+    let dragDepth = 0;
+    chatBox.addEventListener('dragenter', e => {
+        if (![...e.dataTransfer.types].includes('Files')) return;
+        e.preventDefault(); dragDepth++; dropHint.hidden = false;
+    });
+    chatBox.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+    chatBox.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dropHint.hidden = true; } });
+    chatBox.addEventListener('drop', e => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault(); dragDepth = 0; dropHint.hidden = true;
+        setPendingFile(e.dataTransfer.files[0]);
+    });
+
+    function sendWithFile(message) {
+        if (uploading) return;
+        uploading = true;
+        const data = new FormData();
+        data.append('file', pendingFile);
+        data.append('message', message);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/czat/plik');
+        progress.hidden = false;
+        sendBtn.disabled = true;
+        xhr.upload.addEventListener('progress', e => {
+            if (!e.lengthComputable) return;
+            const pct = Math.round(e.loaded / e.total * 100);
+            progress.firstElementChild.style.width = pct + '%';
+            sendBtn.textContent = 'Wysyłanie… ' + pct + '%';
+        });
+        xhr.addEventListener('loadend', () => {
+            uploading = false;
+            progress.hidden = true;
+            progress.firstElementChild.style.width = '0';
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Wyślij';
+            let res = {};
+            try { res = JSON.parse(xhr.responseText); } catch (e) {}
+            if (xhr.status === 200 && res.status === 'success') {
+                setPendingFile(null);
+                input.value = '';
+                loadMessages();
+                setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 300);
+            } else {
+                gtaToast(res.error || (xhr.status === 413 ? 'Plik jest za duży - maksymalnie 50 MB.' : 'Nie udało się wysłać pliku.'));
+            }
+        });
+        xhr.send(data);
+    }
+
     function loadMessages() {
         fetch('/get_messages').then(r => r.json()).then(data => renderMessages(data.messages));
     }
@@ -573,6 +754,7 @@ if (!customElements.get('video-rtc')) customElements.define('video-rtc', class e
 
     document.getElementById('chat-form').addEventListener('submit', e => {
         e.preventDefault();
+        if (pendingFile) { sendWithFile(input.value.trim()); return; }   // pole czyścimy dopiero po udanej wysyłce
         send(input.value);
         input.value = '';
     });
