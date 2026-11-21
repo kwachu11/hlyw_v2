@@ -89,6 +89,22 @@
   .hk-table button.hk-split.hit{outline:none;animation:none}
   .hk-table button.hk-split.hit::before{opacity:1;background:#fff;transform:scale(1.5)}
   .hk-hint{font-family:var(--gta-font-text);color:#cfe8d6;font-size:.82rem;text-align:center;margin-top:6px}
+  .hk-table .bet.other{background:var(--gta-blue);color:#06121d}
+  .hk-table .bet.pend{opacity:.6;border-style:dashed}
+  .hk-table .who{position:absolute;left:2px;bottom:1px;display:flex;z-index:2;pointer-events:none}
+  .hk-table .who img{width:13px;height:13px;border-radius:50%;object-fit:cover;border:1px solid #fff;margin-right:-4px}
+  .hk-clock{margin:10px auto 0;max-width:380px}
+  .hk-clock .bar{height:8px;border-radius:4px;background:rgba(0,0,0,.4);overflow:hidden}
+  .hk-clock .bar span{display:block;height:100%;width:0;background:var(--gta-green);transition:width .25s linear}
+  .hk-clock.closed .bar span{background:var(--gta-red)}
+  .hk-clock .txt{text-align:center;font-family:var(--gta-font-ui);font-size:1.3rem;letter-spacing:.04em;margin-top:4px;text-shadow:var(--gta-outline)}
+  .hk-round{margin-top:10px;font-family:var(--gta-font-text)}
+  .hk-round .row-p{display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-top:1px solid rgba(255,255,255,.12);font-size:.9rem}
+  .hk-round .row-p img{width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none}
+  .hk-round .row-p .b{flex:1;min-width:0}
+  .hk-round .row-p small{color:#cfe8d6;display:block}
+  .hk-round .row-p.me b{color:var(--gta-yellow)}
+  .hk-round .none{color:#cfe8d6;font-size:.9rem;padding:4px 0}
   .hk-total{font-family:var(--gta-font-text);text-align:center;margin-top:8px}
   .hk-bac{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center}
   .hk-bac .side-box{padding:6px;border-radius:12px;border:2px solid transparent}
@@ -217,22 +233,29 @@
           <svg class="hk-wheel" id="rl-wheel" viewBox="-160 -160 320 320" aria-label="Koło ruletki"></svg>
           <div class="hk-result" id="rl-result">?</div>
         </div>
+        <div class="hk-clock" id="rl-clock"><div class="bar"><span id="rl-bar"></span></div><div class="txt" id="rl-clock-txt">…</div></div>
         <div class="hk-msg" id="rl-msg"></div>
         <div class="hk-recent" id="rl-recent"></div>
+        <div class="hk-round">
+          <div class="hk-label">Zakłady w tej rundzie</div>
+          <div id="rl-players"></div>
+          <div id="rl-last-box" hidden><div class="hk-label mt-2">Wyniki ostatniej rundy</div><div id="rl-last"></div></div>
+        </div>
       </div>
       <div>
         <div class="hk-table" id="rl-table"></div>
         <div class="hk-hint"><span style="color:var(--gta-yellow)">●</span> kreska między numerami = split 17:1 ·
           <span style="color:#ff9d2e">●</span> róg 4 numerów 8:1<br>
           <span style="color:#7fe0ff">●</span> lewa krawędź rzędu = rząd 11:1, między rzędami = dwa rzędy 5:1</div>
-        <div class="hk-total">Na stole: <b id="rl-total">0</b> żetonów</div>
+        <div class="hk-total">Twoje: <b id="rl-mine">0</b> · do postawienia: <b id="rl-total">0</b> · cały stół: <b id="rl-all">0</b></div>
         <div class="hk-actions">
           <button type="button" class="btn btn-outline-light btn-sm" id="rl-undo">Cofnij</button>
           <button type="button" class="btn btn-outline-light btn-sm" id="rl-clear">Wyczyść</button>
           <button type="button" class="btn btn-outline-light btn-sm" id="rl-double">2×</button>
           <button type="button" class="btn btn-outline-light btn-sm" id="rl-repeat">Powtórz</button>
-          <button type="button" class="btn btn-warning" id="rl-spin">Kręć!</button>
+          <button type="button" class="btn btn-warning" id="rl-spin">Postaw</button>
         </div>
+        <div class="hk-hint">Przezroczyste żetony nie są jeszcze postawione - kliknij „Postaw” (tuż przed końcem zakładów postawią się same).</div>
       </div>
     </div>
   </section>
@@ -269,7 +292,7 @@
     <summary>Zasady</summary>
     <p class="mt-2 mb-1">Żetony są tylko na zabawę - nie da się ich kupić ani wymienić. Codziennie możesz odebrać pulę żetonów; seria dni z rzędu daje +10% za dzień (najwyżej +{{ streak_max * 10 }}%). Stawka na jedno rozdanie / zakręcenie: {{ min_bet|money }}-{{ max_bet|money }}.</p>
     <p class="mb-1"><b>Blackjack:</b> 6 talii, krupier dobiera do 16 i stoi na każdej 17. Blackjack płaci 3:2, zwykła wygrana 1:1. Podwojenie przy dwóch kartach, rozdzielenie pary (do 4 rąk, rozdzielone asy dostają po jednej karcie).</p>
-    <p class="mb-1"><b>Ruletka:</b> europejska, jedno zero. Numer 35:1, split (dwa sąsiednie numery - kreska między nimi) 17:1, rząd 3 numerów (lewa krawędź rzędu) 11:1, róg 4 numerów (punkt styku) 8:1, dwa rzędy (lewa krawędź między rzędami) 5:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
+    <p class="mb-1"><b>Ruletka:</b> wspólny stół dla wszystkich - koło kręci się co {{ roulette_times[0] }} s, zakłady przyjmujemy przez pierwsze {{ roulette_times[1] }} s rundy, na stole widać żetony i avatary innych graczy. Europejska, jedno zero. Numer 35:1, split (dwa sąsiednie numery - kreska między nimi) 17:1, rząd 3 numerów (lewa krawędź rzędu) 11:1, róg 4 numerów (punkt styku) 8:1, dwa rzędy (lewa krawędź między rzędami) 5:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
     <p class="mb-0"><b>Bakarat:</b> klasyczne zasady dobierania trzeciej karty. Gracz 1:1, Bankier 0,95:1, Remis 8:1 - przy remisie zakłady na Gracza i Bankiera wracają.</p>
   </details>
 
@@ -561,7 +584,7 @@
 
   // ---------- RULETKA ----------
   const STEP = 360 / WHEEL.length;
-  let rlBets = {}, rlOrder = [], rlLast = null, rlBusy = false, rlAngle = 0;
+  let rlAngle = 0;
   const colorOf = (n) => n === 0 ? 'green' : RED.has(n) ? 'red' : 'black';
   (function drawWheel() {
     const r = 150, ri = 108, parts = ['<circle r="158" fill="#3b2412" stroke="#ffcc00" stroke-width="4"/>'];
@@ -628,95 +651,229 @@
   }
   window.addEventListener('resize', layoutSplits);
   const betKey = (t, v) => t + ':' + (v == null ? '' : v);
+  // Wspólny stół: rlPending = moje żetony jeszcze niepostawione, rlState.bets = postawione przez wszystkich (z serwera).
+  const [RL_ROUND, RL_CLOSE, RL_SETTLE] = {{ roulette_times|tojson }}.map((s) => s * 1000);
+  let rlPending = {}, rlOrder = [];
+  let rlState = {{ roulette|tojson }};
+  let rlOffset = rlState.now_ms - Date.now();          // różnica zegara przeglądarki i serwera
+  let rlShown = rlState.last ? rlState.last.round : null;   // runda, której wynik już pokazaliśmy
+  let rlSpinning = false, rlFetching = false, rlLastFetch = 0, rlFlushed = null, rlMyLast = {};
+  const nowMs = () => Date.now() + rlOffset;
+  const shortAmt = (a) => a >= 1000 ? (a / 1000).toFixed(a % 1000 ? 1 : 0) + 'k' : a;
+  const sumOf = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+  function spotLabel(t, v) {
+    const words = {red: 'czerwone', black: 'czarne', odd: 'nieparzyste', even: 'parzyste', low: '1-18', high: '19-36'};
+    if (words[t]) return words[t];
+    if (t === 'n') return 'numer ' + v;
+    if (t === 'dozen') return (v * 12 - 11) + '-' + v * 12;
+    if (t === 'column') return 'kolumna ' + v;
+    const nums = String(v).split('-');
+    return {split: 'split ', street: 'rząd ', corner: 'róg ', sixline: 'dwa rzędy '}[t] +
+      (t === 'sixline' || t === 'street' ? nums[0] + '-' + nums[nums.length - 1] : nums.join('/'));
+  }
+  function rlMineConfirmed() { return rlState.bets.filter((b) => b.me).reduce((a, b) => a + b.a, 0); }
   function rlRender() {
-    document.querySelectorAll('#rl-table button').forEach((b) => {
-      const amount = rlBets[betKey(b.dataset.t, b.dataset.v)] || 0;
-      let badge = b.querySelector('.bet');
-      if (amount && !badge) { badge = document.createElement('span'); badge.className = 'bet'; b.appendChild(badge); }
-      if (badge) { if (amount) badge.textContent = amount >= 1000 ? (amount / 1000).toFixed(amount % 1000 ? 1 : 0) + 'k' : amount; else badge.remove(); }
+    const spots = {};
+    const spot = (k) => spots[k] || (spots[k] = {total: 0, mine: 0, pend: 0, users: {}, list: []});
+    rlState.bets.forEach((b) => {
+      const s = spot(betKey(b.t, b.v));
+      s.total += b.a; if (b.me) s.mine += b.a;
+      s.users[b.user] = b.photo; s.list.push(b.user + ': ' + fmt(b.a));
     });
-    $('rl-total').textContent = fmt(Object.values(rlBets).reduce((a, b) => a + b, 0));
+    Object.keys(rlPending).forEach((k) => { spot(k).pend += rlPending[k]; });
+    document.querySelectorAll('#rl-table button').forEach((b) => {
+      if (b.dataset.title === undefined) b.dataset.title = b.title || '';
+      b.querySelectorAll('.bet, .who').forEach((x) => x.remove());
+      const s = spots[betKey(b.dataset.t, b.dataset.v)];
+      b.title = s && s.list.length ? s.list.join(', ') : b.dataset.title;
+      if (!s) return;
+      const badge = document.createElement('span');
+      badge.className = 'bet' + (s.mine || s.pend ? '' : ' other') + (s.pend && !s.total ? ' pend' : '');
+      badge.textContent = shortAmt(s.total + s.pend);
+      b.appendChild(badge);
+      const photos = Object.values(s.users);
+      if (photos.length && !b.classList.contains('hk-split')) {
+        const who = document.createElement('span');
+        who.className = 'who';
+        who.innerHTML = photos.slice(0, 3).map((p) => '<img src="' + esc(p) + '" alt="">').join('');
+        b.appendChild(who);
+      }
+    });
+    $('rl-total').textContent = fmt(sumOf(rlPending));
+    $('rl-mine').textContent = fmt(rlMineConfirmed());
+    $('rl-all').textContent = fmt(rlState.bets.reduce((a, b) => a + b.a, 0));
+    // kto na co postawił
+    const byUser = {};
+    rlState.bets.forEach((b) => {
+      const u = byUser[b.user] || (byUser[b.user] = {photo: b.photo, me: b.me, total: 0, bets: {}});
+      u.total += b.a;
+      const label = spotLabel(b.t, b.v);
+      u.bets[label] = (u.bets[label] || 0) + b.a;
+    });
+    const users = Object.keys(byUser).sort((a, b) => byUser[b].total - byUser[a].total);
+    $('rl-players').innerHTML = users.length ? users.map((name) => {
+      const u = byUser[name];
+      return '<div class="row-p' + (u.me ? ' me' : '') + '"><img src="' + esc(u.photo) + '" alt=""><div class="b"><b>' + esc(name) +
+        '</b> · ' + fmt(u.total) + '<small>' + Object.keys(u.bets).map((l) => esc(l) + ' ' + fmt(u.bets[l])).join(' · ') + '</small></div></div>';
+    }).join('') : '<div class="none">Nikt jeszcze nie postawił - bądź pierwszy!</div>';
+  }
+  function rlRenderLast(last) {
+    $('rl-last-box').hidden = !last || !last.results.length;
+    if (!last) return;
+    $('rl-last').innerHTML = last.results.map((r) => {
+      const net = r.payout - r.stake;
+      return '<div class="row-p' + (r.me ? ' me' : '') + '"><img src="' + esc(r.photo) + '" alt=""><div class="b"><b>' + esc(r.user) +
+        '</b> <span class="' + (net > 0 ? 'hk-plus' : net < 0 ? 'hk-minus' : '') + '">' + (net > 0 ? '+' : '') + fmt(net) + '</span>' +
+        '<small>stawka ' + fmt(r.stake) + ' · wypadło ' + last.number + '</small></div></div>';
+    }).join('');
+  }
+  function rlRecentAll(list) {
+    $('rl-recent').innerHTML = (list || []).map((n) => '<span style="background:' +
+      {green: '#1f9e4a', red: '#c62828', black: '#151515'}[colorOf(n)] + '">' + n + '</span>').join('');
+  }
+  function rlPoint(number, animate) {
+    const idx = WHEEL.indexOf(number);
+    const target = ((360 - idx * STEP) % 360 + 360) % 360;
+    const current = ((rlAngle % 360) + 360) % 360;
+    rlAngle += (animate ? 360 * 5 : 0) + ((target - current + 360) % 360);
+    const wheel = $('rl-wheel');
+    if (!animate) wheel.style.transition = 'none';
+    wheel.style.transform = 'rotate(' + rlAngle + 'deg)';
+    if (!animate) { void wheel.offsetWidth; wheel.style.transition = ''; }
+  }
+  function rlShowNumber(n) {
+    const res = $('rl-result');
+    res.textContent = n;
+    res.className = 'hk-result ' + colorOf(n);
+  }
+  function rlHighlight(last) {
+    document.querySelectorAll('#rl-table .hit').forEach((x) => x.classList.remove('hit'));
+    document.querySelectorAll('#rl-table button[data-t="n"][data-v="' + last.number + '"]').forEach((x) => x.classList.add('hit'));
+    const placed = new Set(last.bets.map((b) => betKey(b.t, b.v)));
+    document.querySelectorAll('#rl-table .hk-split').forEach((x) => {
+      if (placed.has(betKey(x.dataset.t, x.dataset.v)) && x.dataset.v.split('-').map(Number).includes(last.number)) x.classList.add('hit');
+    });
+  }
+  function rlApply(r) {
+    // nowa runda na serwerze: moje postawione zakłady z poprzedniej zapamiętujemy do „Powtórz”
+    if (r.round !== rlState.round) {
+      const mine = {};
+      rlState.bets.filter((b) => b.me).forEach((b) => { const k = betKey(b.t, b.v); mine[k] = (mine[k] || 0) + b.a; });
+      if (Object.keys(mine).length) rlMyLast = mine;
+    }
+    rlOffset = r.now_ms - Date.now();
+    rlState = r;
+    rlRender();
+  }
+  function rlFetch(withHistory) {
+    if (rlFetching) return Promise.resolve(null);
+    rlFetching = true;
+    rlLastFetch = Date.now();
+    return fetch('{{ url_for("casino_roulette_state") }}' + (withHistory ? '?historia=1' : ''), {credentials: 'same-origin'})
+      .then((x) => x.json()).catch(() => null).finally(() => { rlFetching = false; });
+  }
+  function rlSpin(d) {
+    // wynik rundy: koło się kręci, po zatrzymaniu numer, podświetlenie, wyniki graczy, saldo
+    const last = d.roulette.last;
+    rlSpinning = true;
+    rlShown = last.round;
+    $('rl-result').className = 'hk-result'; $('rl-result').textContent = '…';
+    rlPoint(last.number, true);
+    setTimeout(() => {
+      rlSpinning = false;
+      rlShowNumber(last.number);
+      rlHighlight(last);
+      rlRenderLast(last);
+      rlRecentAll(d.roulette.recent);
+      const me = last.results.find((x) => x.me);
+      if (me) {
+        const net = me.payout - me.stake;
+        message($('rl-msg'), net > 0 ? last.number + ' - wygrywasz +' + fmt(net) : me.payout > 0 ? last.number + ' - wraca ' + fmt(me.payout) + ' z ' + fmt(me.stake)
+                : last.number + ' - przegrywasz ' + fmt(me.stake), net > 0 ? 'win' : net < 0 ? 'lose' : '');
+        celebrate(net, me.stake, me.straight ? 'TRAFIONY NUMER ' + last.number + '!' : null);
+      } else {
+        message($('rl-msg'), 'Wypadło ' + last.number);
+      }
+      sync({balance: d.balance, history: d.history});
+    }, 4700);
+  }
+  function rlPlace(auto) {
+    const bets = Object.keys(rlPending).map((k) => { const i = k.indexOf(':'); return {t: k.slice(0, i), v: k.slice(i + 1), a: rlPending[k]}; });
+    const total = sumOf(rlPending);
+    if (!total) { if (!auto) message($('rl-msg'), 'Wybierz żeton i kliknij pola na stole.', 'err'); return; }
+    if (total > state.balance) { message($('rl-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    const sent = Object.assign({}, rlPending);
+    api('{{ url_for("casino_roulette") }}', {bets: bets}).then((d) => {
+      if (!d.ok) { message($('rl-msg'), d.error, 'err'); if (d.roulette) rlApply(d.roulette); return; }
+      Object.keys(sent).forEach((k) => { rlPending[k] -= sent[k]; if (rlPending[k] <= 0) delete rlPending[k]; });
+      rlOrder = rlOrder.filter(([k]) => rlPending[k]);
+      message($('rl-msg'), (auto ? 'Postawione automatycznie: ' : 'Postawione: ') + fmt(total) + ' żetonów');
+      sync(d);
+      rlApply(d.roulette);
+    });
+  }
+  function rlTick() {
+    const t = nowMs(), rnd = Math.floor(t / RL_ROUND), start = rnd * RL_ROUND, inRound = t - start;
+    const open = inRound < RL_CLOSE;
+    const clock = $('rl-clock');
+    clock.classList.toggle('closed', !open);
+    $('rl-bar').style.width = (open ? (1 - inRound / RL_CLOSE) * 100 : 100) + '%';
+    $('rl-clock-txt').textContent = open ? 'Obstawianie: ' + Math.ceil((RL_CLOSE - inRound) / 1000) + ' s'
+      : inRound < RL_SETTLE ? 'Koniec zakładów!' : 'Kręcimy! Następna runda za ' + Math.ceil((RL_ROUND - inRound) / 1000) + ' s';
+    if (tab !== 'ruletka' || document.hidden) return;
+    // niepostawione żetony stawiamy same tuż przed końcem zakładów
+    if (open && inRound > RL_CLOSE - 1500 && rlFlushed !== rnd && sumOf(rlPending)) { rlFlushed = rnd; rlPlace(true); }
+    // wynik rundy - pytamy, aż serwer go wylosuje
+    if (inRound >= RL_SETTLE && rlShown !== rnd && !rlSpinning && Date.now() - rlLastFetch > 700) {
+      rlFetch(true).then((d) => {
+        if (!d || !d.ok) return;
+        if (d.roulette.last && d.roulette.last.round === rnd && rlShown !== rnd) {
+          rlApply(Object.assign({}, d.roulette, {bets: d.roulette.last.bets}));   // na stole zostają zakłady tej rundy
+          rlSpin(d);
+        }
+      });
+      return;
+    }
+    // zakłady innych - co 2 s (w czasie kręcenia stół stoi)
+    if (!rlSpinning && inRound < RL_SETTLE && Date.now() - rlLastFetch > 2000) {
+      rlFetch(false).then((d) => { if (d && d.ok && !rlSpinning) rlApply(d.roulette); });
+    }
   }
   $('rl-table').addEventListener('click', (e) => {
     const b = e.target.closest('button');
-    if (!b || rlBusy) return;
+    if (!b) return;
+    const t = nowMs();
+    if (t - Math.floor(t / RL_ROUND) * RL_ROUND >= RL_CLOSE) { message($('rl-msg'), 'Zakłady zamknięte - poczekaj na następną rundę.', 'err'); return; }
     const key = betKey(b.dataset.t, b.dataset.v);
-    const total = Object.values(rlBets).reduce((a, x) => a + x, 0);
-    if (total + chip > MAX_BET) { message($('rl-msg'), 'Na jedno zakręcenie najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
-    rlBets[key] = (rlBets[key] || 0) + chip;
+    if (rlMineConfirmed() + sumOf(rlPending) + chip > MAX_BET) { message($('rl-msg'), 'Na jedną rundę najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
+    rlPending[key] = (rlPending[key] || 0) + chip;
     rlOrder.push([key, chip]);
-    document.querySelectorAll('#rl-table .hit').forEach((x) => x.classList.remove('hit'));
     sound('sms');
     rlRender();
   });
   $('rl-undo').addEventListener('click', () => {
-    if (rlBusy || !rlOrder.length) return;
+    if (!rlOrder.length) return;
     const [key, amount] = rlOrder.pop();
-    rlBets[key] -= amount;
-    if (rlBets[key] <= 0) delete rlBets[key];
+    rlPending[key] -= amount;
+    if (rlPending[key] <= 0) delete rlPending[key];
     rlRender();
   });
-  $('rl-clear').addEventListener('click', () => { if (!rlBusy) { rlBets = {}; rlOrder = []; rlRender(); } });
+  $('rl-clear').addEventListener('click', () => { rlPending = {}; rlOrder = []; rlRender(); });
   $('rl-double').addEventListener('click', () => {
-    if (rlBusy) return;
-    const total = Object.values(rlBets).reduce((a, b) => a + b, 0);
-    if (total * 2 > MAX_BET) { message($('rl-msg'), 'Na jedno zakręcenie najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
-    Object.keys(rlBets).forEach((k) => { rlOrder.push([k, rlBets[k]]); rlBets[k] *= 2; });
+    if (rlMineConfirmed() + sumOf(rlPending) * 2 > MAX_BET) { message($('rl-msg'), 'Na jedną rundę najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
+    Object.keys(rlPending).forEach((k) => { rlOrder.push([k, rlPending[k]]); rlPending[k] *= 2; });
     rlRender();
   });
   $('rl-repeat').addEventListener('click', () => {
-    if (rlBusy || !rlLast) return;
-    rlBets = Object.assign({}, rlLast);
-    rlOrder = Object.keys(rlBets).map((k) => [k, rlBets[k]]);
+    if (!Object.keys(rlMyLast).length) { message($('rl-msg'), 'Nie masz zakładów z poprzedniej rundy.', 'err'); return; }
+    rlPending = Object.assign({}, rlMyLast);
+    rlOrder = Object.keys(rlPending).map((k) => [k, rlPending[k]]);
     rlRender();
   });
-  function rlRecent(n) {
-    const box = $('rl-recent');
-    const span = document.createElement('span');
-    span.textContent = n;
-    span.style.background = {green: '#1f9e4a', red: '#c62828', black: '#151515'}[colorOf(n)];
-    box.prepend(span);
-    while (box.children.length > 12) box.lastChild.remove();
-  }
-  $('rl-spin').addEventListener('click', () => {
-    if (rlBusy) return;
-    const bets = Object.keys(rlBets).map((k) => { const [t, v] = k.split(':'); return {t: t, v: v === '' ? null : v.includes('-') ? v : +v, a: rlBets[k]}; });
-    const total = bets.reduce((a, b) => a + b.a, 0);
-    if (!total) { message($('rl-msg'), 'Wybierz żeton i kliknij pola na stole.', 'err'); return; }
-    if (total < MIN_BET) { message($('rl-msg'), 'Najmniej ' + fmt(MIN_BET) + ' żetonów na zakręcenie.', 'err'); return; }
-    if (total > state.balance) { message($('rl-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
-    rlBusy = true;
-    message($('rl-msg'), 'Kręcimy…');
-    document.querySelectorAll('#rl-table .hit').forEach((x) => x.classList.remove('hit'));
-    $('rl-result').className = 'hk-result'; $('rl-result').textContent = '…';
-    api('{{ url_for("casino_roulette") }}', {bets: bets}).then((d) => {
-      if (!d.ok) { rlBusy = false; message($('rl-msg'), d.error, 'err'); $('rl-result').textContent = '?'; sync(d); return; }
-      setBalance(d.balance - d.payout);   // stawka już zdjęta, wygrana dopiero po zatrzymaniu koła
-      const idx = WHEEL.indexOf(d.number);
-      const target = ((360 - idx * STEP) % 360 + 360) % 360;
-      const current = ((rlAngle % 360) + 360) % 360;
-      rlAngle += 360 * 5 + ((target - current + 360) % 360);
-      $('rl-wheel').style.transform = 'rotate(' + rlAngle + 'deg)';
-      setTimeout(() => {
-        rlBusy = false;
-        const res = $('rl-result');
-        res.textContent = d.number;
-        res.className = 'hk-result ' + colorOf(d.number);
-        rlRecent(d.number);
-        document.querySelectorAll('#rl-table button[data-t="n"][data-v="' + d.number + '"]').forEach((x) => x.classList.add('hit'));
-        document.querySelectorAll('#rl-table .hk-split').forEach((x) => {
-          if (rlBets[betKey(x.dataset.t, x.dataset.v)] && x.dataset.v.split('-').map(Number).includes(d.number)) x.classList.add('hit');
-        });
-        message($('rl-msg'), d.net > 0 ? d.number + ' - wygrywasz +' + fmt(d.net) : d.payout > 0 ? d.number + ' - wraca ' + fmt(d.payout) + ' z ' + fmt(total) : d.number + ' - przegrywasz ' + fmt(total),
-                d.net > 0 ? 'win' : d.net < 0 ? 'lose' : '');
-        sync(d);
-        celebrate(d.net, total, rlBets[betKey('n', d.number)] ? 'TRAFIONY NUMER ' + d.number + '!' : null);
-        rlLast = Object.assign({}, rlBets);
-        rlBets = {}; rlOrder = [];
-        rlRender();
-      }, 4700);
-    });
-  });
+  $('rl-spin').addEventListener('click', () => rlPlace(false));
+  if (rlState.last) { rlPoint(rlState.last.number, false); rlShowNumber(rlState.last.number); rlRenderLast(rlState.last); }
+  rlRecentAll(rlState.recent);
+  setInterval(rlTick, 250);
 
   // ---------- BAKARAT ----------
   let bcBets = {player: 0, tie: 0, banker: 0}, bcLast = null, bcBusy = false;

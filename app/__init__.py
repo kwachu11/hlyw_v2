@@ -302,6 +302,9 @@ CASINO_LIVE_ROWS = 20                    # „na żywo”: tyle ostatnich zakła
 CASINO_LIVE_SEEN = timedelta(seconds=45) # kto tyle czasu temu odświeżał kasyno, jest „przy stołach”
 CASINO_LIVE_OWN_DELAY = timedelta(seconds=6)   # własny zakład pojawia się po animacji (koło kręci się ~5 s)
 ROULETTE_MAX_BETS = 160
+# Wspólna ruletka: runda co ROULETTE_ROUND s (numer rundy = sekundy od 1970 // 30). Zakłady do ROULETTE_CLOSE s rundy,
+# wynik losowany dopiero od ROULETTE_SETTLE s (sekunda zapasu na zakład, który właśnie się zapisuje), potem koło się kręci.
+ROULETTE_ROUND, ROULETTE_CLOSE, ROULETTE_SETTLE = 30, 24, 25
 # split = zakład na dwa sąsiednie pola stołu (17:1): obok siebie w rzędzie, jedno pod drugim, 0 z 1/2/3
 ROULETTE_SPLITS = {(0, 1), (0, 2), (0, 3)} | {(n, n + 1) for n in range(1, 37) if n % 3} | {(n, n + 3) for n in range(1, 34)}
 # zakłady na kilka numerów: rodzaj -> (dozwolone zestawy, ile razy stawka wraca razem ze stawką)
@@ -1072,6 +1075,23 @@ def create_app():
         payout = db.Column(db.Integer, nullable=False, default=0)
         details = db.Column(db.String(300))
         created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+        user = db.relationship('User')
+
+    class RouletteRound(db.Model):
+        """Wynik rundy wspólnej ruletki; id = numer rundy. Wiersz powstaje raz (klucz główny) - razem z wypłatami."""
+        id = db.Column(db.Integer, primary_key=True, autoincrement=False)
+        number = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    class RouletteBet(db.Model):
+        """Zakład we wspólnej ruletce (stawka zdjęta z portfela od razu, wypłata przy rozliczeniu rundy)."""
+        id = db.Column(db.Integer, primary_key=True)
+        round_id = db.Column(db.Integer, nullable=False, index=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+        kind = db.Column(db.String(10), nullable=False)
+        value = db.Column(db.String(30), nullable=False, default='')   # '17', '17-20', '2' (tuzin), '' (kolor)
+        amount = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
         user = db.relationship('User')
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
@@ -4157,7 +4177,9 @@ def create_app():
         low, high = casino_limits()
         return render_template('kasyno.html', state=casino_state(current_user.id), history=casino_history(current_user.id),
                                min_bet=low, max_bet=high, wheel=ROULETTE_WHEEL, red=sorted(ROULETTE_RED),
-                               streak_max=CASINO_DAILY_STREAK_MAX, top=casino_top_wins(current_user.id))
+                               streak_max=CASINO_DAILY_STREAK_MAX, top=casino_top_wins(current_user.id),
+                               roulette=roulette_state(current_user.id),
+                               roulette_times=[ROULETTE_ROUND, ROULETTE_CLOSE, ROULETTE_SETTLE])
 
     @app.route('/kasyno/dzienne', methods=['POST'])
     @login_required
@@ -4272,12 +4294,118 @@ def create_app():
                'dozen': (number - 1) // 12 + 1 == value, 'column': (number - 1) % 3 + 1 == value}[kind]
         return (3 if kind in ('dozen', 'column') else 2) if won else 0
 
-    @app.route('/kasyno/ruletka', methods=['POST'])
+    def roulette_value(kind, raw):
+        """Zakład z przeglądarki / bazy -> (wartość do wypłaty, tekst do zapisu); ValueError, gdy zakład jest zły."""
+        if kind in ROULETTE_GROUPS:      # numery po myślniku, np. split '17-20', róg '17-18-20-21'
+            value = tuple(sorted(int(x) for x in str(raw).split('-')))
+            if value not in ROULETTE_GROUPS[kind][0]:
+                raise ValueError
+            return value, '-'.join(map(str, value))
+        if kind in ('n', 'dozen', 'column'):
+            value = int(raw)
+            if not (0 <= value <= 36 if kind == 'n' else 1 <= value <= 3):
+                raise ValueError
+            return value, str(value)
+        if kind in ('red', 'black', 'odd', 'even', 'low', 'high'):
+            return None, ''
+        raise ValueError
+
+    def roulette_color(number):
+        return 'zielone' if number == 0 else 'czerwone' if number in ROULETTE_RED else 'czarne'
+
+    def roulette_resolve(rnd):
+        """Losuje wynik rundy i wypłaca wszystkim - w jednej transakcji z wierszem rundy, więc tylko raz
+        (drugi worker dostaje IntegrityError na kluczu głównym i nic nie robi)."""
+        number = casino_rng.randrange(37)
+        try:
+            db.session.add(RouletteRound(id=rnd, number=number))
+            db.session.flush()
+        except IntegrityError:
+            db.session.rollback()
+            return
+        per_user = {}
+        for b in RouletteBet.query.filter_by(round_id=rnd).all():
+            stake, payout = per_user.get(b.user_id, (0, 0))
+            try:
+                won = b.amount * roulette_multiplier(b.kind, roulette_value(b.kind, b.value)[0], number)
+            except ValueError:
+                won = b.amount      # nie powinno się zdarzyć - stawka wraca
+            per_user[b.user_id] = (stake + b.amount, payout + won)
+        for user_id, (stake, payout) in per_user.items():
+            if payout:
+                casino_update(user_id, {CasinoWallet.balance: CasinoWallet.balance + payout})
+            casino_record(user_id, 'ruletka', stake, payout, f'wypadło {number} ({roulette_color(number)})')
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+
+    def roulette_settle():
+        """Rozlicza rundy po zamknięciu zakładów - leniwie, przy pytaniu kogokolwiek z kasyna.
+        Bieżąca runda dostaje wynik nawet bez zakładów (koło kręci się dla oglądających)."""
+        now = time.time()
+        rnd = int(now // ROULETTE_ROUND)
+        due = rnd if now >= rnd * ROULETTE_ROUND + ROULETTE_SETTLE else rnd - 1
+        waiting = {r for (r,) in db.session.query(RouletteBet.round_id)
+                   .outerjoin(RouletteRound, RouletteRound.id == RouletteBet.round_id)
+                   .filter(RouletteRound.id.is_(None), RouletteBet.round_id <= due).distinct()}
+        if not db.session.get(RouletteRound, due):
+            waiting.add(due)
+        for r in sorted(waiting):
+            roulette_resolve(r)
+
+    def roulette_bet_json(b, user_id):
+        return {'user': b.user.username, 'photo': avatar_url(b.user.photo), 'me': b.user_id == user_id,
+                'user_id': b.user_id, 't': b.kind, 'v': b.value, 'a': b.amount}
+
+    def roulette_state(user_id):
+        """Stół dla przeglądarki: zegar rundy, zakłady wszystkich w bieżącej rundzie, wynik ostatniej i kto ile wygrał."""
+        roulette_settle()
+        now = time.time()
+        rnd = int(now // ROULETTE_ROUND)
+        start = rnd * ROULETTE_ROUND
+        bets = RouletteBet.query.filter_by(round_id=rnd).order_by(RouletteBet.id).all()
+        last = RouletteRound.query.filter(RouletteRound.id <= rnd).order_by(RouletteRound.id.desc()).first()
+        last_json = None
+        if last:
+            results = {}
+            last_bets = RouletteBet.query.filter_by(round_id=last.id).all()
+            for b in last_bets:
+                r = results.setdefault(b.user_id, {'user': b.user.username, 'photo': avatar_url(b.user.photo),
+                                                   'me': b.user_id == user_id, 'stake': 0, 'payout': 0, 'straight': False})
+                won = b.amount * roulette_multiplier(b.kind, roulette_value(b.kind, b.value)[0], last.number)
+                r['stake'] += b.amount
+                r['payout'] += won
+                r['straight'] = r['straight'] or (b.kind == 'n' and won > 0)
+            rows = sorted(results.values(), key=lambda r: -(r['payout'] - r['stake']))
+            last_json = {'round': last.id, 'number': last.number, 'color': roulette_color(last.number), 'results': rows,
+                         'bets': [roulette_bet_json(b, user_id) for b in last_bets]}
+        return {'round': rnd, 'now_ms': int(now * 1000), 'open': now < start + ROULETTE_CLOSE,
+                'bets': [roulette_bet_json(b, user_id) for b in bets], 'last': last_json,
+                'recent': [r.number for r in RouletteRound.query.order_by(RouletteRound.id.desc()).limit(12)]}
+
+    @app.route('/kasyno/ruletka/stan')
     @login_required
-    def casino_roulette():
+    def casino_roulette_state():
         blocked = casino_guard()
         if blocked:
             return blocked
+        result = {'ok': True, 'roulette': roulette_state(current_user.id), 'balance': casino_wallet(current_user.id).balance}
+        if request.args.get('historia'):
+            result['history'] = casino_history(current_user.id)
+        return jsonify(result)
+
+    @app.route('/kasyno/ruletka', methods=['POST'])
+    @login_required
+    def casino_roulette():
+        """Zakład do bieżącej rundy wspólnej ruletki (można dokładać kilka razy, póki zakłady są otwarte)."""
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        now = time.time()
+        rnd = int(now // ROULETTE_ROUND)
+        if now >= rnd * ROULETTE_ROUND + ROULETTE_CLOSE:
+            return casino_error('Zakłady zamknięte - poczekaj na następną rundę.', roulette=roulette_state(current_user.id))
         raw_bets = (request.get_json(silent=True) or {}).get('bets')
         if not isinstance(raw_bets, list) or not 0 < len(raw_bets) <= ROULETTE_MAX_BETS:
             return casino_error('Postaw żetony na stole.')
@@ -4285,36 +4413,28 @@ def create_app():
         for b in raw_bets:
             try:
                 kind, amount = str(b.get('t')), int(b.get('a'))
-                if kind in ROULETTE_GROUPS:      # numery po myślniku, np. split '17-20', róg '17-18-20-21'
-                    value = tuple(sorted(int(x) for x in str(b['v']).split('-')))
-                else:
-                    value = int(b['v']) if kind in ('n', 'dozen', 'column') else None
-            except (AttributeError, KeyError, TypeError, ValueError):
+                _, value = roulette_value(kind, b.get('v'))
+            except (AttributeError, TypeError, ValueError):
                 return casino_error('Zły zakład.')
-            valid = {'n': range(37), 'dozen': range(1, 4), 'column': range(1, 4),
-                     **{k: sets for k, (sets, _) in ROULETTE_GROUPS.items()}}.get(kind, (None,))
-            if kind not in ('n', *ROULETTE_GROUPS, 'dozen', 'column', 'red', 'black', 'odd', 'even', 'low', 'high') \
-                    or value not in valid or amount < 1:
+            if amount < 1:
                 return casino_error('Zły zakład.')
             bets[(kind, value)] = bets.get((kind, value), 0) + amount
         total = sum(bets.values())
+        already = db.session.query(func.coalesce(func.sum(RouletteBet.amount), 0)) \
+            .filter_by(round_id=rnd, user_id=current_user.id).scalar()
         low, high = casino_limits()
-        if not low <= total <= high:
-            return casino_error(f'Na jedno zakręcenie od {money(low)} do {money(high)} żetonów.')
+        if already + total < low or already + total > high:
+            return casino_error(f'Na jedną rundę od {money(low)} do {money(high)} żetonów'
+                                + (f' (masz już {money(already)})' if already else '') + '.')
         casino_wallet(current_user.id)
         if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance - total},
                              CasinoWallet.balance >= total):
             db.session.rollback()
             return casino_error('Za mało żetonów.')
-        number = casino_rng.randrange(37)
-        payout = sum(amount * roulette_multiplier(kind, value, number) for (kind, value), amount in bets.items())
-        if payout:
-            casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance + payout})
-        color = 'zielone' if number == 0 else 'czerwone' if number in ROULETTE_RED else 'czarne'
-        casino_record(current_user.id, 'ruletka', total, payout, f'wypadło {number} ({color})')
+        db.session.add_all(RouletteBet(round_id=rnd, user_id=current_user.id, kind=kind, value=value, amount=amount)
+                           for (kind, value), amount in bets.items())
         db.session.commit()
-        return jsonify({'ok': True, 'number': number, 'color': color, 'payout': payout, 'net': payout - total,
-                        **casino_state(current_user.id), 'history': casino_history(current_user.id)})
+        return jsonify({'ok': True, 'roulette': roulette_state(current_user.id), **casino_state(current_user.id)})
 
     def baccarat_points(card):
         return 1 if card[0] == 'A' else 0 if card[0] in 'TJQK' else int(card[0])
@@ -4382,6 +4502,12 @@ def create_app():
                         'winner': winner, 'payout': payout, 'net': payout - total,
                         **casino_state(current_user.id), 'history': casino_history(current_user.id)})
 
+    def casino_revealed(viewer_id, now):
+        """Warunek: wynik już można pokazać. Własne rundy i całą wspólną ruletkę dopiero po animacji
+        (koło kręci się kilka sekund po rozliczeniu), resztę od razu."""
+        return db.or_(db.and_(CasinoBet.user_id != viewer_id, CasinoBet.game != 'ruletka'),
+                      CasinoBet.created_at <= now - CASINO_LIVE_OWN_DELAY)
+
     def casino_top_wins(viewer_id=None):
         """Największa wygrana (na plusie ponad stawkę) dzisiaj - od polskiej północy - i od początku kasyna.
         Własna świeża wygrana widza dochodzi po animacji, jak w „na żywo”."""
@@ -4389,7 +4515,7 @@ def create_app():
         midnight_utc = datetime.combine(date.today(), datetime.min.time()) - (datetime.now() - now)
         query = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES)), CasinoBet.payout > CasinoBet.bet)
         if viewer_id:
-            query = query.filter(db.or_(CasinoBet.user_id != viewer_id, CasinoBet.created_at <= now - CASINO_LIVE_OWN_DELAY))
+            query = query.filter(casino_revealed(viewer_id, now))
 
         def best(q):
             b = q.order_by((CasinoBet.payout - CasinoBet.bet).desc(), CasinoBet.id).first()
@@ -4415,9 +4541,8 @@ def create_app():
         if not wallet.seen_at or now - wallet.seen_at > timedelta(seconds=15) or wallet.seen_game != game:
             casino_update(current_user.id, {CasinoWallet.seen_at: now, CasinoWallet.seen_game: game})
             db.session.commit()
-        rows = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES)),
-                                      db.or_(CasinoBet.user_id != current_user.id,
-                                             CasinoBet.created_at <= now - CASINO_LIVE_OWN_DELAY)) \
+        roulette_settle()   # rundy ruletki rozliczają się też wtedy, gdy nikt nie patrzy na jej zakładkę
+        rows = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES)), casino_revealed(current_user.id, now)) \
             .order_by(CasinoBet.id.desc()).limit(CASINO_LIVE_ROWS).all()
         big_win = site_settings()['casino_big_win']
         feed = [{'id': b.id, 'user': b.user.username, 'photo': avatar_url(b.user.photo), 'me': b.user_id == current_user.id,
