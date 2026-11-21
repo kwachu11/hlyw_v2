@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between hl-gap mb-3">
+        <h2 class="mb-0">🎰 Ranking kasyna</h2>
+        <a href="{{ url_for('casino') }}" class="btn btn-primary">Do kasyna</a>
+    </div>
+    <div class="btn-group flex-wrap mb-3" role="group" aria-label="Sortowanie">
+        {% for key, label in [('saldo', 'Żetony'), ('netto', 'Wygrane na plusie'), ('wygrana', 'Największa wygrana'), ('gry', 'Rozegrane')] %}
+        <a href="{{ url_for('casino_ranking_page', sort=key) }}" class="btn btn-sm {{ 'btn-warning' if sort == key else 'btn-outline-secondary' }}">{{ label }}</a>
+        {% endfor %}
+    </div>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover">
+            <thead class="thead-light">
+                <tr>
+                    <th>#</th>
+                    <th>Użytkownik</th>
+                    <th>Żetony</th>
+                    <th class="d-none d-sm-table-cell">Na plusie / minusie</th>
+                    <th class="d-none d-md-table-cell">Największa wygrana</th>
+                    <th class="d-none d-sm-table-cell">Rozegrane</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in ranking %}
+                <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}{{ ' table-active' if row.user.id == current_user.id }}">
+                    <td class="hl-place">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
+                    <td><a href="{{ url_for('profil', user_id=row.user.id) }}"><img src="{{ row.user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;" alt=""> {{ row.user.username }}</a>{{ crown(row.user.id) }}</td>
+                    <td><strong>{{ row.balance|money }}</strong></td>
+                    <td class="d-none d-sm-table-cell" style="color: {{ 'var(--gta-green)' if row.net > 0 else '#ff6b6b' if row.net < 0 else 'inherit' }}">{{ '+' if row.net > 0 }}{{ row.net|money }}</td>
+                    <td class="d-none d-md-table-cell">{{ row.best|money if row.best else '–' }}</td>
+                    <td class="d-none d-sm-table-cell">{{ row.rounds }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center">Jeszcze nikt nie grał - <a href="{{ url_for('casino') }}">odbierz dzienne żetony i bądź pierwszy</a>!</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="d-flex justify-content-end mb-3">
+        <strong>Rozegranych rund:&nbsp;</strong> {{ rounds }}
+    </div>
+    <p class="text-muted small">Żetony są tylko na zabawę. „Na plusie / minusie” = ile ktoś wygrał ponad postawione stawki (bez dziennych żetonów).</p>
+</div>
+{% endblock %}

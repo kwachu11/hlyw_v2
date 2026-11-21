@@ -137,6 +137,11 @@ SITE_SETTINGS = [
     ('countdown_home', 'bool', True, 'Na stronie głównej', 'Licznik (premiera, turniej...)'),
     ('countdown_camera', 'bool', True, 'Na stronie kamery', 'Licznik (premiera, turniej...)'),
     ('countdown_hide_days', 'int', 7, 'Schowaj po tylu dniach od daty', 'Licznik (premiera, turniej...)'),
+    ('casino_on', 'bool', True, 'Kasyno otwarte (zamknięte widzi tylko admin)', 'Kasyno'),
+    ('casino_daily', 'int', 1000, 'Dzienne żetony do odebrania', 'Kasyno'),
+    ('casino_min_bet', 'int', 10, 'Najmniejsza stawka', 'Kasyno'),
+    ('casino_max_bet', 'int', 5000, 'Największa stawka (na jedno rozdanie / zakręcenie)', 'Kasyno'),
+    ('casino_big_win', 'int', 1000, 'Wygrana od tylu żetonów trafia do „Co się dzieje” (0 = nigdy)', 'Kasyno'),
 ]
 
 # Załączniki na czacie (jak na Messengerze): rodzaj -> rozszerzenia. Limit = client_max_body_size w nginx (50 MB).
@@ -244,12 +249,13 @@ MENU_ITEMS = {
     'upgrades': ('Ostatnie Ulepszenia', 'ostatnie_ulepszenia', ('/ostatnie-ulepszenia',), 'upgrade'),
     'quiz': ('🧠 Quiz', 'quiz', ('/quiz',), 'quiz'),
     'activity': ('⚡ Ostatnia aktywność', 'activity', ('/aktywnosc',), None),
+    'casino': ('🎰 Kasyno', 'casino', ('/kasyno',), None),
     'print': ('🖨️ Druk 3D', 'print_list', ('/druk3d',), 'print'),
     'reports': ('Zgłoszenia', 'view_report_list', ('/report',), None),
     'users': ('Użytkownicy', 'users', ('/users',), None),
 }
 MENU_DEFAULT_LAYOUT = [{'key': k} for k in ('home', 'albums', 'news', 'games', 'camera', 'calendar', 'hof', 'upgrades', 'quiz')] + \
-    [{'group': 'Dodatki', 'items': [{'key': k} for k in ('activity', 'print', 'reports', 'users')]}]
+    [{'group': 'Dodatki', 'items': [{'key': k} for k in ('casino', 'activity', 'print', 'reports', 'users')]}]
 MENU_MAX_GROUPS = 8
 
 # Zdjęcia propozycji druku 3D: 'wydruk' = gotowy wydruk (admin: kamera drukarki, chmura Bambu, plik),
@@ -284,6 +290,15 @@ GAME_SCORE_LIMITS = {          # gra: (zapas, punktów na sekundę)
     'formula': (10, 20),
     'gorka': (50, 25),         # wynik = dystans w metrach; maks. prędkość ~18 m/s
 }
+# Kasyno (/kasyno): wirtualne żetony bez żadnej wartości. Losuje i liczy wszystko serwer.
+CASINO_GAMES = {'blackjack': '🃏 Blackjack', 'ruletka': '🎡 Ruletka', 'bakarat': '🎴 Bakarat'}
+CASINO_DAILY_STREAK_MAX = 6          # seria dni z rzędu: +10% dziennych za każdy dzień, najwyżej +60%
+CASINO_BLACKJACK_DECKS = 6
+CASINO_BLACKJACK_MAX_HANDS = 4       # po rozdzieleniach (split)
+ROULETTE_WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14,
+                  31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]   # kolejność pól na kole europejskim
+ROULETTE_RED = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+ROULETTE_MAX_BETS = 60
 # Kasa w stylu GTA (pasek w menu): za punkt w rankingu ogólnym Hall of Fame i za każdą rozegraną grę
 CASH_PER_HOF_POINT = 1000
 CASH_PER_GAME = 10
@@ -1024,6 +1039,26 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         user = db.relationship('User')
         __table_args__ = (db.UniqueConstraint('track_id', 'user_id'),)
+
+    class CasinoWallet(db.Model):
+        """Żetony w kasynie: saldo, ostatnie dzienne (data polska) i trwające rozdanie blackjacka (JSON)."""
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+        balance = db.Column(db.Integer, nullable=False, default=0)
+        daily_date = db.Column(db.Date, nullable=True)
+        streak = db.Column(db.Integer, nullable=False, default=0)
+        blackjack = db.Column(db.Text, nullable=True)
+        user = db.relationship('User')
+
+    class CasinoBet(db.Model):
+        """Jedna rozegrana runda (albo odebrane dzienne: game='dzienne', bet=0) - historia, ranking, aktywność."""
+        id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+        game = db.Column(db.String(20), nullable=False)
+        bet = db.Column(db.Integer, nullable=False, default=0)
+        payout = db.Column(db.Integer, nullable=False, default=0)
+        details = db.Column(db.String(300))
+        created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+        user = db.relationship('User')
 
     # Tworzenie tabel w bazie danych przy starcie aplikacji
     # Kilka workerów (gunicorn) startuje naraz i każdy woła create_all - gdy dwa jednocześnie
@@ -3690,7 +3725,11 @@ def create_app():
         games.append(['Kółko i krzyżyk', 'static/images/kolko_krzyzyk.svg', kk_leader, user5, 'kolko_krzyzyk', 'ranking_kolko_krzyzyk'])
         games.append(['Formuła', 'static/images/formula.svg', formula_leader, user6, 'formula', 'ranking_formula'])
         # games.append(['Pod Górkę', 'static/images/gorka.svg', gorka_leader, user7, 'gorka', 'ranking_gorka'])
-        return render_template('games.html', games=games)
+        casino_leader = None
+        if site_settings()['casino_on']:
+            top = CasinoWallet.query.filter(CasinoWallet.balance > 0).order_by(CasinoWallet.balance.desc()).first()
+            casino_leader = top if top and top.user else None
+        return render_template('games.html', games=games, casino_on=site_settings()['casino_on'], casino_leader=casino_leader)
 
     @app.route('/tetris', methods=['GET', 'POST'])
     @login_required
@@ -3944,6 +3983,410 @@ def create_app():
         return Markup(f'<span class="hl-wanted" title="Poziom poszukiwania {level}/5 - aktywność z {WANTED_DAYS} dni: {points} pkt">'
                       f'{"★" * level}<span class="off">{"★" * (5 - level)}</span></span>')
 
+    # ===================== Kasyno (blackjack, ruletka, bakarat) =====================
+    # Żetony są wirtualne. Karty i liczby losuje serwer (SystemRandom), przeglądarka tylko pokazuje wynik.
+    # Saldo zmienia się jednym UPDATE ... WHERE (np. balance >= stawka), więc podwójne kliknięcie
+    # albo dwie karty przeglądarki nie zrobią salda na minusie ani dwóch wypłat.
+
+    casino_rng = random.SystemRandom()
+    CARD_RANKS, CARD_SUITS = 'A23456789TJQK', 'SHDC'
+
+    def casino_guard():
+        """None = można grać; inaczej gotowa odpowiedź (kasyno zamknięte w panelu - admin wchodzi zawsze)."""
+        if site_settings()['casino_on'] or current_user.is_admin != "0":
+            return None
+        if request.method == 'GET':
+            flash('Kasyno jest teraz zamknięte.', 'info')
+            return redirect(url_for('index'))
+        return jsonify({'ok': False, 'error': 'Kasyno jest teraz zamknięte.'}), 403
+
+    def casino_limits():
+        s = site_settings()
+        low = max(1, s['casino_min_bet'])
+        return low, max(low, s['casino_max_bet'])
+
+    def casino_wallet(user_id):
+        wallet = db.session.get(CasinoWallet, user_id)
+        if wallet is None:
+            try:
+                db.session.add(CasinoWallet(user_id=user_id, balance=0, streak=0))
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+            wallet = db.session.get(CasinoWallet, user_id)
+        return wallet
+
+    def casino_update(user_id, values, *conditions):
+        """Atomowa zmiana portfela; True, gdy warunki pasowały (False = za mało żetonów / ktoś był szybszy)."""
+        return CasinoWallet.query.filter(CasinoWallet.user_id == user_id, *conditions) \
+            .update(values, synchronize_session=False) == 1
+
+    def casino_record(user_id, game, bet, payout, text):
+        db.session.add(CasinoBet(user_id=user_id, game=game, bet=bet, payout=payout, details=text[:300]))
+
+    def casino_error(message, status=400, **extra):
+        return jsonify({'ok': False, 'error': message, **extra}), status
+
+    def casino_daily_info(wallet):
+        """Dzienne żetony: czy są do odebrania, ile (z serią dni z rzędu) i kiedy następne (północ, ms)."""
+        today = date.today()
+        claimed = wallet.daily_date == today
+        streak = wallet.streak if claimed else (wallet.streak + 1 if wallet.daily_date == today - timedelta(days=1) else 1)
+        base = max(0, site_settings()['casino_daily'])
+        amount = base * (10 + min(max(streak, 1) - 1, CASINO_DAILY_STREAK_MAX)) // 10
+        midnight = datetime.combine(today + timedelta(days=1), datetime.min.time())
+        return {'available': not claimed and amount > 0, 'amount': amount, 'streak': streak,
+                'next_ms': int(midnight.timestamp() * 1000)}
+
+    def casino_state(user_id):
+        wallet = casino_wallet(user_id)
+        hand = json.loads(wallet.blackjack) if wallet.blackjack else None
+        return {'balance': wallet.balance, 'daily': casino_daily_info(wallet),
+                'blackjack': bj_view(hand) if hand else None}
+
+    def casino_history(user_id, limit=12):
+        rows = CasinoBet.query.filter_by(user_id=user_id).order_by(CasinoBet.id.desc()).limit(limit).all()
+        return [casino_bet_json(b) for b in rows]
+
+    def casino_bet_json(b):
+        return {'game': CASINO_GAMES.get(b.game, '🎁 Dzienne żetony'), 'bet': b.bet, 'payout': b.payout,
+                'net': b.payout - b.bet, 'text': b.details or '', 'when': when_label(b.created_at)}
+
+    def card_points(card):
+        """Blackjack: A = 11 (albo 1), figury = 10."""
+        return 11 if card[0] == 'A' else 10 if card[0] in 'TJQK' else int(card[0])
+
+    def new_shoe(decks):
+        shoe = [r + s for r in CARD_RANKS for s in CARD_SUITS] * decks
+        casino_rng.shuffle(shoe)
+        return shoe
+
+    def bj_value(cards):
+        """(suma, czy miękka - as liczony za 11)."""
+        total, aces = 0, 0
+        for card in cards:
+            total += card_points(card)
+            aces += card[0] == 'A'
+        while total > 21 and aces:
+            total, aces = total - 10, aces - 1
+        return total, aces > 0
+
+    def bj_natural(hand):
+        return len(hand['cards']) == 2 and not hand.get('split') and bj_value(hand['cards'])[0] == 21
+
+    def bj_actions(state):
+        if state.get('over'):
+            return {}
+        hand = state['hands'][state['active']]
+        two = len(hand['cards']) == 2
+        return {'hit': True, 'stand': True, 'double': two and not hand.get('doubled'),
+                'split': two and card_points(hand['cards'][0]) == card_points(hand['cards'][1])
+                and len(state['hands']) < CASINO_BLACKJACK_MAX_HANDS}
+
+    def bj_progress(state):
+        """Przechodzi do następnej ręki gracza; gdy wszystkie skończone - krupier dobiera i rozliczenie."""
+        hands, dealer, shoe = state['hands'], state['dealer'], state['shoe']
+        for hand in hands:
+            if bj_value(hand['cards'])[0] >= 21:
+                hand['done'] = True
+        while state['active'] < len(hands) and hands[state['active']]['done']:
+            state['active'] += 1
+        if state['active'] < len(hands):
+            return state
+        state['active'] = len(hands) - 1
+        dealer_bj = len(dealer) == 2 and bj_value(dealer)[0] == 21
+        if not dealer_bj and any(bj_value(h['cards'])[0] <= 21 and not bj_natural(h) for h in hands):
+            while bj_value(dealer)[0] < 17:          # krupier stoi na każdej 17
+                dealer.append(shoe.pop())
+        dealer_total = bj_value(dealer)[0]
+        for hand in hands:
+            value, bet, natural = bj_value(hand['cards'])[0], hand['bet'], bj_natural(hand)
+            if value > 21:
+                hand['result'], hand['payout'] = 'bust', 0
+            elif natural and dealer_bj:
+                hand['result'], hand['payout'] = 'push', bet
+            elif natural:
+                hand['result'], hand['payout'] = 'blackjack', bet + bet * 3 // 2
+            elif dealer_bj or (dealer_total <= 21 and value < dealer_total):
+                hand['result'], hand['payout'] = 'lose', 0
+            elif dealer_total > 21 or value > dealer_total:
+                hand['result'], hand['payout'] = 'win', bet * 2
+            else:
+                hand['result'], hand['payout'] = 'push', bet
+        state['over'] = True
+        return state
+
+    def bj_view(state):
+        """Rozdanie do przeglądarki - bez buta z kartami i z zakrytą drugą kartą krupiera w trakcie."""
+        over = bool(state.get('over'))
+        dealer = state['dealer'] if over else state['dealer'][:1] + ['??']
+        return {'over': over, 'dealer': dealer, 'dealer_value': bj_value(state['dealer'] if over else state['dealer'][:1])[0],
+                'active': state['active'], 'actions': bj_actions(state),
+                'hands': [{'cards': h['cards'], 'bet': h['bet'], 'value': bj_value(h['cards'])[0],
+                           'soft': bj_value(h['cards'])[1], 'result': h.get('result'), 'payout': h.get('payout')}
+                          for h in state['hands']],
+                'payout': sum(h.get('payout') or 0 for h in state['hands']) if over else None}
+
+    def bj_summary(state):
+        names = {'bust': 'fura', 'push': 'remis', 'blackjack': 'BLACKJACK', 'lose': 'przegrana', 'win': 'wygrana'}
+        hands = ', '.join(f'{bj_value(h["cards"])[0]} ({names[h["result"]]})' for h in state['hands'])
+        return f'Ty {hands} · krupier {bj_value(state["dealer"])[0]}'
+
+    @app.route('/kasyno')
+    @login_required
+    def casino():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        low, high = casino_limits()
+        return render_template('kasyno.html', state=casino_state(current_user.id), history=casino_history(current_user.id),
+                               min_bet=low, max_bet=high, wheel=ROULETTE_WHEEL, red=sorted(ROULETTE_RED),
+                               streak_max=CASINO_DAILY_STREAK_MAX)
+
+    @app.route('/kasyno/dzienne', methods=['POST'])
+    @login_required
+    def casino_daily():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        info = casino_daily_info(casino_wallet(current_user.id))
+        if not info['available']:
+            return casino_error('Dzisiejsze żetony już odebrane - kolejne po północy.')
+        today = date.today()
+        if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance + info['amount'],
+                                               CasinoWallet.daily_date: today, CasinoWallet.streak: info['streak']},
+                             db.or_(CasinoWallet.daily_date.is_(None), CasinoWallet.daily_date != today)):
+            db.session.rollback()
+            return casino_error('Dzisiejsze żetony już odebrane - kolejne po północy.')
+        casino_record(current_user.id, 'dzienne', 0, info['amount'],
+                      f'seria {plural(info["streak"], "dzień", "dni", "dni")} z rzędu')
+        db.session.commit()
+        state = casino_state(current_user.id)
+        return jsonify({'ok': True, 'amount': info['amount'], 'streak': info['streak'], **state,
+                        'history': casino_history(current_user.id)})
+
+    @app.route('/kasyno/blackjack', methods=['POST'])
+    @login_required
+    def casino_blackjack():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        data = request.get_json(silent=True) or {}
+        action = data.get('action')
+        wallet = casino_wallet(current_user.id)
+        raw = wallet.blackjack
+        state = json.loads(raw) if raw else None
+        extra = 0                                     # ile żetonów jeszcze zdjąć (stawka, podwojenie, split)
+        if action == 'deal':
+            if state:
+                return casino_error('Najpierw dokończ rozdanie.', blackjack=bj_view(state))
+            low, high = casino_limits()
+            try:
+                bet = int(data.get('bet'))
+            except (TypeError, ValueError):
+                return casino_error('Podaj stawkę.')
+            if not low <= bet <= high:
+                return casino_error(f'Stawka od {money(low)} do {money(high)} żetonów.')
+            shoe = new_shoe(CASINO_BLACKJACK_DECKS)
+            player, dealer = [shoe.pop()], [shoe.pop()]
+            player.append(shoe.pop())
+            dealer.append(shoe.pop())
+            state = {'shoe': shoe, 'dealer': dealer, 'active': 0,
+                     'hands': [{'cards': player, 'bet': bet, 'done': False}]}
+            extra = bet
+            # krupier zagląda pod kartę: blackjack u niego albo u gracza kończy rozdanie od razu
+            if bj_value(dealer)[0] == 21 or bj_natural(state['hands'][0]):
+                state['hands'][0]['done'] = True
+            state = bj_progress(state)
+            condition = CasinoWallet.blackjack.is_(None)
+        elif action in ('hit', 'stand', 'double', 'split'):
+            if not state:
+                return casino_error('Nie ma trwającego rozdania.')
+            if not bj_actions(state).get(action):
+                return casino_error('Tego teraz nie można zrobić.', blackjack=bj_view(state))
+            hand = state['hands'][state['active']]
+            shoe = state['shoe']
+            if action == 'hit':
+                hand['cards'].append(shoe.pop())
+            elif action == 'stand':
+                hand['done'] = True
+            elif action == 'double':
+                extra = hand['bet']
+                hand.update(bet=hand['bet'] * 2, doubled=True, done=True)
+                hand['cards'].append(shoe.pop())
+            else:
+                extra = hand['bet']
+                first, second = hand['cards']
+                aces = first[0] == 'A'
+                new = [{'cards': [first, shoe.pop()], 'bet': hand['bet'], 'done': aces, 'split': True},
+                       {'cards': [second, shoe.pop()], 'bet': hand['bet'], 'done': aces, 'split': True}]
+                state['hands'][state['active']:state['active'] + 1] = new   # rozdzielone asy dostają po jednej karcie
+            state = bj_progress(state)
+            condition = CasinoWallet.blackjack == raw
+        else:
+            return casino_error('Nieznany ruch.')
+
+        payout = sum(h.get('payout') or 0 for h in state['hands']) if state.get('over') else 0
+        if not casino_update(current_user.id,
+                             {CasinoWallet.balance: CasinoWallet.balance - extra + payout,
+                              CasinoWallet.blackjack: None if state.get('over') else json.dumps(state)},
+                             condition, CasinoWallet.balance >= extra):
+            db.session.rollback()
+            wallet = casino_wallet(current_user.id)
+            message = 'Za mało żetonów.' if wallet.balance < extra else 'Rozdanie zmieniło się w innym oknie - odświeżam.'
+            return casino_error(message, **casino_state(current_user.id))
+        if state.get('over'):
+            casino_record(current_user.id, 'blackjack', sum(h['bet'] for h in state['hands']), payout, bj_summary(state))
+        db.session.commit()
+        result = {'ok': True, **casino_state(current_user.id), 'blackjack': bj_view(state)}
+        if state.get('over'):
+            result['history'] = casino_history(current_user.id)
+        return jsonify(result)
+
+    def roulette_multiplier(kind, value, number):
+        """Ile razy stawka wraca (razem ze stawką) przy wyniku number; 0 = zakład przegrany."""
+        if kind == 'n':
+            return 36 if number == value else 0
+        if number == 0:
+            return 0
+        won = {'red': number in ROULETTE_RED, 'black': number not in ROULETTE_RED,
+               'odd': number % 2 == 1, 'even': number % 2 == 0, 'low': number <= 18, 'high': number >= 19,
+               'dozen': (number - 1) // 12 + 1 == value, 'column': (number - 1) % 3 + 1 == value}[kind]
+        return (3 if kind in ('dozen', 'column') else 2) if won else 0
+
+    @app.route('/kasyno/ruletka', methods=['POST'])
+    @login_required
+    def casino_roulette():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        raw_bets = (request.get_json(silent=True) or {}).get('bets')
+        if not isinstance(raw_bets, list) or not 0 < len(raw_bets) <= ROULETTE_MAX_BETS:
+            return casino_error('Postaw żetony na stole.')
+        bets = {}
+        for b in raw_bets:
+            try:
+                kind, amount = str(b.get('t')), int(b.get('a'))
+                value = int(b['v']) if kind in ('n', 'dozen', 'column') else None
+            except (AttributeError, KeyError, TypeError, ValueError):
+                return casino_error('Zły zakład.')
+            valid = {'n': range(37), 'dozen': range(1, 4), 'column': range(1, 4)}.get(kind, (None,))
+            if kind not in ('n', 'dozen', 'column', 'red', 'black', 'odd', 'even', 'low', 'high') \
+                    or value not in valid or amount < 1:
+                return casino_error('Zły zakład.')
+            bets[(kind, value)] = bets.get((kind, value), 0) + amount
+        total = sum(bets.values())
+        low, high = casino_limits()
+        if not low <= total <= high:
+            return casino_error(f'Na jedno zakręcenie od {money(low)} do {money(high)} żetonów.')
+        casino_wallet(current_user.id)
+        if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance - total},
+                             CasinoWallet.balance >= total):
+            db.session.rollback()
+            return casino_error('Za mało żetonów.')
+        number = casino_rng.randrange(37)
+        payout = sum(amount * roulette_multiplier(kind, value, number) for (kind, value), amount in bets.items())
+        if payout:
+            casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance + payout})
+        color = 'zielone' if number == 0 else 'czerwone' if number in ROULETTE_RED else 'czarne'
+        casino_record(current_user.id, 'ruletka', total, payout, f'wypadło {number} ({color})')
+        db.session.commit()
+        return jsonify({'ok': True, 'number': number, 'color': color, 'payout': payout, 'net': payout - total,
+                        **casino_state(current_user.id), 'history': casino_history(current_user.id)})
+
+    def baccarat_points(card):
+        return 1 if card[0] == 'A' else 0 if card[0] in 'TJQK' else int(card[0])
+
+    def baccarat_value(cards):
+        return sum(baccarat_points(c) for c in cards) % 10
+
+    def baccarat_deal():
+        """Punto banco: zasady dobierania trzeciej karty jak w kasynie."""
+        shoe = new_shoe(8)
+        player, banker = [shoe.pop()], [shoe.pop()]
+        player.append(shoe.pop())
+        banker.append(shoe.pop())
+        if baccarat_value(player) >= 8 or baccarat_value(banker) >= 8:   # „naturalna” 8 albo 9
+            return player, banker
+        third = None
+        if baccarat_value(player) <= 5:
+            player.append(shoe.pop())
+            third = baccarat_points(player[-1])
+        b = baccarat_value(banker)
+        if third is None:
+            draw = b <= 5
+        else:
+            draw = b <= 2 or (b == 3 and third != 8) or (b == 4 and 2 <= third <= 7) \
+                or (b == 5 and 4 <= third <= 7) or (b == 6 and 6 <= third <= 7)
+        if draw:
+            banker.append(shoe.pop())
+        return player, banker
+
+    @app.route('/kasyno/bakarat', methods=['POST'])
+    @login_required
+    def casino_baccarat():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        raw = (request.get_json(silent=True) or {}).get('bets') or {}
+        try:
+            bets = {k: int(raw.get(k) or 0) for k in ('player', 'banker', 'tie')}
+        except (AttributeError, TypeError, ValueError):
+            return casino_error('Zły zakład.')
+        total = sum(bets.values())
+        low, high = casino_limits()
+        if min(bets.values()) < 0 or not low <= total <= high:
+            return casino_error(f'Na jedno rozdanie od {money(low)} do {money(high)} żetonów.')
+        casino_wallet(current_user.id)
+        if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance - total},
+                             CasinoWallet.balance >= total):
+            db.session.rollback()
+            return casino_error('Za mało żetonów.')
+        player, banker = baccarat_deal()
+        pv, bv = baccarat_value(player), baccarat_value(banker)
+        winner = 'player' if pv > bv else 'banker' if bv > pv else 'tie'
+        if winner == 'tie':      # przy remisie zakłady na gracza i bankiera wracają
+            payout = bets['tie'] * 9 + bets['player'] + bets['banker']
+        elif winner == 'player':
+            payout = bets['player'] * 2
+        else:                    # bankier płaci 0,95 do 1 (5% prowizji)
+            payout = bets['banker'] + bets['banker'] * 95 // 100
+        if payout:
+            casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance + payout})
+        names = {'player': 'Gracz', 'banker': 'Bankier', 'tie': 'Remis'}
+        casino_record(current_user.id, 'bakarat', total, payout, f'{names[winner]} · Gracz {pv} : {bv} Bankier')
+        db.session.commit()
+        return jsonify({'ok': True, 'player': player, 'banker': banker, 'player_value': pv, 'banker_value': bv,
+                        'winner': winner, 'payout': payout, 'net': payout - total,
+                        **casino_state(current_user.id), 'history': casino_history(current_user.id)})
+
+    def casino_ranking(sort='saldo'):
+        """[{user, balance, rounds, net, best}] - saldo z portfela, reszta z rozegranych rund (bez dziennych)."""
+        stats = {uid: (rounds, net or 0, best or 0) for uid, rounds, net, best in db.session.query(
+            CasinoBet.user_id, func.count(), func.sum(CasinoBet.payout - CasinoBet.bet), func.max(CasinoBet.payout - CasinoBet.bet))
+            .filter(CasinoBet.game.in_(list(CASINO_GAMES))).group_by(CasinoBet.user_id).all()}
+        rows = []
+        for wallet in CasinoWallet.query.all():
+            if not wallet.user or (wallet.balance == 0 and wallet.user_id not in stats and not wallet.daily_date):
+                continue
+            rounds, net, best = stats.get(wallet.user_id, (0, 0, 0))
+            rows.append({'user': wallet.user, 'balance': wallet.balance, 'rounds': rounds, 'net': net, 'best': max(best, 0)})
+        key = {'netto': 'net', 'wygrana': 'best', 'gry': 'rounds'}.get(sort, 'balance')
+        rows.sort(key=lambda r: (-r[key], -r['balance'], r['user'].username.lower()))
+        return rows
+
+    @app.route('/kasyno/ranking')
+    @login_required
+    def casino_ranking_page():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        sort = request.args.get('sort', 'saldo')
+        if sort not in ('saldo', 'netto', 'wygrana', 'gry'):
+            sort = 'saldo'
+        rounds = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES))).count()
+        return render_template('kasyno_ranking.html', ranking=casino_ranking(sort), sort=sort, rounds=rounds)
+
     # ===================== Ostatnia aktywność =====================
 
     def recent_activity(since, limit, kinds=None, exclude_user_id=None):
@@ -4117,6 +4560,12 @@ def create_app():
                 if q:
                     add('quiz', '🧠', user_id, f'quiz „{q.title}”: {plural(count, "odpowiedź", "odpowiedzi", "odpowiedzi")}',
                         url_for('quiz'), at)
+        big_win = site_settings()['casino_big_win']
+        if want('casino') and big_win > 0:
+            for b in CasinoBet.query.filter(CasinoBet.created_at > since, CasinoBet.game.in_(list(CASINO_GAMES)),
+                                            CasinoBet.payout - CasinoBet.bet >= big_win).all():
+                add('casino', '🎰', b.user_id, f'kasyno - {CASINO_GAMES[b.game][2:]}: wygrana {money(b.payout - b.bet)} żetonów'
+                    + (f' ({b.details})' if b.details else ''), url_for('casino_ranking_page'), b.created_at)
         if want('upgrade'):
             # kilka ulepszeń dodanych jednego dnia = jeden wpis, żeby nie zasłoniły reszty
             by_day = {}

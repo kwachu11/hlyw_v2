@@ -1,0 +1,594 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .hk-wrap{max-width:1100px;margin:0 auto;padding:12px 0 30px}
+  .hk-wrap button:not(.hk-chip){width:auto}   /* globalne button { width: 100% } z custom.css */
+  .hk-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:12px}
+  .hk-top h2{margin:0}
+  .hk-balance{font-family:var(--gta-font-ui);font-size:2rem;color:var(--gta-green);text-shadow:var(--gta-outline);line-height:1}
+  .hk-balance small{font-size:1rem;color:var(--gta-muted);text-shadow:none;font-family:var(--gta-font-text)}
+  .hk-balance.bump{animation:hk-bump .5s}
+  @keyframes hk-bump{40%{transform:scale(1.15)}}
+  .hk-daily{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .hk-daily .small{color:var(--gta-muted);font-family:var(--gta-font-text)}
+  .hk-tabs{display:flex;gap:6px;margin:6px 0 12px;flex-wrap:wrap}
+  .hk-tabs button{flex:1 1 0;min-width:0;border:2px solid var(--gta-border);background:var(--gta-panel);color:var(--gta-text);
+    font-family:var(--gta-font-ui);font-size:1.25rem;padding:8px 6px;border-radius:8px;letter-spacing:.03em}
+  .hk-tabs button.active{border-color:var(--gta-yellow);color:var(--gta-yellow)}
+  .hk-chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .hk-chips .lbl{font-family:var(--gta-font-text);color:var(--gta-muted);font-size:.9rem}
+  .hk-chip{width:50px;height:50px;border-radius:50%;border:4px dashed rgba(255,255,255,.85);font-weight:800;font-size:.8rem;
+    color:#fff;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px rgba(0,0,0,.45),0 4px 8px rgba(0,0,0,.5);
+    font-family:var(--gta-font-text);cursor:pointer;transition:transform .12s;padding:0;touch-action:manipulation}
+  .hk-chip.sel{transform:translateY(-5px);box-shadow:0 0 0 3px var(--gta-yellow),0 8px 14px rgba(0,0,0,.6)}
+  .hk-c10{background:#1e88e5}.hk-c50{background:#e53935}.hk-c100{background:#2e7d32}.hk-c500{background:#222}
+  .hk-c1000{background:#7b1fa2}.hk-c5000{background:#e0a800;color:#111}
+  .hk-felt{background:radial-gradient(ellipse at 50% 30%,#1f7a43,#0b3a1f 75%);border:6px solid #4a2c14;border-radius:22px;
+    box-shadow:inset 0 0 40px rgba(0,0,0,.55),0 12px 30px rgba(0,0,0,.5);padding:16px;color:#fff;position:relative}
+  .hk-label{font-family:var(--gta-font-ui);letter-spacing:.05em;font-size:1.15rem;color:#ffe9a6;text-shadow:var(--gta-outline)}
+  .hk-msg{min-height:2.2em;text-align:center;font-family:var(--gta-font-ui);font-size:1.5rem;letter-spacing:.03em;text-shadow:var(--gta-outline);margin:6px 0}
+  .hk-msg.win{color:var(--gta-green)}.hk-msg.lose{color:#ff6b6b}.hk-msg.err{color:var(--gta-yellow);font-family:var(--gta-font-text);font-size:1rem}
+  .hk-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+  .hk-actions .btn{min-width:96px}
+  .hk-cards{display:flex;justify-content:center;min-height:92px;padding-right:18px}
+  .hk-card{width:60px;height:86px;border-radius:7px;background:#fff;color:#111;position:relative;margin-right:-18px;flex:none;
+    box-shadow:-2px 2px 6px rgba(0,0,0,.45);font-family:Arial,Helvetica,sans-serif;font-weight:700}
+  .hk-card.red{color:#c62828}
+  .hk-card .r{position:absolute;left:5px;top:3px;font-size:1.05rem;line-height:1}
+  .hk-card .r i{display:block;font-style:normal;font-size:.85rem}
+  .hk-card .s{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:2rem}
+  .hk-card.back{background:repeating-linear-gradient(45deg,#b71c1c 0 6px,#8e1212 6px 12px);border:3px solid #fff}
+  .hk-card.new{animation:hk-deal .35s ease-out both}
+  @keyframes hk-deal{from{opacity:0;transform:translate(60px,-60px) rotate(18deg)}to{opacity:1;transform:none}}
+  .hk-value{display:inline-block;min-width:34px;padding:1px 8px;border-radius:12px;background:rgba(0,0,0,.55);font-weight:700;
+    font-family:var(--gta-font-text);margin-left:6px}
+  .hk-spot{border:3px dashed rgba(255,233,166,.6);border-radius:50%;width:92px;height:92px;margin:6px auto;display:flex;
+    flex-direction:column;align-items:center;justify-content:center;cursor:pointer;color:#ffe9a6;font-family:var(--gta-font-text);
+    background:rgba(0,0,0,.15);touch-action:manipulation;user-select:none}
+  .hk-spot b{font-size:1.2rem;color:#fff}
+  .hk-spot.locked{cursor:default;opacity:.8}
+  .hk-hands{display:flex;justify-content:center;gap:18px;flex-wrap:wrap}
+  .hk-hand{padding:8px 8px 6px;border-radius:12px;border:2px solid transparent;text-align:center}
+  .hk-hand.active{border-color:var(--gta-yellow);background:rgba(255,204,0,.08)}
+  .hk-hand .info{margin-top:6px;font-family:var(--gta-font-text);font-size:.95rem}
+  .hk-res{display:inline-block;margin-top:4px;padding:2px 10px;border-radius:6px;font-family:var(--gta-font-ui);letter-spacing:.04em}
+  .hk-res.win,.hk-res.blackjack{background:var(--gta-green-dark)}.hk-res.lose,.hk-res.bust{background:#8e1c1c}.hk-res.push{background:#555}
+  .hk-roulette{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:18px;align-items:start}
+  .hk-wheel-box{position:relative;max-width:380px;margin:0 auto;width:100%}
+  .hk-wheel{width:100%;height:auto;display:block;transition:transform 4.6s cubic-bezier(.15,.65,.2,1)}
+  .hk-pointer{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:0;height:0;border-left:13px solid transparent;
+    border-right:13px solid transparent;border-top:26px solid var(--gta-yellow);filter:drop-shadow(0 2px 2px #000);z-index:2}
+  .hk-result{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28%;aspect-ratio:1;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-family:var(--gta-font-ui);font-size:2.4rem;color:#fff;
+    text-shadow:var(--gta-outline);background:#3b2412;border:3px solid var(--gta-yellow)}
+  .hk-result.red{background:#c62828}.hk-result.black{background:#111}.hk-result.green{background:#1f9e4a}
+  .hk-recent{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .hk-recent span{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;border:1px solid rgba(255,255,255,.4)}
+  .hk-table{display:grid;grid-template-columns:1fr 1.15fr 1.15fr 1.15fr 1fr;grid-auto-rows:34px;gap:3px;user-select:none}
+  .hk-table button{position:relative;border:1px solid rgba(255,255,255,.55);color:#fff;font-weight:700;font-size:.95rem;padding:0;
+    border-radius:4px;background:rgba(0,0,0,.18);font-family:var(--gta-font-text);touch-action:manipulation;line-height:1.05}
+  .hk-table button.red{background:#b71c1c}.hk-table button.black{background:#151515}.hk-table button.green{background:#1f8f45}
+  .hk-table button.side{font-size:.8rem}
+  .hk-table button.hit{outline:3px solid var(--gta-yellow);z-index:1;animation:hk-blink .5s 4}
+  @keyframes hk-blink{50%{outline-color:transparent}}
+  .hk-table .bet,.hk-spot .bet{position:absolute;right:-5px;top:-7px;min-width:24px;height:24px;padding:0 4px;border-radius:12px;background:var(--gta-yellow);
+    color:#111;font-size:.72rem;display:flex;align-items:center;justify-content:center;border:2px solid #fff;z-index:2;font-weight:800}
+  .hk-total{font-family:var(--gta-font-text);text-align:center;margin-top:8px}
+  .hk-bac{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center}
+  .hk-bac .side-box{padding:6px;border-radius:12px;border:2px solid transparent}
+  .hk-bac .side-box.won{border-color:var(--gta-yellow);background:rgba(255,204,0,.1)}
+  .hk-bac-bets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .hk-bac-bets .hk-spot{position:relative;border-radius:14px;width:auto;height:84px;margin:0}
+  .hk-bac-bets .hk-spot.won{border-color:var(--gta-yellow);border-style:solid;background:rgba(255,204,0,.15)}
+  .hk-history td,.hk-history th{font-family:var(--gta-font-text);vertical-align:middle}
+  .hk-plus{color:var(--gta-green);font-weight:700}.hk-minus{color:#ff6b6b}
+  .hk-rules{font-family:var(--gta-font-text);color:var(--gta-muted);font-size:.92rem;margin-top:14px}
+  .hk-rules summary{cursor:pointer;color:var(--gta-text)}
+  [hidden]{display:none!important}
+  @media (max-width: 767px){
+    .hk-roulette{grid-template-columns:1fr}
+    .hk-wheel-box{max-width:260px}
+    .hk-card{width:50px;height:72px;margin-right:-16px}
+    .hk-card .s{font-size:1.6rem}
+    .hk-cards{min-height:78px}
+    .hk-felt{padding:12px 8px;border-width:4px}
+    .hk-chip{width:40px;height:40px;font-size:.7rem;border-width:3px}
+    .hk-chips{gap:6px}
+    .hk-tabs button{font-size:1.05rem}
+    .hk-balance{font-size:1.6rem}
+    .hk-daily{margin-left:0}
+  }
+</style>
+
+<div class="container hk-wrap">
+  <div class="hk-top">
+    <h2>🎰 Kasyno</h2>
+    <div class="hk-balance" id="hk-balance">0 <small>żetonów</small></div>
+    <div class="hk-daily">
+      <button type="button" class="btn btn-success" id="hk-daily-btn"></button>
+      <span class="small" id="hk-daily-info"></span>
+      <a href="{{ url_for('casino_ranking_page') }}" class="btn btn-outline-secondary">🏆 Ranking</a>
+    </div>
+  </div>
+  {% if not site.casino_on %}<div class="alert alert-warning">Kasyno jest zamknięte w panelu - widzisz je, bo jesteś adminem.</div>{% endif %}
+
+  <div class="hk-tabs" role="tablist">
+    <button type="button" data-tab="blackjack">🃏 Blackjack</button>
+    <button type="button" data-tab="ruletka">🎡 Ruletka</button>
+    <button type="button" data-tab="bakarat">🎴 Bakarat</button>
+  </div>
+
+  <div class="hk-chips" id="hk-chips"><span class="lbl">Żeton:</span></div>
+
+  <!-- ============ BLACKJACK ============ -->
+  <section class="hk-felt" data-panel="blackjack">
+    <div class="text-center"><span class="hk-label">Krupier</span><span class="hk-value" id="bj-dealer-value" hidden></span></div>
+    <div class="hk-cards mt-2" id="bj-dealer"></div>
+    <div class="hk-msg" id="bj-msg"></div>
+    <div class="hk-hands" id="bj-hands"></div>
+    <div id="bj-bet-box">
+      <div class="hk-spot" id="bj-spot" title="Kliknij, żeby dołożyć żeton"><span>Stawka</span><b id="bj-bet">0</b></div>
+      <div class="hk-actions">
+        <button type="button" class="btn btn-outline-light btn-sm" id="bj-clear">Wyczyść</button>
+        <button type="button" class="btn btn-outline-light btn-sm" id="bj-double-bet">2×</button>
+        <button type="button" class="btn btn-warning" id="bj-deal">Rozdaj</button>
+      </div>
+    </div>
+    <div class="hk-actions" id="bj-play" hidden>
+      <button type="button" class="btn btn-success" data-bj="hit">Dobierz</button>
+      <button type="button" class="btn btn-danger" data-bj="stand">Stój</button>
+      <button type="button" class="btn btn-warning" data-bj="double">Podwój</button>
+      <button type="button" class="btn btn-info" data-bj="split">Rozdziel</button>
+    </div>
+  </section>
+
+  <!-- ============ RULETKA ============ -->
+  <section class="hk-felt" data-panel="ruletka" hidden>
+    <div class="hk-roulette">
+      <div>
+        <div class="hk-wheel-box">
+          <div class="hk-pointer"></div>
+          <svg class="hk-wheel" id="rl-wheel" viewBox="-160 -160 320 320" aria-label="Koło ruletki"></svg>
+          <div class="hk-result" id="rl-result">?</div>
+        </div>
+        <div class="hk-msg" id="rl-msg"></div>
+        <div class="hk-recent" id="rl-recent"></div>
+      </div>
+      <div>
+        <div class="hk-table" id="rl-table"></div>
+        <div class="hk-total">Na stole: <b id="rl-total">0</b> żetonów</div>
+        <div class="hk-actions">
+          <button type="button" class="btn btn-outline-light btn-sm" id="rl-undo">Cofnij</button>
+          <button type="button" class="btn btn-outline-light btn-sm" id="rl-clear">Wyczyść</button>
+          <button type="button" class="btn btn-outline-light btn-sm" id="rl-double">2×</button>
+          <button type="button" class="btn btn-outline-light btn-sm" id="rl-repeat">Powtórz</button>
+          <button type="button" class="btn btn-warning" id="rl-spin">Kręć!</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BAKARAT ============ -->
+  <section class="hk-felt" data-panel="bakarat" hidden>
+    <div class="hk-bac">
+      <div class="side-box" id="bc-player-box"><span class="hk-label">Gracz</span><span class="hk-value" id="bc-player-value" hidden></span>
+        <div class="hk-cards mt-2" id="bc-player"></div></div>
+      <div class="side-box" id="bc-banker-box"><span class="hk-label">Bankier</span><span class="hk-value" id="bc-banker-value" hidden></span>
+        <div class="hk-cards mt-2" id="bc-banker"></div></div>
+    </div>
+    <div class="hk-msg" id="bc-msg"></div>
+    <div class="hk-bac-bets">
+      <div class="hk-spot" data-bac="player"><span>Gracz 1:1</span><b data-amount>0</b></div>
+      <div class="hk-spot" data-bac="tie"><span>Remis 8:1</span><b data-amount>0</b></div>
+      <div class="hk-spot" data-bac="banker"><span>Bankier 0,95:1</span><b data-amount>0</b></div>
+    </div>
+    <div class="hk-actions">
+      <button type="button" class="btn btn-outline-light btn-sm" id="bc-clear">Wyczyść</button>
+      <button type="button" class="btn btn-outline-light btn-sm" id="bc-repeat">Powtórz</button>
+      <button type="button" class="btn btn-warning" id="bc-deal">Rozdaj</button>
+    </div>
+  </section>
+
+  <details class="hk-rules">
+    <summary>Zasady</summary>
+    <p class="mt-2 mb-1">Żetony są tylko na zabawę - nie da się ich kupić ani wymienić. Codziennie możesz odebrać pulę żetonów; seria dni z rzędu daje +10% za dzień (najwyżej +{{ streak_max * 10 }}%). Stawka na jedno rozdanie / zakręcenie: {{ min_bet|money }}-{{ max_bet|money }}.</p>
+    <p class="mb-1"><b>Blackjack:</b> 6 talii, krupier dobiera do 16 i stoi na każdej 17. Blackjack płaci 3:2, zwykła wygrana 1:1. Podwojenie przy dwóch kartach, rozdzielenie pary (do 4 rąk, rozdzielone asy dostają po jednej karcie).</p>
+    <p class="mb-1"><b>Ruletka:</b> europejska, jedno zero. Numer 35:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
+    <p class="mb-0"><b>Bakarat:</b> klasyczne zasady dobierania trzeciej karty. Gracz 1:1, Bankier 0,95:1, Remis 8:1 - przy remisie zakłady na Gracza i Bankiera wracają.</p>
+  </details>
+
+  <h4 class="mt-4">Twoje ostatnie gry</h4>
+  <div class="table-responsive">
+    <table class="table table-sm hk-history">
+      <thead><tr><th>Gra</th><th>Stawka</th><th>Wynik</th><th class="d-none d-sm-table-cell">Szczegóły</th><th>Kiedy</th></tr></thead>
+      <tbody id="hk-history"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  const MIN_BET = {{ min_bet }}, MAX_BET = {{ max_bet }};
+  const WHEEL = {{ wheel|tojson }}, RED = new Set({{ red|tojson }});
+  let state = {{ state|tojson }};
+  let history = {{ history|tojson }};
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => Math.round(n).toLocaleString('en-US');
+  const sound = (k) => { if (window.gta && gta.sound) gta.sound(k); };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+  function api(url, body) {
+    return fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'},
+                       body: JSON.stringify(body || {})})
+      .then((r) => r.json().catch(() => ({ok: false, error: 'Błąd serwera - spróbuj jeszcze raz.'})))
+      .catch(() => ({ok: false, error: 'Brak połączenia z serwerem.'}));
+  }
+  function sync(data) {
+    if (typeof data.balance === 'number') setBalance(data.balance);
+    if (data.daily) { state.daily = data.daily; renderDaily(); }
+    if (data.history) { history = data.history; renderHistory(); }
+  }
+  function message(el, text, cls) { el.textContent = text || ''; el.className = 'hk-msg' + (cls ? ' ' + cls : ''); }
+  function celebrate(net, bet) {
+    if (net >= Math.max(MIN_BET * 20, bet * 3)) { if (window.gta && gta.passed) gta.passed('Wygrana', net); }
+    else if (net > 0) sound('sms');
+    if (state.balance === 0 && net <= 0 && window.gta && gta.wasted) gta.wasted('Żetony', 0);
+  }
+
+  // ---------- saldo, dzienne, historia ----------
+  function setBalance(b) {
+    const el = $('hk-balance');
+    if (b !== state.balance) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+    state.balance = b;
+    el.innerHTML = fmt(b) + ' <small>żetonów</small>';
+  }
+  let dailyTimer = null;
+  function renderDaily() {
+    const d = state.daily, btn = $('hk-daily-btn'), info = $('hk-daily-info');
+    clearInterval(dailyTimer);
+    const bonus = Math.min(d.streak - 1, {{ streak_max }}) * 10;
+    if (d.available) {
+      btn.disabled = false;
+      btn.textContent = '🎁 Odbierz ' + fmt(d.amount) + ' żetonów';
+      info.textContent = d.streak > 1 ? 'seria: ' + d.streak + ' dni z rzędu (+' + bonus + '%)' : '';
+    } else {
+      btn.disabled = true;
+      const tick = () => {
+        const left = Math.max(0, d.next_ms - Date.now());
+        if (left <= 0) { clearInterval(dailyTimer); location.reload(); return; }
+        const h = Math.floor(left / 3600000), m = Math.floor(left / 60000) % 60, s = Math.floor(left / 1000) % 60;
+        btn.textContent = '⏳ Kolejne za ' + h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      };
+      tick();
+      dailyTimer = setInterval(tick, 1000);
+      info.textContent = 'seria: ' + d.streak + ' ' + (d.streak === 1 ? 'dzień' : 'dni') + ' z rzędu' + (state.balance < MIN_BET ? ' · żetony skończone? wróć jutro!' : '');
+    }
+  }
+  $('hk-daily-btn').addEventListener('click', () => {
+    const btn = $('hk-daily-btn');
+    btn.disabled = true;
+    api('{{ url_for("casino_daily") }}').then((d) => {
+      if (!d.ok) { alertMsg(d.error); renderDaily(); return; }
+      sync(d);
+      if (window.gta && gta.passed) gta.passed('Dzienne żetony', d.amount);
+    });
+  });
+  function renderHistory() {
+    $('hk-history').innerHTML = history.length ? history.map((h) =>
+      '<tr><td>' + esc(h.game) + '</td><td>' + (h.bet ? fmt(h.bet) : '–') + '</td><td class="' + (h.net > 0 ? 'hk-plus' : h.net < 0 ? 'hk-minus' : '') + '">' +
+      (h.net > 0 ? '+' : '') + fmt(h.net) + '</td><td class="d-none d-sm-table-cell">' + esc(h.text) + '</td><td>' + esc(h.when) + '</td></tr>'
+    ).join('') : '<tr><td colspan="5" class="text-muted">Jeszcze nic - odbierz dzienne żetony i zagraj!</td></tr>';
+  }
+  function alertMsg(text) {
+    const panel = document.querySelector('[data-panel]:not([hidden]) .hk-msg');
+    if (panel) message(panel, text, 'err');
+  }
+
+  // ---------- zakładki i żetony ----------
+  let tab = 'blackjack';
+  try { tab = localStorage.getItem('hk-tab') || location.hash.slice(1) || 'blackjack'; } catch (e) {}
+  if (location.hash.length > 1) tab = location.hash.slice(1);
+  function showTab(name) {
+    if (!document.querySelector('[data-panel="' + name + '"]')) name = 'blackjack';
+    tab = name;
+    document.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+    document.querySelectorAll('.hk-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    try { localStorage.setItem('hk-tab', name); } catch (e) {}
+  }
+  document.querySelectorAll('.hk-tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+  const CHIPS = [10, 50, 100, 500, 1000, 5000].filter((c) => c <= MAX_BET);
+  if (!CHIPS.length) CHIPS.push(MAX_BET);
+  let chip = CHIPS[0];
+  try { const saved = +localStorage.getItem('hk-chip'); if (CHIPS.includes(saved)) chip = saved; } catch (e) {}
+  CHIPS.forEach((c) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'hk-chip hk-c' + c + (c === chip ? ' sel' : '');
+    b.textContent = c >= 1000 ? (c / 1000) + 'k' : c;
+    b.title = fmt(c) + ' żetonów';
+    b.addEventListener('click', () => {
+      chip = c;
+      document.querySelectorAll('.hk-chip').forEach((x) => x.classList.toggle('sel', x === b));
+      try { localStorage.setItem('hk-chip', c); } catch (e) {}
+    });
+    $('hk-chips').appendChild(b);
+  });
+
+  // ---------- karty ----------
+  const SUITS = {S: '♠', H: '♥', D: '♦', C: '♣'};
+  function cardHtml(code, isNew, delay) {
+    const cls = 'hk-card' + (isNew ? ' new' : '');
+    const style = isNew ? ' style="animation-delay:' + delay + 'ms"' : '';
+    if (code === '??') return '<div class="' + cls + ' back"' + style + '></div>';
+    const rank = code[0] === 'T' ? '10' : code[0], suit = SUITS[code[1]];
+    return '<div class="' + cls + (code[1] === 'H' || code[1] === 'D' ? ' red' : '') + '"' + style + '>' +
+      '<span class="r">' + rank + '<i>' + suit + '</i></span><span class="s">' + suit + '</span></div>';
+  }
+
+  // ---------- BLACKJACK ----------
+  let bjBet = Math.max(MIN_BET, Math.min(100, MAX_BET)), bjBusy = false, bjShown = null;
+  const RESULT = {win: 'WYGRANA', blackjack: 'BLACKJACK!', push: 'REMIS', lose: 'PRZEGRANA', bust: 'FURA'};
+  function bjRenderBet() { $('bj-bet').textContent = fmt(bjBet); }
+  $('bj-spot').addEventListener('click', () => { if (!bjBusy) { bjBet = Math.min(MAX_BET, bjBet + chip); bjRenderBet(); sound('sms'); } });
+  $('bj-clear').addEventListener('click', () => { bjBet = 0; bjRenderBet(); });
+  $('bj-double-bet').addEventListener('click', () => { bjBet = Math.min(MAX_BET, Math.max(bjBet * 2, MIN_BET)); bjRenderBet(); });
+
+  function bjRender(hand, animate) {
+    const prev = animate && bjShown ? bjShown : {dealer: [], hands: []};
+    let delay = 0;
+    const step = () => { const d = delay; delay += 280; return d; };
+    if (!hand) {
+      $('bj-dealer').innerHTML = ''; $('bj-hands').innerHTML = '';
+      $('bj-dealer-value').hidden = true;
+      $('bj-bet-box').hidden = false; $('bj-play').hidden = true;
+      bjShown = null;
+      return 0;
+    }
+    $('bj-dealer').innerHTML = hand.dealer.map((c, i) => cardHtml(c, animate && (i >= prev.dealer.length || prev.dealer[i] !== c), 0)).join('');
+    // kolejność rozdawania: najpierw nowe karty gracza, potem krupiera
+    $('bj-hands').innerHTML = hand.hands.map((h, hi) => {
+      const before = prev.hands[hi] || [];
+      const cards = h.cards.map((c, i) => cardHtml(c, animate && (i >= before.length || before[i] !== c), animate && (i >= before.length || before[i] !== c) ? step() : 0)).join('');
+      const res = h.result ? '<div><span class="hk-res ' + h.result + '">' + RESULT[h.result] +
+        (h.payout > h.bet ? ' +' + fmt(h.payout - h.bet) : '') + '</span></div>' : '';
+      return '<div class="hk-hand' + (!hand.over && hi === hand.active && hand.hands.length > 1 ? ' active' : '') + '">' +
+        '<div class="hk-cards">' + cards + '</div><div class="info">' + (h.soft && h.value < 21 ? 'miękkie ' : '') +
+        '<span class="hk-value">' + h.value + '</span> · stawka ' + fmt(h.bet) + '</div>' + res + '</div>';
+    }).join('');
+    // karty krupiera po kartach gracza
+    $('bj-dealer').querySelectorAll('.hk-card.new').forEach((el) => { el.style.animationDelay = step() + 'ms'; });
+    const dv = $('bj-dealer-value');
+    dv.hidden = false;
+    dv.textContent = hand.dealer_value;
+    $('bj-bet-box').hidden = !hand.over; $('bj-play').hidden = hand.over;
+    document.querySelectorAll('[data-bj]').forEach((b) => { b.disabled = !hand.actions[b.dataset.bj]; });
+    bjShown = {dealer: hand.dealer.slice(), hands: hand.hands.map((h) => h.cards.slice())};
+    return delay;
+  }
+  function bjFinish(hand, wait) {
+    const bet = hand.hands.reduce((s, h) => s + h.bet, 0), net = hand.payout - bet;
+    setTimeout(() => {
+      message($('bj-msg'), net > 0 ? 'Wygrywasz +' + fmt(net) : net < 0 ? 'Przegrywasz ' + fmt(-net) : 'Remis - stawka wraca',
+              net > 0 ? 'win' : net < 0 ? 'lose' : '');
+      celebrate(net, bet);
+    }, wait);
+  }
+  function bjSend(body) {
+    if (bjBusy) return;
+    bjBusy = true;
+    api('{{ url_for("casino_blackjack") }}', body).then((d) => {
+      bjBusy = false;
+      if (!d.ok) {
+        message($('bj-msg'), d.error, 'err');
+        if (d.blackjack !== undefined) bjRender(d.blackjack, false);
+        sync(d);
+        return;
+      }
+      if (body.action === 'deal') { bjShown = {dealer: [], hands: []}; message($('bj-msg'), ''); }
+      const wait = bjRender(d.blackjack, true);
+      if (d.blackjack.over) {
+        // saldo i historia po animacji, żeby nie zdradzić wyniku
+        setTimeout(() => sync(d), wait);
+        bjFinish(d.blackjack, wait);
+      } else {
+        sync(d);
+        if (body.action === 'deal') message($('bj-msg'), 'Dobierasz czy stoisz?');
+        else message($('bj-msg'), '');
+      }
+    });
+  }
+  $('bj-deal').addEventListener('click', () => {
+    if (bjBet < MIN_BET) { message($('bj-msg'), 'Najmniejsza stawka to ' + fmt(MIN_BET) + '.', 'err'); return; }
+    if (bjBet > state.balance) { message($('bj-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    bjSend({action: 'deal', bet: bjBet});
+  });
+  document.querySelectorAll('[data-bj]').forEach((b) => b.addEventListener('click', () => bjSend({action: b.dataset.bj})));
+
+  // ---------- RULETKA ----------
+  const STEP = 360 / WHEEL.length;
+  let rlBets = {}, rlOrder = [], rlLast = null, rlBusy = false, rlAngle = 0;
+  const colorOf = (n) => n === 0 ? 'green' : RED.has(n) ? 'red' : 'black';
+  (function drawWheel() {
+    const r = 150, ri = 108, parts = ['<circle r="158" fill="#3b2412" stroke="#ffcc00" stroke-width="4"/>'];
+    const pt = (rad, deg) => [(rad * Math.sin(deg * Math.PI / 180)).toFixed(2), (-rad * Math.cos(deg * Math.PI / 180)).toFixed(2)];
+    WHEEL.forEach((n, i) => {
+      const a1 = i * STEP - STEP / 2, a2 = i * STEP + STEP / 2;
+      const [x1, y1] = pt(r, a1), [x2, y2] = pt(r, a2), [x3, y3] = pt(ri, a2), [x4, y4] = pt(ri, a1);
+      const fill = {green: '#1f9e4a', red: '#c62828', black: '#151515'}[colorOf(n)];
+      parts.push('<path d="M' + x1 + ' ' + y1 + 'A' + r + ' ' + r + ' 0 0 1 ' + x2 + ' ' + y2 + 'L' + x3 + ' ' + y3 +
+                 'A' + ri + ' ' + ri + ' 0 0 0 ' + x4 + ' ' + y4 + 'Z" fill="' + fill + '" stroke="#d4b24c" stroke-width=".8"/>');
+      const [tx, ty] = pt(132, i * STEP);
+      parts.push('<text x="' + tx + '" y="' + ty + '" fill="#fff" font-size="13" font-weight="700" font-family="Arial" text-anchor="middle" ' +
+                 'dominant-baseline="central" transform="rotate(' + (i * STEP).toFixed(2) + ' ' + tx + ' ' + ty + ')">' + n + '</text>');
+    });
+    parts.push('<circle r="' + ri + '" fill="#5a3a1c" stroke="#d4b24c" stroke-width="3"/>');
+    for (let i = 0; i < 8; i++) { const [x, y] = pt(ri - 6, i * 45); parts.push('<line x1="0" y1="0" x2="' + x + '" y2="' + y + '" stroke="#d4b24c" stroke-width="4"/>'); }
+    $('rl-wheel').innerHTML = parts.join('');
+  })();
+  (function drawTable() {
+    const cells = [];
+    const add = (t, v, label, cls, col, row, span) => cells.push('<button type="button" data-t="' + t + '"' + (v != null ? ' data-v="' + v + '"' : '') +
+      ' class="' + cls + '" style="grid-column:' + col + ';grid-row:' + row + (span ? ' / span ' + span : '') + '">' + label + '</button>');
+    add('n', 0, '0', 'green', '2 / span 3', 1);
+    for (let n = 1; n <= 36; n++) add('n', n, n, colorOf(n), (n - 1) % 3 + 2, Math.ceil(n / 3) + 1);
+    [['low', '1-18'], ['even', 'PARZ'], ['red', '<span style="color:#ff6b6b">◆</span> CZERW'], ['black', '◆ CZARNE'], ['odd', 'NIEP'], ['high', '19-36']]
+      .forEach(([t, label], i) => add(t, null, label, 'side' + (t === 'red' ? ' red' : t === 'black' ? ' black' : ''), 1, i * 2 + 2, 2));
+    [1, 2, 3].forEach((d) => add('dozen', d, (d * 12 - 11) + '<br>-<br>' + d * 12, 'side', 5, (d - 1) * 4 + 2, 4));
+    [1, 2, 3].forEach((c) => add('column', c, '2:1', 'side', c + 1, 14));
+    $('rl-table').innerHTML = cells.join('');
+  })();
+  const betKey = (t, v) => t + ':' + (v == null ? '' : v);
+  function rlRender() {
+    document.querySelectorAll('#rl-table button').forEach((b) => {
+      const amount = rlBets[betKey(b.dataset.t, b.dataset.v)] || 0;
+      let badge = b.querySelector('.bet');
+      if (amount && !badge) { badge = document.createElement('span'); badge.className = 'bet'; b.appendChild(badge); }
+      if (badge) { if (amount) badge.textContent = amount >= 1000 ? (amount / 1000).toFixed(amount % 1000 ? 1 : 0) + 'k' : amount; else badge.remove(); }
+    });
+    $('rl-total').textContent = fmt(Object.values(rlBets).reduce((a, b) => a + b, 0));
+  }
+  $('rl-table').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || rlBusy) return;
+    const key = betKey(b.dataset.t, b.dataset.v);
+    const total = Object.values(rlBets).reduce((a, x) => a + x, 0);
+    if (total + chip > MAX_BET) { message($('rl-msg'), 'Na jedno zakręcenie najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
+    rlBets[key] = (rlBets[key] || 0) + chip;
+    rlOrder.push([key, chip]);
+    document.querySelectorAll('#rl-table .hit').forEach((x) => x.classList.remove('hit'));
+    sound('sms');
+    rlRender();
+  });
+  $('rl-undo').addEventListener('click', () => {
+    if (rlBusy || !rlOrder.length) return;
+    const [key, amount] = rlOrder.pop();
+    rlBets[key] -= amount;
+    if (rlBets[key] <= 0) delete rlBets[key];
+    rlRender();
+  });
+  $('rl-clear').addEventListener('click', () => { if (!rlBusy) { rlBets = {}; rlOrder = []; rlRender(); } });
+  $('rl-double').addEventListener('click', () => {
+    if (rlBusy) return;
+    const total = Object.values(rlBets).reduce((a, b) => a + b, 0);
+    if (total * 2 > MAX_BET) { message($('rl-msg'), 'Na jedno zakręcenie najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
+    Object.keys(rlBets).forEach((k) => { rlOrder.push([k, rlBets[k]]); rlBets[k] *= 2; });
+    rlRender();
+  });
+  $('rl-repeat').addEventListener('click', () => {
+    if (rlBusy || !rlLast) return;
+    rlBets = Object.assign({}, rlLast);
+    rlOrder = Object.keys(rlBets).map((k) => [k, rlBets[k]]);
+    rlRender();
+  });
+  function rlRecent(n) {
+    const box = $('rl-recent');
+    const span = document.createElement('span');
+    span.textContent = n;
+    span.style.background = {green: '#1f9e4a', red: '#c62828', black: '#151515'}[colorOf(n)];
+    box.prepend(span);
+    while (box.children.length > 12) box.lastChild.remove();
+  }
+  $('rl-spin').addEventListener('click', () => {
+    if (rlBusy) return;
+    const bets = Object.keys(rlBets).map((k) => { const [t, v] = k.split(':'); return {t: t, v: v === '' ? null : +v, a: rlBets[k]}; });
+    const total = bets.reduce((a, b) => a + b.a, 0);
+    if (!total) { message($('rl-msg'), 'Wybierz żeton i kliknij pola na stole.', 'err'); return; }
+    if (total < MIN_BET) { message($('rl-msg'), 'Najmniej ' + fmt(MIN_BET) + ' żetonów na zakręcenie.', 'err'); return; }
+    if (total > state.balance) { message($('rl-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    rlBusy = true;
+    message($('rl-msg'), 'Kręcimy…');
+    document.querySelectorAll('#rl-table .hit').forEach((x) => x.classList.remove('hit'));
+    $('rl-result').className = 'hk-result'; $('rl-result').textContent = '…';
+    api('{{ url_for("casino_roulette") }}', {bets: bets}).then((d) => {
+      if (!d.ok) { rlBusy = false; message($('rl-msg'), d.error, 'err'); $('rl-result').textContent = '?'; sync(d); return; }
+      setBalance(d.balance - d.payout);   // stawka już zdjęta, wygrana dopiero po zatrzymaniu koła
+      const idx = WHEEL.indexOf(d.number);
+      const target = ((360 - idx * STEP) % 360 + 360) % 360;
+      const current = ((rlAngle % 360) + 360) % 360;
+      rlAngle += 360 * 5 + ((target - current + 360) % 360);
+      $('rl-wheel').style.transform = 'rotate(' + rlAngle + 'deg)';
+      setTimeout(() => {
+        rlBusy = false;
+        const res = $('rl-result');
+        res.textContent = d.number;
+        res.className = 'hk-result ' + colorOf(d.number);
+        rlRecent(d.number);
+        document.querySelectorAll('#rl-table button[data-t="n"][data-v="' + d.number + '"]').forEach((x) => x.classList.add('hit'));
+        message($('rl-msg'), d.net > 0 ? d.number + ' - wygrywasz +' + fmt(d.net) : d.payout > 0 ? d.number + ' - wraca ' + fmt(d.payout) + ' z ' + fmt(total) : d.number + ' - przegrywasz ' + fmt(total),
+                d.net > 0 ? 'win' : d.net < 0 ? 'lose' : '');
+        sync(d);
+        celebrate(d.net, total);
+        rlLast = Object.assign({}, rlBets);
+        rlBets = {}; rlOrder = [];
+        rlRender();
+      }, 4700);
+    });
+  });
+
+  // ---------- BAKARAT ----------
+  let bcBets = {player: 0, tie: 0, banker: 0}, bcLast = null, bcBusy = false;
+  function bcRender() {
+    document.querySelectorAll('[data-bac]').forEach((s) => { s.querySelector('[data-amount]').textContent = fmt(bcBets[s.dataset.bac]); });
+  }
+  document.querySelectorAll('[data-bac]').forEach((s) => s.addEventListener('click', () => {
+    if (bcBusy) return;
+    const total = bcBets.player + bcBets.tie + bcBets.banker;
+    if (total + chip > MAX_BET) { message($('bc-msg'), 'Na jedno rozdanie najwyżej ' + fmt(MAX_BET) + '.', 'err'); return; }
+    bcBets[s.dataset.bac] += chip;
+    sound('sms');
+    bcRender();
+  }));
+  $('bc-clear').addEventListener('click', () => { if (!bcBusy) { bcBets = {player: 0, tie: 0, banker: 0}; bcRender(); } });
+  $('bc-repeat').addEventListener('click', () => { if (!bcBusy && bcLast) { bcBets = Object.assign({}, bcLast); bcRender(); } });
+  $('bc-deal').addEventListener('click', () => {
+    if (bcBusy) return;
+    const total = bcBets.player + bcBets.tie + bcBets.banker;
+    if (total < MIN_BET) { message($('bc-msg'), 'Postaw najmniej ' + fmt(MIN_BET) + ' żetonów (kliknij Gracz, Remis albo Bankier).', 'err'); return; }
+    if (total > state.balance) { message($('bc-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    bcBusy = true;
+    message($('bc-msg'), '');
+    ['player', 'banker'].forEach((k) => { $('bc-' + k).innerHTML = ''; $('bc-' + k + '-value').hidden = true; $('bc-' + k + '-box').classList.remove('won'); });
+    document.querySelectorAll('[data-bac]').forEach((s) => s.classList.remove('won'));
+    api('{{ url_for("casino_baccarat") }}', {bets: bcBets}).then((d) => {
+      if (!d.ok) { bcBusy = false; message($('bc-msg'), d.error, 'err'); sync(d); return; }
+      setBalance(d.balance - d.payout);
+      // kolejność jak przy stole: G, B, G, B, potem trzecie karty
+      const order = [['player', 0], ['banker', 0], ['player', 1], ['banker', 1]];
+      if (d.player[2]) order.push(['player', 2]);
+      if (d.banker[2]) order.push(['banker', 2]);
+      order.forEach(([side, i], n) => setTimeout(() => {
+        $('bc-' + side).insertAdjacentHTML('beforeend', cardHtml(d[side][i], true, 0));
+        sound('sms');
+      }, n * 550));
+      setTimeout(() => {
+        bcBusy = false;
+        $('bc-player-value').hidden = false; $('bc-player-value').textContent = d.player_value;
+        $('bc-banker-value').hidden = false; $('bc-banker-value').textContent = d.banker_value;
+        if (d.winner !== 'tie') $('bc-' + d.winner + '-box').classList.add('won');
+        document.querySelector('[data-bac="' + d.winner + '"]').classList.add('won');
+        const who = {player: 'Wygrywa Gracz', banker: 'Wygrywa Bankier', tie: 'Remis'}[d.winner];
+        message($('bc-msg'), who + (d.net > 0 ? ' · +' + fmt(d.net) : d.net < 0 ? ' · ' + fmt(d.net) : ' · stawka wraca'),
+                d.net > 0 ? 'win' : d.net < 0 ? 'lose' : '');
+        sync(d);
+        celebrate(d.net, total);
+        bcLast = Object.assign({}, bcBets);
+        bcBets = {player: 0, tie: 0, banker: 0};
+        bcRender();
+      }, order.length * 550 + 300);
+    });
+  });
+
+  // ---------- start ----------
+  setBalance(state.balance);
+  renderDaily();
+  renderHistory();
+  bjRenderBet();
+  bjRender(state.blackjack, false);
+  if (state.blackjack && !state.blackjack.over) { message($('bj-msg'), 'Dokończ rozdanie'); tab = 'blackjack'; }
+  rlRender();
+  bcRender();
+  showTab(tab);
+})();
+</script>
+{% endblock %}

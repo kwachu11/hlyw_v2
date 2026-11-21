@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <defs>
+    <radialGradient id="felt" cx="50%" cy="45%" r="70%"><stop offset="0" stop-color="#1d6b3a"/><stop offset="1" stop-color="#0a2e18"/></radialGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#felt)"/>
+  <g transform="translate(130 150)">
+    <circle r="96" fill="#3b2412" stroke="#ffcc00" stroke-width="5"/>
+    <g stroke="#111" stroke-width="1">
+      <path d="M0 0L0 -84A84 84 0 0 1 49.4 -68Z" fill="#c62828"/>
+      <path d="M0 0L49.4 -68A84 84 0 0 1 79.9 -26Z" fill="#111"/>
+      <path d="M0 0L79.9 -26A84 84 0 0 1 79.9 26Z" fill="#c62828"/>
+      <path d="M0 0L79.9 26A84 84 0 0 1 49.4 68Z" fill="#111"/>
+      <path d="M0 0L49.4 68A84 84 0 0 1 0 84Z" fill="#c62828"/>
+      <path d="M0 0L0 84A84 84 0 0 1 -49.4 68Z" fill="#111"/>
+      <path d="M0 0L-49.4 68A84 84 0 0 1 -79.9 26Z" fill="#c62828"/>
+      <path d="M0 0L-79.9 26A84 84 0 0 1 -79.9 -26Z" fill="#111"/>
+      <path d="M0 0L-79.9 -26A84 84 0 0 1 -49.4 -68Z" fill="#c62828"/>
+      <path d="M0 0L-49.4 -68A84 84 0 0 1 0 -84Z" fill="#1f9e4a"/>
+    </g>
+    <circle r="40" fill="#5a3a1c" stroke="#ffcc00" stroke-width="3"/>
+    <path d="M0 -30L6 -6L30 0L6 6L0 30L-6 6L-30 0L-6 -6Z" fill="#ffcc00"/>
+    <circle cx="28" cy="-64" r="7" fill="#fff"/>
+  </g>
+  <g transform="translate(262 60) rotate(-12)">
+    <rect width="78" height="110" rx="8" fill="#fff" stroke="#222" stroke-width="2"/>
+    <text x="10" y="30" font-family="Arial" font-weight="bold" font-size="26" fill="#111">A</text>
+    <text x="39" y="80" font-family="Arial" font-size="46" text-anchor="middle" fill="#111">♠</text>
+  </g>
+  <g transform="translate(300 80) rotate(10)">
+    <rect width="78" height="110" rx="8" fill="#fff" stroke="#222" stroke-width="2"/>
+    <text x="10" y="30" font-family="Arial" font-weight="bold" font-size="26" fill="#c62828">K</text>
+    <text x="39" y="80" font-family="Arial" font-size="46" text-anchor="middle" fill="#c62828">♥</text>
+  </g>
+  <g transform="translate(300 240)">
+    <ellipse cy="14" rx="40" ry="13" fill="#0d47a1"/><ellipse cy="8" rx="40" ry="13" fill="#1565c0" stroke="#fff" stroke-width="3" stroke-dasharray="10 8"/>
+    <ellipse cy="-2" rx="40" ry="13" fill="#b71c1c"/><ellipse cy="-8" rx="40" ry="13" fill="#e53935" stroke="#fff" stroke-width="3" stroke-dasharray="10 8"/>
+    <ellipse cy="-18" rx="40" ry="13" fill="#e0b000"/><ellipse cy="-24" rx="40" ry="13" fill="#ffcc00" stroke="#fff" stroke-width="3" stroke-dasharray="10 8"/>
+  </g>
+</svg>

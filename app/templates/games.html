@@ -5,6 +5,23 @@
 <div class="container mt-4">
     <h2>Gry</h2>
     <div class="row">
+        {% if casino_on %}
+        <div class="col-sm-6 col-lg-4 mb-4">
+            <div class="card h-100">
+                <img src="{{ url_for('static', filename='images/kasyno.svg') }}" class="card-img-top" alt="Kasyno" style="width: 100%; height: 200px; object-fit: cover;">
+                <div class="card-body">
+                    <h5 class="card-title">Kasyno</h5>
+                    {% if casino_leader %}
+                    <p class="card-text d-flex align-items-center hl-gap"><img src="{{ casino_leader.user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;" alt=""> <span><strong>{{ casino_leader.user.username }}</strong><br><small class="text-muted">najwięcej żetonów: {{ casino_leader.balance|money }}</small></span></p>
+                    {% else %}
+                    <p class="card-text">Blackjack, ruletka i bakarat. Odbierz dzienne żetony i graj!</p>
+                    {% endif %}
+                    <a href="{{ url_for('casino') }}" class="btn btn-primary">Zagraj</a>
+                    <a href="{{ url_for('casino_ranking_page') }}" class="btn btn-outline-secondary">Ranking</a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
         {% for game in games %}
         <div class="col-sm-6 col-lg-4 mb-4">
             <div class="card h-100">
