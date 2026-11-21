@@ -298,6 +298,9 @@ CASINO_BLACKJACK_MAX_HANDS = 4       # po rozdzieleniach (split)
 ROULETTE_WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14,
                   31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]   # kolejność pól na kole europejskim
 ROULETTE_RED = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+CASINO_LIVE_ROWS = 20                    # „na żywo”: tyle ostatnich zakładów wszystkich graczy
+CASINO_LIVE_SEEN = timedelta(seconds=45) # kto tyle czasu temu odświeżał kasyno, jest „przy stołach”
+CASINO_LIVE_OWN_DELAY = timedelta(seconds=6)   # własny zakład pojawia się po animacji (koło kręci się ~5 s)
 ROULETTE_MAX_BETS = 160
 # split = zakład na dwa sąsiednie pola stołu (17:1): obok siebie w rzędzie, jedno pod drugim, 0 z 1/2/3
 ROULETTE_SPLITS = {(0, 1), (0, 2), (0, 3)} | {(n, n + 1) for n in range(1, 37) if n % 3} | {(n, n + 3) for n in range(1, 34)}
@@ -1056,6 +1059,8 @@ def create_app():
         daily_date = db.Column(db.Date, nullable=True)
         streak = db.Column(db.Integer, nullable=False, default=0)
         blackjack = db.Column(db.Text, nullable=True)
+        seen_at = db.Column(db.DateTime, nullable=True)        # ostatnio na /kasyno - lista „przy stołach”
+        seen_game = db.Column(db.String(20), nullable=True)    # przy którym stole (zakładka)
         user = db.relationship('User')
 
     class CasinoBet(db.Model):
@@ -1106,6 +1111,8 @@ def create_app():
             ('message', 'file_size', "INTEGER"),
             ('message', 'reply_to_id', "INTEGER"),
             ('user', 'mail_prefs', "TEXT"),
+            ('casino_wallet', 'seen_at', "DATETIME"),
+            ('casino_wallet', 'seen_game', "VARCHAR(20)"),
         ] if db.engine.dialect.name == 'sqlite' else []):
             existing = [row[1] for row in db.session.execute(db.text(f'PRAGMA table_info({table})'))]
             if column not in existing:
@@ -4374,6 +4381,45 @@ def create_app():
         return jsonify({'ok': True, 'player': player, 'banker': banker, 'player_value': pv, 'banker_value': bv,
                         'winner': winner, 'payout': payout, 'net': payout - total,
                         **casino_state(current_user.id), 'history': casino_history(current_user.id)})
+
+    @app.route('/kasyno/na-zywo')
+    @login_required
+    def casino_live():
+        """Zakłady wszystkich graczy i kto jest teraz przy stołach - /kasyno pyta co 3 s."""
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        now = datetime.utcnow()
+        game = request.args.get('gra')
+        game = game if game in CASINO_GAMES else None
+        wallet = casino_wallet(current_user.id)
+        # obecność zapisujemy najwyżej co 15 s (albo przy zmianie stołu), żeby nie pisać do bazy przy każdym pytaniu
+        if not wallet.seen_at or now - wallet.seen_at > timedelta(seconds=15) or wallet.seen_game != game:
+            casino_update(current_user.id, {CasinoWallet.seen_at: now, CasinoWallet.seen_game: game})
+            db.session.commit()
+        rows = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES)),
+                                      db.or_(CasinoBet.user_id != current_user.id,
+                                             CasinoBet.created_at <= now - CASINO_LIVE_OWN_DELAY)) \
+            .order_by(CasinoBet.id.desc()).limit(CASINO_LIVE_ROWS).all()
+        big_win = site_settings()['casino_big_win']
+        feed = [{'id': b.id, 'user': b.user.username, 'photo': avatar_url(b.user.photo), 'me': b.user_id == current_user.id,
+                 'game': CASINO_GAMES[b.game], 'bet': b.bet, 'net': b.payout - b.bet, 'text': b.details or '',
+                 'big': big_win > 0 and b.payout - b.bet >= big_win, 'ago': int((now - b.created_at).total_seconds())}
+                for b in rows if b.user]
+        players = []
+        for w in CasinoWallet.query.filter(CasinoWallet.seen_at >= now - CASINO_LIVE_SEEN).all():
+            if not w.user:
+                continue
+            hand = None
+            if w.blackjack:
+                try:
+                    hand = sum(h['bet'] for h in json.loads(w.blackjack)['hands'])
+                except (ValueError, KeyError, TypeError):
+                    hand = None
+            players.append({'user': w.user.username, 'photo': avatar_url(w.user.photo), 'me': w.user_id == current_user.id,
+                            'game': CASINO_GAMES.get(w.seen_game, '🎰 Kasyno'), 'balance': w.balance, 'hand': hand})
+        players.sort(key=lambda p: (not p['me'], p['user'].lower()))
+        return jsonify({'ok': True, 'feed': feed, 'players': players})
 
     def casino_ranking(sort='saldo'):
         """[{user, balance, rounds, net, best}] - saldo z portfela, reszta z rozegranych rund (bez dziennych)."""

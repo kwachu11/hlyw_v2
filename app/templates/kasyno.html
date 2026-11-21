@@ -101,6 +101,29 @@
   .hk-rules{font-family:var(--gta-font-text);color:var(--gta-muted);font-size:.92rem;margin-top:14px}
   .hk-rules summary{cursor:pointer;color:var(--gta-text)}
   [hidden]{display:none!important}
+  .hk-live{margin-top:16px;background:var(--gta-panel);border:1px solid var(--gta-border);border-radius:12px;padding:12px 14px}
+  .hk-live-head{font-family:var(--gta-font-ui);font-size:1.35rem;letter-spacing:.04em;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .hk-live-head small{font-family:var(--gta-font-text);font-size:.9rem;color:var(--gta-muted);letter-spacing:normal;margin-left:auto}
+  .hk-live-dot{width:11px;height:11px;border-radius:50%;background:#ff3b3b;box-shadow:0 0 0 0 rgba(255,59,59,.7);animation:hk-pulse 1.6s infinite}
+  @keyframes hk-pulse{70%{box-shadow:0 0 0 9px rgba(255,59,59,0)}100%{box-shadow:0 0 0 0 rgba(255,59,59,0)}}
+  .hk-players{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+  .hk-player{display:inline-flex;align-items:center;gap:6px;background:var(--gta-panel-2);border:1px solid var(--gta-border);border-radius:20px;
+    padding:3px 10px 3px 3px;font-family:var(--gta-font-text);font-size:.88rem}
+  .hk-player.me{border-color:var(--gta-yellow)}
+  .hk-player img,.hk-feed img{width:26px;height:26px;border-radius:50%;object-fit:cover;flex:none}
+  .hk-player .g{color:var(--gta-muted)}
+  .hk-player .hand{color:var(--gta-yellow)}
+  .hk-feed{list-style:none;margin:0;padding:0;max-height:360px;overflow-y:auto;font-family:var(--gta-font-text)}
+  .hk-feed li{display:flex;align-items:center;gap:8px;padding:6px 4px;border-top:1px solid var(--gta-border);font-size:.92rem}
+  .hk-feed li:first-child{border-top:0}
+  .hk-feed li.empty{color:var(--gta-muted);justify-content:center}
+  .hk-feed li.new{animation:hk-in .6s ease-out}
+  .hk-feed li.big{background:linear-gradient(90deg,rgba(255,204,0,.14),transparent)}
+  @keyframes hk-in{from{opacity:0;transform:translateX(-24px);background:rgba(255,204,0,.25)}}
+  .hk-feed .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hk-feed .who small{color:var(--gta-muted)}
+  .hk-feed .res{font-weight:700;white-space:nowrap}
+  .hk-feed .ago{color:var(--gta-muted);font-size:.8rem;white-space:nowrap;width:62px;text-align:right}
   canvas.hk-fx{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:2000;
     background:transparent;border:0}   /* globalne canvas { tło czarne, ramka } z custom.css */
   .hk-win{position:fixed;left:50%;top:45%;width:0;height:0;pointer-events:none;z-index:2001;visibility:hidden}
@@ -231,6 +254,13 @@
       <button type="button" class="btn btn-outline-light btn-sm" id="bc-repeat">Powtórz</button>
       <button type="button" class="btn btn-warning" id="bc-deal">Rozdaj</button>
     </div>
+  </section>
+
+  <section class="hk-live">
+    <div class="hk-live-head"><span class="hk-live-dot"></span> Na żywo
+      <small>przy stołach: <b id="live-count">…</b></small></div>
+    <div class="hk-players" id="live-players"></div>
+    <ul class="hk-feed" id="live-feed"><li class="empty">Wczytuję zakłady…</li></ul>
   </section>
 
   <details class="hk-rules">
@@ -417,7 +447,7 @@
     try { localStorage.setItem('hk-tab', name); } catch (e) {}
     if (name === 'ruletka' && typeof layoutSplits === 'function') layoutSplits();
   }
-  document.querySelectorAll('.hk-tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  document.querySelectorAll('.hk-tabs button').forEach((b) => b.addEventListener('click', () => { showTab(b.dataset.tab); livePoll(); }));
 
   const CHIPS = [10, 50, 100, 500, 1000, 5000].filter((c) => c <= MAX_BET);
   if (!CHIPS.length) CHIPS.push(MAX_BET);
@@ -739,6 +769,36 @@
     });
   });
 
+  // ---------- NA ŻYWO: zakłady wszystkich i kto jest przy stołach ----------
+  let liveIds = null, liveBusy = false;
+  const agoText = (s) => s < 10 ? 'przed chwilą' : s < 60 ? s + ' s temu' : s < 3600 ? Math.floor(s / 60) + ' min temu' : Math.floor(s / 3600) + ' godz. temu';
+  function liveRender(d) {
+    $('live-count').textContent = d.players.length;
+    $('live-players').innerHTML = d.players.map((p) =>
+      '<span class="hk-player' + (p.me ? ' me' : '') + '"><img src="' + esc(p.photo) + '" alt=""> <b>' + esc(p.user) + '</b> <span class="g">' +
+      esc(p.game) + '</span>' + (p.hand ? ' <span class="hand" title="trwające rozdanie">· w grze ' + fmt(p.hand) + '</span>' : '') + '</span>').join('');
+    const fresh = new Set(d.feed.map((f) => f.id));
+    $('live-feed').innerHTML = d.feed.length ? d.feed.map((f) => {
+      const isNew = liveIds && !liveIds.has(f.id);
+      const res = f.net > 0 ? '<span class="res hk-plus">+' + fmt(f.net) + '</span>' : f.net < 0 ? '<span class="res hk-minus">' + fmt(f.net) + '</span>' : '<span class="res">±0</span>';
+      return '<li class="' + (isNew ? 'new ' : '') + (f.big ? 'big' : '') + '"><img src="' + esc(f.photo) + '" alt="">' +
+        '<span class="who"><b>' + esc(f.user) + '</b> ' + esc(f.game) + ' <small>· stawka ' + fmt(f.bet) + ' · ' + esc(f.text) + '</small></span>' +
+        res + '<span class="ago">' + agoText(f.ago) + '</span></li>';
+    }).join('') : '<li class="empty">Nikt jeszcze nie grał - zacznij pierwszy!</li>';
+    // cudza duża wygrana: krótkie piknięcie
+    if (liveIds && d.feed.some((f) => f.big && !f.me && !liveIds.has(f.id))) sound('sms');
+    liveIds = fresh;
+  }
+  function livePoll() {
+    if (liveBusy || document.hidden) return;
+    liveBusy = true;
+    fetch('{{ url_for("casino_live") }}?gra=' + encodeURIComponent(tab), {credentials: 'same-origin'})
+      .then((r) => r.json()).then((d) => { if (d.ok) liveRender(d); })
+      .catch(() => {}).finally(() => { liveBusy = false; });
+  }
+  setInterval(livePoll, 3000);
+  document.addEventListener('visibilitychange', livePoll);
+
   // ---------- start ----------
   setBalance(state.balance);
   renderDaily();
@@ -749,6 +809,7 @@
   rlRender();
   bcRender();
   showTab(tab);
+  livePoll();
 })();
 </script>
 {% endblock %}
