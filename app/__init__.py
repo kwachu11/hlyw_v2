@@ -141,7 +141,7 @@ SITE_SETTINGS = [
     ('cash_per_hof_point', 'int', 100, 'Kasa $ za każdy punkt w Hall of Fame', 'Kasyno'),
     ('cash_per_game', 'int', 5, 'Kasa $ za każdą rozegraną grę', 'Kasyno'),
     ('casino_min_bet', 'int', 10, 'Najmniejsza stawka', 'Kasyno'),
-    ('casino_max_bet', 'int', 5000, 'Największa stawka (na jedno rozdanie / zakręcenie)', 'Kasyno'),
+    ('casino_max_bet', 'int', 1000000, 'Największa stawka (na jedno rozdanie / zakręcenie)', 'Kasyno'),
     ('poker_big_blind', 'int', 20, 'Poker: duża ciemna (mała = połowa; wpisowe 20-100 dużych ciemnych)', 'Kasyno'),
     ('casino_big_win', 'int', 1000, 'Wygrana od tylu $ trafia do „Co się dzieje” (0 = nigdy)', 'Kasyno'),
 ]

@@ -23,6 +23,8 @@
   .hk-chip.sel{transform:translateY(-5px);box-shadow:0 0 0 3px var(--gta-yellow),0 8px 14px rgba(0,0,0,.6)}
   .hk-c10{background:#1e88e5}.hk-c50{background:#e53935}.hk-c100{background:#2e7d32}.hk-c500{background:#222}
   .hk-c1000{background:#7b1fa2}.hk-c5000{background:#e0a800;color:#111}
+  .hk-c10000{background:#ff6f00}.hk-c50000{background:#00838f}.hk-c100000{background:#c2185b}
+  .hk-c500000{background:#4e342e;border-color:#ffcc00}.hk-c1000000{background:linear-gradient(135deg,#ffe066,#b8860b);color:#111;border-color:#fff}
   .hk-felt{background:radial-gradient(ellipse at 50% 30%,#1f7a43,#0b3a1f 75%);border:6px solid #4a2c14;border-radius:22px;
     box-shadow:inset 0 0 40px rgba(0,0,0,.55),0 12px 30px rgba(0,0,0,.5);padding:16px;color:#fff;position:relative}
   .hk-label{font-family:var(--gta-font-ui);letter-spacing:.05em;font-size:1.15rem;color:#ffe9a6;text-shadow:var(--gta-outline)}
@@ -421,6 +423,8 @@
   let history = {{ history|tojson }};
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => Math.round(n).toLocaleString('en-US');
+  // krótko na żetonach: 1500 -> 1.5k, 1000000 -> 1M
+  const shortAmt = (a) => a >= 1e6 ? +(a / 1e6).toFixed(a % 1e6 ? 1 : 0) + 'M' : a >= 1000 ? +(a / 1000).toFixed(a % 1000 ? 1 : 0) + 'k' : a;
   const sound = (k) => { if (window.gta && gta.sound) gta.sound(k); };
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
@@ -557,7 +561,7 @@
   }
   document.querySelectorAll('.hk-tabs button').forEach((b) => b.addEventListener('click', () => { showTab(b.dataset.tab); livePoll(); }));
 
-  const CHIPS = [10, 50, 100, 500, 1000, 5000].filter((c) => c <= MAX_BET);
+  const CHIPS = [10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000].filter((c) => c <= MAX_BET);
   if (!CHIPS.length) CHIPS.push(MAX_BET);
   let chip = CHIPS[0];
   try { const saved = +localStorage.getItem('hk-chip'); if (CHIPS.includes(saved)) chip = saved; } catch (e) {}
@@ -565,7 +569,7 @@
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'hk-chip hk-c' + c + (c === chip ? ' sel' : '');
-    b.textContent = c >= 1000 ? (c / 1000) + 'k' : c;
+    b.textContent = shortAmt(c);
     b.title = fmt(c) + ' $';
     b.addEventListener('click', () => {
       chip = c;
@@ -742,7 +746,6 @@
   let rlShown = rlState.last ? rlState.last.round : null;   // runda, której wynik już pokazaliśmy
   let rlSpinning = false, rlFetching = false, rlLastFetch = 0, rlFlushed = null, rlMyLast = {};
   const nowMs = () => Date.now() + rlOffset;
-  const shortAmt = (a) => a >= 1000 ? (a / 1000).toFixed(a % 1000 ? 1 : 0) + 'k' : a;
   const sumOf = (o) => Object.values(o).reduce((a, b) => a + b, 0);
   function spotLabel(t, v) {
     const words = {red: 'czerwone', black: 'czarne', odd: 'nieparzyste', even: 'parzyste', low: '1-18', high: '19-36'};
