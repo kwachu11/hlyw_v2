@@ -64,7 +64,7 @@
   .hk-result.red{background:#c62828}.hk-result.black{background:#111}.hk-result.green{background:#1f9e4a}
   .hk-recent{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin-top:10px}
   .hk-recent span{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;border:1px solid rgba(255,255,255,.4)}
-  .hk-table{display:grid;grid-template-columns:1fr 1.15fr 1.15fr 1.15fr 1fr;grid-auto-rows:34px;gap:3px;user-select:none}
+  .hk-table{position:relative;display:grid;grid-template-columns:1fr 1.15fr 1.15fr 1.15fr 1fr;grid-auto-rows:34px;gap:3px;user-select:none}
   .hk-table button{position:relative;border:1px solid rgba(255,255,255,.55);color:#fff;font-weight:700;font-size:.95rem;padding:0;
     border-radius:4px;background:rgba(0,0,0,.18);font-family:var(--gta-font-text);touch-action:manipulation;line-height:1.05}
   .hk-table button.red{background:#b71c1c}.hk-table button.black{background:#151515}.hk-table button.green{background:#1f8f45}
@@ -73,6 +73,17 @@
   @keyframes hk-blink{50%{outline-color:transparent}}
   .hk-table .bet,.hk-spot .bet{position:absolute;right:-5px;top:-7px;min-width:24px;height:24px;padding:0 4px;border-radius:12px;background:var(--gta-yellow);
     color:#111;font-size:.72rem;display:flex;align-items:center;justify-content:center;border:2px solid #fff;z-index:2;font-weight:800}
+  .hk-table button.hk-split{position:absolute;border:0;background:transparent;border-radius:50%;z-index:3;transform:translate(-50%,-50%)}
+  .hk-table button.hk-split.h{width:20px;height:24px}
+  .hk-table button.hk-split.v{width:28px;height:16px}
+  .hk-table button.hk-split::before{content:'';position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;
+    border-radius:50%;background:var(--gta-yellow);opacity:.35;transition:opacity .12s,transform .12s}
+  .hk-table button.hk-split:hover::before{opacity:1;transform:scale(1.4)}
+  @media (hover:hover){.hk-table button.hk-split::before{opacity:0}}
+  .hk-table button.hk-split .bet{right:auto;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 2px 4px rgba(0,0,0,.6)}
+  .hk-table button.hk-split.hit{outline:none;animation:none}
+  .hk-table button.hk-split.hit::before{opacity:1;background:#fff;transform:scale(1.5)}
+  .hk-hint{font-family:var(--gta-font-text);color:#cfe8d6;font-size:.82rem;text-align:center;margin-top:6px}
   .hk-total{font-family:var(--gta-font-text);text-align:center;margin-top:8px}
   .hk-bac{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center}
   .hk-bac .side-box{padding:6px;border-radius:12px;border:2px solid transparent}
@@ -156,6 +167,7 @@
       </div>
       <div>
         <div class="hk-table" id="rl-table"></div>
+        <div class="hk-hint">Split: kliknij kreskę między dwoma numerami - płaci 17:1</div>
         <div class="hk-total">Na stole: <b id="rl-total">0</b> żetonów</div>
         <div class="hk-actions">
           <button type="button" class="btn btn-outline-light btn-sm" id="rl-undo">Cofnij</button>
@@ -193,7 +205,7 @@
     <summary>Zasady</summary>
     <p class="mt-2 mb-1">Żetony są tylko na zabawę - nie da się ich kupić ani wymienić. Codziennie możesz odebrać pulę żetonów; seria dni z rzędu daje +10% za dzień (najwyżej +{{ streak_max * 10 }}%). Stawka na jedno rozdanie / zakręcenie: {{ min_bet|money }}-{{ max_bet|money }}.</p>
     <p class="mb-1"><b>Blackjack:</b> 6 talii, krupier dobiera do 16 i stoi na każdej 17. Blackjack płaci 3:2, zwykła wygrana 1:1. Podwojenie przy dwóch kartach, rozdzielenie pary (do 4 rąk, rozdzielone asy dostają po jednej karcie).</p>
-    <p class="mb-1"><b>Ruletka:</b> europejska, jedno zero. Numer 35:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
+    <p class="mb-1"><b>Ruletka:</b> europejska, jedno zero. Numer 35:1, split (dwa sąsiednie numery - kliknij kreskę między nimi) 17:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
     <p class="mb-0"><b>Bakarat:</b> klasyczne zasady dobierania trzeciej karty. Gracz 1:1, Bankier 0,95:1, Remis 8:1 - przy remisie zakłady na Gracza i Bankiera wracają.</p>
   </details>
 
@@ -294,6 +306,7 @@
     document.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== name; });
     document.querySelectorAll('.hk-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
     try { localStorage.setItem('hk-tab', name); } catch (e) {}
+    if (name === 'ruletka' && typeof layoutSplits === 'function') layoutSplits();
   }
   document.querySelectorAll('.hk-tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -436,8 +449,28 @@
       .forEach(([t, label], i) => add(t, null, label, 'side' + (t === 'red' ? ' red' : t === 'black' ? ' black' : ''), 1, i * 2 + 2, 2));
     [1, 2, 3].forEach((d) => add('dozen', d, (d * 12 - 11) + '<br>-<br>' + d * 12, 'side', 5, (d - 1) * 4 + 2, 4));
     [1, 2, 3].forEach((c) => add('column', c, '2:1', 'side', c + 1, 14));
+    // split: niewidoczne przyciski na kreskach między sąsiednimi numerami (0 z 1/2/3, w rzędzie, jeden pod drugim)
+    const splits = [[0, 1], [0, 2], [0, 3]];
+    for (let n = 1; n <= 36; n++) { if (n % 3) splits.push([n, n + 1]); if (n <= 33) splits.push([n, n + 3]); }
+    splits.forEach(([a, b]) => cells.push('<button type="button" class="hk-split ' + (b - a === 1 && a ? 'h' : 'v') +
+      '" data-t="split" data-v="' + a + '-' + b + '" title="Split ' + a + ' / ' + b + ' (17:1)" aria-label="Split ' + a + ' i ' + b + '"></button>'));
     $('rl-table').innerHTML = cells.join('');
   })();
+  function layoutSplits() {
+    // pozycja = środek wspólnej krawędzi dwóch pól (liczona z układu, więc działa na każdej szerokości)
+    const cell = (n) => $('rl-table').querySelector('button[data-t="n"][data-v="' + n + '"]');
+    document.querySelectorAll('#rl-table .hk-split').forEach((z) => {
+      const [a, b] = z.dataset.v.split('-').map(Number), A = cell(a), B = cell(b);
+      if (!A.offsetWidth) return;
+      const ax1 = A.offsetLeft, ax2 = ax1 + A.offsetWidth, ay1 = A.offsetTop, ay2 = ay1 + A.offsetHeight;
+      const bx1 = B.offsetLeft, bx2 = bx1 + B.offsetWidth, by1 = B.offsetTop, by2 = by1 + B.offsetHeight;
+      let x, y;
+      if (by1 >= ay2 - 1) { x = (Math.max(ax1, bx1) + Math.min(ax2, bx2)) / 2; y = (ay2 + by1) / 2; }
+      else { x = (ax2 + bx1) / 2; y = (Math.max(ay1, by1) + Math.min(ay2, by2)) / 2; }
+      z.style.left = x + 'px'; z.style.top = y + 'px';
+    });
+  }
+  window.addEventListener('resize', layoutSplits);
   const betKey = (t, v) => t + ':' + (v == null ? '' : v);
   function rlRender() {
     document.querySelectorAll('#rl-table button').forEach((b) => {
@@ -491,7 +524,7 @@
   }
   $('rl-spin').addEventListener('click', () => {
     if (rlBusy) return;
-    const bets = Object.keys(rlBets).map((k) => { const [t, v] = k.split(':'); return {t: t, v: v === '' ? null : +v, a: rlBets[k]}; });
+    const bets = Object.keys(rlBets).map((k) => { const [t, v] = k.split(':'); return {t: t, v: v === '' ? null : t === 'split' ? v : +v, a: rlBets[k]}; });
     const total = bets.reduce((a, b) => a + b.a, 0);
     if (!total) { message($('rl-msg'), 'Wybierz żeton i kliknij pola na stole.', 'err'); return; }
     if (total < MIN_BET) { message($('rl-msg'), 'Najmniej ' + fmt(MIN_BET) + ' żetonów na zakręcenie.', 'err'); return; }
@@ -515,6 +548,9 @@
         res.className = 'hk-result ' + colorOf(d.number);
         rlRecent(d.number);
         document.querySelectorAll('#rl-table button[data-t="n"][data-v="' + d.number + '"]').forEach((x) => x.classList.add('hit'));
+        document.querySelectorAll('#rl-table .hk-split').forEach((x) => {
+          if (rlBets[betKey('split', x.dataset.v)] && x.dataset.v.split('-').map(Number).includes(d.number)) x.classList.add('hit');
+        });
         message($('rl-msg'), d.net > 0 ? d.number + ' - wygrywasz +' + fmt(d.net) : d.payout > 0 ? d.number + ' - wraca ' + fmt(d.payout) + ' z ' + fmt(total) : d.number + ' - przegrywasz ' + fmt(total),
                 d.net > 0 ? 'win' : d.net < 0 ? 'lose' : '');
         sync(d);

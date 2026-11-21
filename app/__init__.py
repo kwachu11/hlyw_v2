@@ -298,7 +298,9 @@ CASINO_BLACKJACK_MAX_HANDS = 4       # po rozdzieleniach (split)
 ROULETTE_WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14,
                   31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]   # kolejność pól na kole europejskim
 ROULETTE_RED = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-ROULETTE_MAX_BETS = 60
+ROULETTE_MAX_BETS = 160
+# split = zakład na dwa sąsiednie pola stołu (17:1): obok siebie w rzędzie, jedno pod drugim, 0 z 1/2/3
+ROULETTE_SPLITS = {(0, 1), (0, 2), (0, 3)} | {(n, n + 1) for n in range(1, 37) if n % 3} | {(n, n + 3) for n in range(1, 34)}
 # Kasa w stylu GTA (pasek w menu): za punkt w rankingu ogólnym Hall of Fame i za każdą rozegraną grę
 CASH_PER_HOF_POINT = 1000
 CASH_PER_GAME = 10
@@ -4247,6 +4249,8 @@ def create_app():
         """Ile razy stawka wraca (razem ze stawką) przy wyniku number; 0 = zakład przegrany."""
         if kind == 'n':
             return 36 if number == value else 0
+        if kind == 'split':
+            return 18 if number in value else 0
         if number == 0:
             return 0
         won = {'red': number in ROULETTE_RED, 'black': number not in ROULETTE_RED,
@@ -4267,11 +4271,14 @@ def create_app():
         for b in raw_bets:
             try:
                 kind, amount = str(b.get('t')), int(b.get('a'))
-                value = int(b['v']) if kind in ('n', 'dozen', 'column') else None
+                if kind == 'split':      # 'a-b', np. '17-20'
+                    value = tuple(sorted(int(x) for x in str(b['v']).split('-')))
+                else:
+                    value = int(b['v']) if kind in ('n', 'dozen', 'column') else None
             except (AttributeError, KeyError, TypeError, ValueError):
                 return casino_error('Zły zakład.')
-            valid = {'n': range(37), 'dozen': range(1, 4), 'column': range(1, 4)}.get(kind, (None,))
-            if kind not in ('n', 'dozen', 'column', 'red', 'black', 'odd', 'even', 'low', 'high') \
+            valid = {'n': range(37), 'dozen': range(1, 4), 'column': range(1, 4), 'split': ROULETTE_SPLITS}.get(kind, (None,))
+            if kind not in ('n', 'split', 'dozen', 'column', 'red', 'black', 'odd', 'even', 'low', 'high') \
                     or value not in valid or amount < 1:
                 return casino_error('Zły zakład.')
             bets[(kind, value)] = bets.get((kind, value), 0) + amount
