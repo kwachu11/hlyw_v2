@@ -138,11 +138,10 @@ SITE_SETTINGS = [
     ('countdown_camera', 'bool', True, 'Na stronie kamery', 'Licznik (premiera, turniej...)'),
     ('countdown_hide_days', 'int', 7, 'Schowaj po tylu dniach od daty', 'Licznik (premiera, turniej...)'),
     ('casino_on', 'bool', True, 'Kasyno otwarte (zamknięte widzi tylko admin)', 'Kasyno'),
-    ('casino_daily', 'int', 1000, 'Dzienne żetony do odebrania', 'Kasyno'),
     ('casino_min_bet', 'int', 10, 'Najmniejsza stawka', 'Kasyno'),
     ('casino_max_bet', 'int', 5000, 'Największa stawka (na jedno rozdanie / zakręcenie)', 'Kasyno'),
     ('poker_big_blind', 'int', 20, 'Poker: duża ciemna (mała = połowa; wpisowe 20-100 dużych ciemnych)', 'Kasyno'),
-    ('casino_big_win', 'int', 1000, 'Wygrana od tylu żetonów trafia do „Co się dzieje” (0 = nigdy)', 'Kasyno'),
+    ('casino_big_win', 'int', 1000, 'Wygrana od tylu $ trafia do „Co się dzieje” (0 = nigdy)', 'Kasyno'),
 ]
 
 # Załączniki na czacie (jak na Messengerze): rodzaj -> rozszerzenia. Limit = client_max_body_size w nginx (50 MB).
@@ -302,7 +301,6 @@ POKER_PAUSE_SECONDS = 7          # po rozdaniu - pokazanie kart i wyników
 POKER_TIMEOUTS_OUT = 2           # tyle przekroczeń czasu z rzędu = „nieobecny” (nie dostaje kart)
 POKER_OUT_KICK_SECONDS = 180     # nieobecny tyle czasu - wstaje od stołu, żetony wracają do portfela
 POKER_HANDS = ['Wysoka karta', 'Para', 'Dwie pary', 'Trójka', 'Strit', 'Kolor', 'Full', 'Kareta', 'Poker']
-CASINO_DAILY_STREAK_MAX = 6          # seria dni z rzędu: +10% dziennych za każdy dzień, najwyżej +60%
 CASINO_BLACKJACK_DECKS = 6
 CASINO_BLACKJACK_MAX_HANDS = 4       # po rozdzieleniach (split)
 ROULETTE_WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14,
@@ -1066,7 +1064,8 @@ def create_app():
         __table_args__ = (db.UniqueConstraint('track_id', 'user_id'),)
 
     class CasinoWallet(db.Model):
-        """Żetony w kasynie: saldo, ostatnie dzienne (data polska) i trwające rozdanie blackjacka (JSON)."""
+        """Portfel kasyna. balance = wynik w kasynie od 21.11.2026 (wygrane - stawki, może być na minusie);
+        kasa do gry = kasa z gier (user_cash, jak w menu) + balance. Do tego trwające rozdanie blackjacka (JSON)."""
         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
         balance = db.Column(db.Integer, nullable=False, default=0)
         daily_date = db.Column(db.Date, nullable=True)
@@ -1160,6 +1159,20 @@ def create_app():
                     db.session.rollback()
                     if 'duplicate column' not in str(e):
                         raise
+
+        # 21.11.2026: kasyno przechodzi z darmowych dziennych żetonów na kasę $ z gier - raz zerujemy portfele
+        # (na prośbę usera bez zwrotu): saldo, rozdania blackjacka, nierozliczone zakłady ruletki, stół pokera.
+        # Flaga w site_setting (klucz główny) - robi to tylko jeden worker i tylko raz.
+        if not db.session.get(SiteSetting, 'casino_cash_reset'):
+            try:
+                db.session.add(SiteSetting(key='casino_cash_reset', value='1'))
+                CasinoWallet.query.update({CasinoWallet.balance: 0, CasinoWallet.blackjack: None}, synchronize_session=False)
+                settled = db.session.query(RouletteRound.id)
+                RouletteBet.query.filter(~RouletteBet.round_id.in_(settled)).delete(synchronize_session=False)
+                PokerTable.query.delete(synchronize_session=False)
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
 
         if not db.session.get(SiteSetting, 'filaments_seeded'):
             try:
@@ -3900,7 +3913,7 @@ def create_app():
             stats.append({'name': game['name'], 'ranking': game['ranking'], 'has_editions': game['previous'] is not None,
                           'current': player_place(game['model'], game['current'], user.id),
                           'previous': player_place(game['model'], game['previous'], user.id) if game['previous'] is not None else None})
-        return render_template('profil.html', profile_user=user, stats=stats, profile_cash=user_cash(user.id),
+        return render_template('profil.html', profile_user=user, stats=stats, profile_cash=user_money(user.id),
                                profile_standing=standings().get(user.id, {'points': 0, 'games': 0, 'cash': 0}))
 
     def overall_ranking(rankings):
@@ -3959,7 +3972,13 @@ def create_app():
         return result
 
     def user_cash(user_id):
+        """Kasa zarobiona w grach: za punkty Hall of Fame i za rozegrane gry."""
         return standings().get(user_id, {}).get('cash', 0)
+
+    def user_money(user_id):
+        """Kasa na pasku w menu = zarobiona w grach + wynik w kasynie (wygrane i przegrane)."""
+        wallet = db.session.get(CasinoWallet, user_id)
+        return user_cash(user_id) + (wallet.balance if wallet else 0)
 
     @app.template_global('crown')
     def crown(user_id):
@@ -3995,7 +4014,7 @@ def create_app():
     def inject_cash():
         if not current_user.is_authenticated:
             return {}
-        return {'my_cash': user_cash(current_user.id),
+        return {'my_cash': user_money(current_user.id),
                 'cash_per_point': CASH_PER_HOF_POINT, 'cash_per_game': CASH_PER_GAME}
 
     wanted_cache = {'at': 0, 'data': None}
@@ -4080,22 +4099,19 @@ def create_app():
     def casino_error(message, status=400, **extra):
         return jsonify({'ok': False, 'error': message, **extra}), status
 
-    def casino_daily_info(wallet):
-        """Dzienne żetony: czy są do odebrania, ile (z serią dni z rzędu) i kiedy następne (północ, ms)."""
-        today = date.today()
-        claimed = wallet.daily_date == today
-        streak = wallet.streak if claimed else (wallet.streak + 1 if wallet.daily_date == today - timedelta(days=1) else 1)
-        base = max(0, site_settings()['casino_daily'])
-        amount = base * (10 + min(max(streak, 1) - 1, CASINO_DAILY_STREAK_MAX)) // 10
-        midnight = datetime.combine(today + timedelta(days=1), datetime.min.time())
-        return {'available': not claimed and amount > 0, 'amount': amount, 'streak': streak,
-                'next_ms': int(midnight.timestamp() * 1000)}
+    def casino_money(user_id, wallet=None):
+        """Kasa do gry w kasynie = kasa z gier (Hall of Fame + rozegrane gry, jak w menu) + wynik w kasynie."""
+        wallet = wallet or casino_wallet(user_id)
+        return user_cash(user_id) + wallet.balance
+
+    def casino_can_pay(user_id, amount):
+        """Warunek do UPDATE: po zdjęciu `amount` kasa do gry nie spadnie poniżej zera."""
+        return CasinoWallet.balance >= amount - user_cash(user_id)
 
     def casino_state(user_id):
         wallet = casino_wallet(user_id)
         hand = json.loads(wallet.blackjack) if wallet.blackjack else None
-        return {'balance': wallet.balance, 'daily': casino_daily_info(wallet),
-                'blackjack': bj_view(hand) if hand else None}
+        return {'balance': casino_money(user_id, wallet), 'blackjack': bj_view(hand) if hand else None}
 
     def casino_history(user_id, limit=12):
         rows = CasinoBet.query.filter_by(user_id=user_id).order_by(CasinoBet.id.desc()).limit(limit).all()
@@ -4194,31 +4210,9 @@ def create_app():
         low, high = casino_limits()
         return render_template('kasyno.html', state=casino_state(current_user.id), history=casino_history(current_user.id),
                                min_bet=low, max_bet=high, wheel=ROULETTE_WHEEL, red=sorted(ROULETTE_RED),
-                               streak_max=CASINO_DAILY_STREAK_MAX, top=casino_top_wins(current_user.id),
+                               top=casino_top_wins(current_user.id),
                                roulette=roulette_state(current_user.id),
                                roulette_times=[ROULETTE_ROUND, ROULETTE_CLOSE, ROULETTE_SETTLE])
-
-    @app.route('/kasyno/dzienne', methods=['POST'])
-    @login_required
-    def casino_daily():
-        blocked = casino_guard()
-        if blocked:
-            return blocked
-        info = casino_daily_info(casino_wallet(current_user.id))
-        if not info['available']:
-            return casino_error('Dzisiejsze żetony już odebrane - kolejne po północy.')
-        today = date.today()
-        if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance + info['amount'],
-                                               CasinoWallet.daily_date: today, CasinoWallet.streak: info['streak']},
-                             db.or_(CasinoWallet.daily_date.is_(None), CasinoWallet.daily_date != today)):
-            db.session.rollback()
-            return casino_error('Dzisiejsze żetony już odebrane - kolejne po północy.')
-        casino_record(current_user.id, 'dzienne', 0, info['amount'],
-                      f'seria {plural(info["streak"], "dzień", "dni", "dni")} z rzędu')
-        db.session.commit()
-        state = casino_state(current_user.id)
-        return jsonify({'ok': True, 'amount': info['amount'], 'streak': info['streak'], **state,
-                        'history': casino_history(current_user.id)})
 
     @app.route('/kasyno/blackjack', methods=['POST'])
     @login_required
@@ -4241,7 +4235,7 @@ def create_app():
             except (TypeError, ValueError):
                 return casino_error('Podaj stawkę.')
             if not low <= bet <= high:
-                return casino_error(f'Stawka od {money(low)} do {money(high)} żetonów.')
+                return casino_error(f'Stawka od {money(low)} do {money(high)} $.')
             shoe = new_shoe(CASINO_BLACKJACK_DECKS)
             player, dealer = [shoe.pop()], [shoe.pop()]
             player.append(shoe.pop())
@@ -4285,10 +4279,10 @@ def create_app():
         if not casino_update(current_user.id,
                              {CasinoWallet.balance: CasinoWallet.balance - extra + payout,
                               CasinoWallet.blackjack: None if state.get('over') else json.dumps(state)},
-                             condition, CasinoWallet.balance >= extra):
+                             condition, casino_can_pay(current_user.id, extra)):
             db.session.rollback()
-            wallet = casino_wallet(current_user.id)
-            message = 'Za mało żetonów.' if wallet.balance < extra else 'Rozdanie zmieniło się w innym oknie - odświeżam.'
+            message = 'Za mało kasy - zarób ją w grach.' if casino_money(current_user.id) < extra \
+                else 'Rozdanie zmieniło się w innym oknie - odświeżam.'
             return casino_error(message, **casino_state(current_user.id))
         if state.get('over'):
             casino_record(current_user.id, 'blackjack', sum(h['bet'] for h in state['hands']), payout, bj_summary(state))
@@ -4407,7 +4401,7 @@ def create_app():
         blocked = casino_guard()
         if blocked:
             return blocked
-        result = {'ok': True, 'roulette': roulette_state(current_user.id), 'balance': casino_wallet(current_user.id).balance}
+        result = {'ok': True, 'roulette': roulette_state(current_user.id), 'balance': casino_money(current_user.id)}
         if request.args.get('historia'):
             result['history'] = casino_history(current_user.id)
         return jsonify(result)
@@ -4425,7 +4419,7 @@ def create_app():
             return casino_error('Zakłady zamknięte - poczekaj na następną rundę.', roulette=roulette_state(current_user.id))
         raw_bets = (request.get_json(silent=True) or {}).get('bets')
         if not isinstance(raw_bets, list) or not 0 < len(raw_bets) <= ROULETTE_MAX_BETS:
-            return casino_error('Postaw żetony na stole.')
+            return casino_error('Postaw coś na stole.')
         bets = {}
         for b in raw_bets:
             try:
@@ -4441,13 +4435,13 @@ def create_app():
             .filter_by(round_id=rnd, user_id=current_user.id).scalar()
         low, high = casino_limits()
         if already + total < low or already + total > high:
-            return casino_error(f'Na jedną rundę od {money(low)} do {money(high)} żetonów'
+            return casino_error(f'Na jedną rundę od {money(low)} do {money(high)} $'
                                 + (f' (masz już {money(already)})' if already else '') + '.')
         casino_wallet(current_user.id)
         if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance - total},
-                             CasinoWallet.balance >= total):
+                             casino_can_pay(current_user.id, total)):
             db.session.rollback()
-            return casino_error('Za mało żetonów.')
+            return casino_error('Za mało kasy - zarób ją w grach.')
         db.session.add_all(RouletteBet(round_id=rnd, user_id=current_user.id, kind=kind, value=value, amount=amount)
                            for (kind, value), amount in bets.items())
         db.session.commit()
@@ -4495,12 +4489,12 @@ def create_app():
         total = sum(bets.values())
         low, high = casino_limits()
         if min(bets.values()) < 0 or not low <= total <= high:
-            return casino_error(f'Na jedno rozdanie od {money(low)} do {money(high)} żetonów.')
+            return casino_error(f'Na jedno rozdanie od {money(low)} do {money(high)} $.')
         casino_wallet(current_user.id)
         if not casino_update(current_user.id, {CasinoWallet.balance: CasinoWallet.balance - total},
-                             CasinoWallet.balance >= total):
+                             casino_can_pay(current_user.id, total)):
             db.session.rollback()
-            return casino_error('Za mało żetonów.')
+            return casino_error('Za mało kasy - zarób ją w grach.')
         player, banker = baccarat_deal()
         pv, bv = baccarat_value(player), baccarat_value(banker)
         winner = 'player' if pv > bv else 'banker' if bv > pv else 'tie'
@@ -4794,7 +4788,7 @@ def create_app():
                     poker_finish(state, now, showdown=False)
         if s['stack']:
             ops.append((s['uid'], s['stack']))
-        poker_log(state, f'{s["name"]} wstaje od stołu ({s["stack"]} żetonów wraca)')
+        poker_log(state, f'{s["name"]} wstaje od stołu ({s["stack"]} $ wraca)')
         state['seats'][seat] = None
 
     def poker_tick(state, now, ops):
@@ -4863,9 +4857,9 @@ def create_app():
                 continue
             for uid, delta in ops:
                 if delta < 0:
-                    if not casino_update(uid, {CasinoWallet.balance: CasinoWallet.balance + delta}, CasinoWallet.balance >= -delta):
+                    if not casino_update(uid, {CasinoWallet.balance: CasinoWallet.balance + delta}, casino_can_pay(uid, -delta)):
                         db.session.rollback()
-                        return state, 'Za mało żetonów w portfelu.'
+                        return state, 'Za mało kasy - zarób ją w grach.'
                 elif delta:
                     casino_update(uid, {CasinoWallet.balance: CasinoWallet.balance + delta})
             for uid, bet, payout, text in records:
@@ -4926,7 +4920,7 @@ def create_app():
         if blocked:
             return blocked
         state, _ = poker_mutate()
-        return jsonify({'ok': True, 'poker': poker_view(state, current_user.id), 'balance': casino_wallet(current_user.id).balance})
+        return jsonify({'ok': True, 'poker': poker_view(state, current_user.id), 'balance': casino_money(current_user.id)})
 
     @app.route('/kasyno/poker', methods=['POST'])
     @login_required
@@ -4954,9 +4948,9 @@ def create_app():
                 if not 0 <= seat < POKER_SEATS or state['seats'][seat] or (h and h['phase'] != 'done' and str(seat) in h['p']):
                     return 'To miejsce jest zajęte.'
                 if not low <= buyin <= high:
-                    return f'Wpisowe od {money(low)} do {money(high)} żetonów.'
-                if db.session.get(CasinoWallet, uid).balance < buyin:
-                    return 'Za mało żetonów w portfelu.'
+                    return f'Wpisowe od {money(low)} do {money(high)} $.'
+                if casino_money(uid) < buyin:
+                    return 'Za mało kasy - zarób ją w grach.'
                 state['seats'][seat] = {'uid': uid, 'name': current_user.username, 'photo': avatar_url(current_user.photo),
                                         'stack': buyin, 'out': False, 'out_since': None, 'timeouts': 0}
                 ops.append((uid, -buyin))
@@ -4976,7 +4970,7 @@ def create_app():
             return poker_act(state, my_seat, action, data.get('amount'), now)
 
         state, error = poker_mutate(change)
-        result = {'ok': not error, 'poker': poker_view(state, uid), 'balance': casino_wallet(uid).balance}
+        result = {'ok': not error, 'poker': poker_view(state, uid), 'balance': casino_money(uid)}
         if error:
             result['error'] = error
         return jsonify(result), (400 if error else 200)
@@ -5039,7 +5033,7 @@ def create_app():
                 except (ValueError, KeyError, TypeError):
                     hand = None
             players.append({'user': w.user.username, 'photo': avatar_url(w.user.photo), 'me': w.user_id == current_user.id,
-                            'game': CASINO_GAMES.get(w.seen_game, '🎰 Kasyno'), 'balance': w.balance, 'hand': hand})
+                            'game': CASINO_GAMES.get(w.seen_game, '🎰 Kasyno'), 'balance': casino_money(w.user_id, w), 'hand': hand})
         players.sort(key=lambda p: (not p['me'], p['user'].lower()))
         return jsonify({'ok': True, 'feed': feed, 'players': players, 'top': casino_top_wins(current_user.id)})
 
@@ -5050,10 +5044,11 @@ def create_app():
             .filter(CasinoBet.game.in_(list(CASINO_GAMES))).group_by(CasinoBet.user_id).all()}
         rows = []
         for wallet in CasinoWallet.query.all():
-            if not wallet.user or (wallet.balance == 0 and wallet.user_id not in stats and not wallet.daily_date):
+            if not wallet.user or (wallet.balance == 0 and wallet.user_id not in stats):
                 continue
             rounds, net, best = stats.get(wallet.user_id, (0, 0, 0))
-            rows.append({'user': wallet.user, 'balance': wallet.balance, 'rounds': rounds, 'net': net, 'best': max(best, 0)})
+            rows.append({'user': wallet.user, 'balance': casino_money(wallet.user_id, wallet), 'rounds': rounds, 'net': net,
+                         'best': max(best, 0)})
         key = {'netto': 'net', 'wygrana': 'best', 'gry': 'rounds'}.get(sort, 'balance')
         rows.sort(key=lambda r: (-r[key], -r['balance'], r['user'].username.lower()))
         return rows
@@ -5248,7 +5243,7 @@ def create_app():
         if want('casino') and big_win > 0:
             for b in CasinoBet.query.filter(CasinoBet.created_at > since, CasinoBet.game.in_(list(CASINO_GAMES)),
                                             CasinoBet.payout - CasinoBet.bet >= big_win).all():
-                add('casino', '🎰', b.user_id, f'kasyno - {CASINO_GAMES[b.game][2:]}: wygrana {money(b.payout - b.bet)} żetonów'
+                add('casino', '🎰', b.user_id, f'kasyno - {CASINO_GAMES[b.game][2:]}: wygrana {money(b.payout - b.bet)} $'
                     + (f' ({b.details})' if b.details else ''), url_for('casino_ranking_page'), b.created_at)
         if want('upgrade'):
             # kilka ulepszeń dodanych jednego dnia = jeden wpis, żeby nie zasłoniły reszty
@@ -5303,7 +5298,7 @@ def create_app():
     @app.route('/api/kasa')
     @login_required
     def api_cash():
-        return jsonify({'cash': user_cash(current_user.id)})
+        return jsonify({'cash': user_money(current_user.id)})
 
     @app.route('/dino', methods=['GET', 'POST'])
     @login_required

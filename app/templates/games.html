@@ -12,9 +12,9 @@
                 <div class="card-body">
                     <h5 class="card-title">Kasyno</h5>
                     {% if casino_leader %}
-                    <p class="card-text d-flex align-items-center hl-gap"><img src="{{ casino_leader.user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;" alt=""> <span><strong>{{ casino_leader.user.username }}</strong><br><small class="text-muted">najwięcej żetonów: {{ casino_leader.balance|money }}</small></span></p>
+                    <p class="card-text d-flex align-items-center hl-gap"><img src="{{ casino_leader.user.photo|avatar_url }}" class="rounded-circle" width="40" height="40" style="object-fit: cover;" alt=""> <span><strong>{{ casino_leader.user.username }}</strong><br><small class="text-muted">najwięcej na plusie w kasynie: +{{ casino_leader.balance|money }} $</small></span></p>
                     {% else %}
-                    <p class="card-text">Blackjack, ruletka i bakarat. Odbierz dzienne żetony i graj!</p>
+                    <p class="card-text">Blackjack, ruletka, bakarat i poker - grasz kasą $ zarobioną w grach.</p>
                     {% endif %}
                     <a href="{{ url_for('casino') }}" class="btn btn-primary">Zagraj</a>
                     <a href="{{ url_for('casino_ranking_page') }}" class="btn btn-outline-secondary">Ranking</a>

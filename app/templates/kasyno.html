@@ -246,9 +246,8 @@
 <div class="container hk-wrap">
   <div class="hk-top">
     <h2>🎰 Kasyno</h2>
-    <div class="hk-balance" id="hk-balance">0 <small>żetonów</small></div>
+    <div class="hk-balance" id="hk-balance">0 <small>$</small></div>
     <div class="hk-daily">
-      <button type="button" class="btn btn-success" id="hk-daily-btn"></button>
       <span class="small" id="hk-daily-info"></span>
       <a href="{{ url_for('casino_ranking_page') }}" class="btn btn-outline-secondary">🏆 Ranking</a>
     </div>
@@ -264,7 +263,7 @@
     <button type="button" data-tab="poker">♠ Poker</button>
   </div>
 
-  <div class="hk-chips" id="hk-chips"><span class="lbl">Żeton:</span></div>
+  <div class="hk-chips" id="hk-chips"><span class="lbl">Stawka:</span></div>
 
   <!-- ============ BLACKJACK ============ -->
   <section class="hk-felt" data-panel="blackjack">
@@ -273,7 +272,7 @@
     <div class="hk-msg" id="bj-msg"></div>
     <div class="hk-hands" id="bj-hands"></div>
     <div id="bj-bet-box">
-      <div class="hk-spot" id="bj-spot" title="Kliknij, żeby dołożyć żeton"><span>Stawka</span><b id="bj-bet">0</b></div>
+      <div class="hk-spot" id="bj-spot" title="Kliknij, żeby dołożyć stawkę"><span>Stawka</span><b id="bj-bet">0</b></div>
       <div class="hk-actions">
         <button type="button" class="btn btn-outline-light btn-sm" id="bj-clear">Wyczyść</button>
         <button type="button" class="btn btn-outline-light btn-sm" id="bj-double-bet">2×</button>
@@ -357,7 +356,7 @@
     <div class="pk-bar">
       <div class="hk-msg" id="pk-msg"></div>
       <div id="pk-sit" class="pk-sit" hidden>
-        <div class="mb-1">Wpisowe: <b id="pk-buyin-val"></b> żetonów <small class="text-muted" id="pk-buyin-range"></small></div>
+        <div class="mb-1">Wpisowe: <b id="pk-buyin-val"></b> $ <small class="text-muted" id="pk-buyin-range"></small></div>
         <input type="range" id="pk-buyin" class="custom-range">
         <div class="hk-actions"><button type="button" class="btn btn-outline-light btn-sm" id="pk-sit-cancel">Anuluj</button>
           <button type="button" class="btn btn-warning" id="pk-sit-go">Usiądź</button></div>
@@ -398,10 +397,10 @@
 
   <details class="hk-rules">
     <summary>Zasady</summary>
-    <p class="mt-2 mb-1">Żetony są tylko na zabawę - nie da się ich kupić ani wymienić. Codziennie możesz odebrać pulę żetonów; seria dni z rzędu daje +10% za dzień (najwyżej +{{ streak_max * 10 }}%). Stawka na jedno rozdanie / zakręcenie: {{ min_bet|money }}-{{ max_bet|money }}.</p>
+    <p class="mt-2 mb-1">Grasz kasą $ z paska w menu - tą samą, którą zarabiasz w grach ({{ cash_per_game }} $ za każdą grę, {{ cash_per_point|money }} $ za punkt w Hall of Fame). Wygrane w kasynie ją powiększają, przegrane zmniejszają. Kasa jest tylko na zabawę - nie da się jej kupić ani wymienić. Stawka na jedno rozdanie / zakręcenie: {{ min_bet|money }}-{{ max_bet|money }} $.</p>
     <p class="mb-1"><b>Blackjack:</b> 6 talii, krupier dobiera do 16 i stoi na każdej 17. Blackjack płaci 3:2, zwykła wygrana 1:1. Podwojenie przy dwóch kartach, rozdzielenie pary (do 4 rąk, rozdzielone asy dostają po jednej karcie).</p>
     <p class="mb-1"><b>Ruletka:</b> wspólny stół dla wszystkich - koło kręci się co {{ roulette_times[0] }} s, zakłady przyjmujemy przez pierwsze {{ roulette_times[1] }} s rundy, na stole widać żetony i avatary innych graczy. Europejska, jedno zero. Numer 35:1, split (dwa sąsiednie numery - kreska między nimi) 17:1, rząd 3 numerów (lewa krawędź rzędu) 11:1, róg 4 numerów (punkt styku) 8:1, dwa rzędy (lewa krawędź między rzędami) 5:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
-    <p class="mb-1"><b>Poker Texas Hold'em:</b> wspólny stół do 6 osób, bez limitu (no-limit). Siadasz z wpisowym z portfela, po wstaniu żetony wracają. Rozdanie zaczyna się, gdy przy stole są co najmniej 2 osoby. Na ruch masz 25 s - po czasie automatycznie czekasz albo pasujesz, a po dwóch takich razach z rzędu jesteś „nieobecny” (bez kart, po 3 minutach wstajesz). Przy all-in działają pule boczne.</p>
+    <p class="mb-1"><b>Poker Texas Hold'em:</b> wspólny stół do 6 osób, bez limitu (no-limit). Siadasz z wpisowym z portfela, po wstaniu kasa wraca. Rozdanie zaczyna się, gdy przy stole są co najmniej 2 osoby. Na ruch masz 25 s - po czasie automatycznie czekasz albo pasujesz, a po dwóch takich razach z rzędu jesteś „nieobecny” (bez kart, po 3 minutach wstajesz). Przy all-in działają pule boczne.</p>
     <p class="mb-0"><b>Bakarat:</b> klasyczne zasady dobierania trzeciej karty. Gracz 1:1, Bankier 0,95:1, Remis 8:1 - przy remisie zakłady na Gracza i Bankiera wracają.</p>
   </details>
 
@@ -433,7 +432,7 @@
   }
   function sync(data) {
     if (typeof data.balance === 'number') setBalance(data.balance);
-    if (data.daily) { state.daily = data.daily; renderDaily(); }
+    if (typeof data.balance === 'number') renderEarn();
     if (data.history) { history = data.history; renderHistory(); }
   }
   function message(el, text, cls) { el.textContent = text || ''; el.className = 'hk-msg' + (cls ? ' ' + cls : ''); }
@@ -516,7 +515,7 @@
       winFx(net, label || (big ? 'MEGA WYGRANA' : 'WYGRANA'), big);
       sound(big ? 'passed' : 'sms');
     }
-    if (state.balance === 0 && net <= 0 && window.gta && gta.wasted) gta.wasted('Żetony', 0);
+    if (state.balance === 0 && net <= 0 && window.gta && gta.wasted) gta.wasted('Kasa', 0);
   }
 
   // ---------- saldo, dzienne, historia ----------
@@ -524,45 +523,19 @@
     const el = $('hk-balance');
     if (b !== state.balance) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
     state.balance = b;
-    el.innerHTML = fmt(b) + ' <small>żetonów</small>';
+    el.innerHTML = fmt(b) + ' <small>$</small>';
   }
-  let dailyTimer = null;
-  function renderDaily() {
-    const d = state.daily, btn = $('hk-daily-btn'), info = $('hk-daily-info');
-    clearInterval(dailyTimer);
-    const bonus = Math.min(d.streak - 1, {{ streak_max }}) * 10;
-    if (d.available) {
-      btn.disabled = false;
-      btn.textContent = '🎁 Odbierz ' + fmt(d.amount) + ' żetonów';
-      info.textContent = d.streak > 1 ? 'seria: ' + d.streak + ' dni z rzędu (+' + bonus + '%)' : '';
-    } else {
-      btn.disabled = true;
-      const tick = () => {
-        const left = Math.max(0, d.next_ms - Date.now());
-        if (left <= 0) { clearInterval(dailyTimer); location.reload(); return; }
-        const h = Math.floor(left / 3600000), m = Math.floor(left / 60000) % 60, s = Math.floor(left / 1000) % 60;
-        btn.textContent = '⏳ Kolejne za ' + h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-      };
-      tick();
-      dailyTimer = setInterval(tick, 1000);
-      info.textContent = 'seria: ' + d.streak + ' ' + (d.streak === 1 ? 'dzień' : 'dni') + ' z rzędu' + (state.balance < MIN_BET ? ' · żetony skończone? wróć jutro!' : '');
-    }
+  function renderEarn() {
+    // kasę zdobywa się w grach - przy pustym portfelu podpowiedź, gdzie ją zarobić
+    $('hk-daily-info').innerHTML = state.balance < MIN_BET
+      ? 'Mało kasy? <a href="{{ url_for('games') }}">Zagraj w gry</a> - {{ cash_per_game }} $ za każdą grę, {{ cash_per_point|money }} $ za punkt w Hall of Fame.'
+      : 'Kasę zdobywasz w <a href="{{ url_for('games') }}">grach</a>: {{ cash_per_game }} $ za grę, {{ cash_per_point|money }} $ za punkt w Hall of Fame.';
   }
-  $('hk-daily-btn').addEventListener('click', () => {
-    const btn = $('hk-daily-btn');
-    btn.disabled = true;
-    api('{{ url_for("casino_daily") }}').then((d) => {
-      if (!d.ok) { alertMsg(d.error); renderDaily(); return; }
-      sync(d);
-      winFx(d.amount, 'DZIENNE ŻETONY', true);
-      sound('passed');
-    });
-  });
   function renderHistory() {
     $('hk-history').innerHTML = history.length ? history.map((h) =>
       '<tr><td>' + esc(h.game) + '</td><td>' + (h.bet ? fmt(h.bet) : '–') + '</td><td class="' + (h.net > 0 ? 'hk-plus' : h.net < 0 ? 'hk-minus' : '') + '">' +
       (h.net > 0 ? '+' : '') + fmt(h.net) + '</td><td class="d-none d-sm-table-cell">' + esc(h.text) + '</td><td>' + esc(h.when) + '</td></tr>'
-    ).join('') : '<tr><td colspan="5" class="text-muted">Jeszcze nic - odbierz dzienne żetony i zagraj!</td></tr>';
+    ).join('') : '<tr><td colspan="5" class="text-muted">Jeszcze nic - wybierz grę i zagraj!</td></tr>';
   }
   function alertMsg(text) {
     const panel = document.querySelector('[data-panel]:not([hidden]) .hk-msg');
@@ -593,7 +566,7 @@
     b.type = 'button';
     b.className = 'hk-chip hk-c' + c + (c === chip ? ' sel' : '');
     b.textContent = c >= 1000 ? (c / 1000) + 'k' : c;
-    b.title = fmt(c) + ' żetonów';
+    b.title = fmt(c) + ' $';
     b.addEventListener('click', () => {
       chip = c;
       document.querySelectorAll('.hk-chip').forEach((x) => x.classList.toggle('sel', x === b));
@@ -687,7 +660,7 @@
   }
   $('bj-deal').addEventListener('click', () => {
     if (bjBet < MIN_BET) { message($('bj-msg'), 'Najmniejsza stawka to ' + fmt(MIN_BET) + '.', 'err'); return; }
-    if (bjBet > state.balance) { message($('bj-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    if (bjBet > state.balance) { message($('bj-msg'), 'Masz tylko ' + fmt(state.balance) + ' $.', 'err'); return; }
     bjSend({action: 'deal', bet: bjBet});
   });
   document.querySelectorAll('[data-bj]').forEach((b) => b.addEventListener('click', () => bjSend({action: b.dataset.bj})));
@@ -911,13 +884,13 @@
     const bets = Object.keys(rlPending).map((k) => { const i = k.indexOf(':'); return {t: k.slice(0, i), v: k.slice(i + 1), a: rlPending[k]}; });
     const total = sumOf(rlPending);
     if (!total) { if (!auto) message($('rl-msg'), 'Wybierz żeton i kliknij pola na stole.', 'err'); return; }
-    if (total > state.balance) { message($('rl-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    if (total > state.balance) { message($('rl-msg'), 'Masz tylko ' + fmt(state.balance) + ' $.', 'err'); return; }
     const sent = Object.assign({}, rlPending);
     api('{{ url_for("casino_roulette") }}', {bets: bets}).then((d) => {
       if (!d.ok) { message($('rl-msg'), d.error, 'err'); if (d.roulette) rlApply(d.roulette); return; }
       Object.keys(sent).forEach((k) => { rlPending[k] -= sent[k]; if (rlPending[k] <= 0) delete rlPending[k]; });
       rlOrder = rlOrder.filter(([k]) => rlPending[k]);
-      message($('rl-msg'), (auto ? 'Postawione automatycznie: ' : 'Postawione: ') + fmt(total) + ' żetonów');
+      message($('rl-msg'), (auto ? 'Postawione automatycznie: ' : 'Postawione: ') + fmt(total) + ' $');
       sync(d);
       rlApply(d.roulette);
     });
@@ -1003,8 +976,8 @@
   $('bc-deal').addEventListener('click', () => {
     if (bcBusy) return;
     const total = bcBets.player + bcBets.tie + bcBets.banker;
-    if (total < MIN_BET) { message($('bc-msg'), 'Postaw najmniej ' + fmt(MIN_BET) + ' żetonów (kliknij Gracz, Remis albo Bankier).', 'err'); return; }
-    if (total > state.balance) { message($('bc-msg'), 'Masz tylko ' + fmt(state.balance) + ' żetonów.', 'err'); return; }
+    if (total < MIN_BET) { message($('bc-msg'), 'Postaw najmniej ' + fmt(MIN_BET) + ' $ (kliknij Gracz, Remis albo Bankier).', 'err'); return; }
+    if (total > state.balance) { message($('bc-msg'), 'Masz tylko ' + fmt(state.balance) + ' $.', 'err'); return; }
     bcBusy = true;
     message($('bc-msg'), '');
     ['player', 'banker'].forEach((k) => { $('bc-' + k).innerHTML = ''; $('bc-' + k + '-value').hidden = true; $('bc-' + k + '-box').classList.remove('won'); });
@@ -1159,7 +1132,7 @@
     if (!b || !pk) return;
     pkSitSeat = +b.dataset.sit;
     const [low, high] = pk.buyin, max = Math.min(high, state.balance);
-    if (max < low) { message($('pk-msg'), 'Potrzebujesz co najmniej ' + fmt(low) + ' żetonów na wpisowe.', 'err'); return; }
+    if (max < low) { message($('pk-msg'), 'Potrzebujesz co najmniej ' + fmt(low) + ' $ na wpisowe - zarób w grach.', 'err'); return; }
     const r = $('pk-buyin');
     r.min = low; r.max = max; r.step = pk.blinds[1]; r.value = Math.min(max, low * 2.5);
     $('pk-buyin-val').textContent = fmt(+r.value);
@@ -1244,7 +1217,7 @@
 
   // ---------- start ----------
   setBalance(state.balance);
-  renderDaily();
+  renderEarn();
   renderHistory();
   bjRenderBet();
   bjRender(state.blackjack, false);

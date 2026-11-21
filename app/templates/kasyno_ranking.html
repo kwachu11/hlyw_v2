@@ -8,7 +8,7 @@
     </div>
     {% include '_kasyno_top.html' %}
     <div class="btn-group flex-wrap mb-3" role="group" aria-label="Sortowanie">
-        {% for key, label in [('saldo', 'Żetony'), ('netto', 'Wygrane na plusie'), ('wygrana', 'Największa wygrana'), ('gry', 'Rozegrane')] %}
+        {% for key, label in [('saldo', 'Kasa'), ('netto', 'Wygrane na plusie'), ('wygrana', 'Największa wygrana'), ('gry', 'Rozegrane')] %}
         <a href="{{ url_for('casino_ranking_page', sort=key) }}" class="btn btn-sm {{ 'btn-warning' if sort == key else 'btn-outline-secondary' }}">{{ label }}</a>
         {% endfor %}
     </div>
@@ -18,7 +18,7 @@
                 <tr>
                     <th>#</th>
                     <th>Użytkownik</th>
-                    <th>Żetony</th>
+                    <th>Kasa $</th>
                     <th class="d-none d-sm-table-cell">Na plusie / minusie</th>
                     <th class="d-none d-md-table-cell">Największa wygrana</th>
                     <th class="d-none d-sm-table-cell">Rozegrane</th>
@@ -35,7 +35,7 @@
                     <td class="d-none d-sm-table-cell">{{ row.rounds }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-center">Jeszcze nikt nie grał - <a href="{{ url_for('casino') }}">odbierz dzienne żetony i bądź pierwszy</a>!</td></tr>
+                <tr><td colspan="6" class="text-center">Jeszcze nikt nie grał - <a href="{{ url_for('casino') }}">zagraj jako pierwszy</a>!</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -43,6 +43,6 @@
     <div class="d-flex justify-content-end mb-3">
         <strong>Rozegranych rund:&nbsp;</strong> {{ rounds }}
     </div>
-    <p class="text-muted small">Żetony są tylko na zabawę. „Na plusie / minusie” = ile ktoś wygrał ponad postawione stawki (bez dziennych żetonów).</p>
+    <p class="text-muted small">Kasa = zarobiona w grach (Hall of Fame i rozegrane gry) + wynik w kasynie. „Na plusie / minusie” = ile ktoś wygrał w kasynie ponad postawione stawki.</p>
 </div>
 {% endblock %}
