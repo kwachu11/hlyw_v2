@@ -105,6 +105,69 @@
   .hk-round .row-p small{color:#cfe8d6;display:block}
   .hk-round .row-p.me b{color:var(--gta-yellow)}
   .hk-round .none{color:#cfe8d6;font-size:.9rem;padding:4px 0}
+  /* ---------- poker ---------- */
+  .pk-table{position:relative;height:470px;margin:6px 4px 0;border-radius:50%/42%;
+    background:radial-gradient(ellipse at 50% 40%,#1f7a43,#0b3a1f 75%);border:12px solid #4a2c14;
+    box-shadow:inset 0 0 50px rgba(0,0,0,.6),0 0 0 3px #2a1808,0 14px 34px rgba(0,0,0,.55);color:#fff}
+  .pk-center{position:absolute;left:50%;top:47%;transform:translate(-50%,-50%);text-align:center;width:min(92%,420px)}
+  .pk-board{display:flex;justify-content:center;gap:5px;min-height:74px}
+  .pk-board .hk-card{margin:0;width:50px;height:72px}
+  .pk-board .slot{width:50px;height:72px;border-radius:7px;border:2px dashed rgba(255,255,255,.18)}
+  .pk-pot{font-family:var(--gta-font-ui);font-size:1.4rem;letter-spacing:.04em;color:var(--gta-yellow);text-shadow:var(--gta-outline);margin-top:6px}
+  .pk-info{font-family:var(--gta-font-text);color:#d5ecd9;font-size:.9rem;min-height:1.3em}
+  .pk-seat{position:absolute;width:118px;transform:translate(-50%,-50%);text-align:center;font-family:var(--gta-font-text);z-index:2}
+  .pk-seat .box{background:rgba(10,10,14,.82);border:2px solid var(--gta-border);border-radius:12px;padding:4px 6px 5px;position:relative}
+  .pk-seat.turn .box{border-color:var(--gta-yellow);box-shadow:0 0 16px rgba(255,204,0,.55)}
+  .pk-seat.me .box{border-color:var(--gta-green)}
+  .pk-seat.me.turn .box{border-color:var(--gta-yellow)}
+  .pk-seat.folded{opacity:.5}
+  .pk-seat.winner .box{border-color:var(--gta-yellow);background:rgba(60,48,0,.9)}
+  .pk-seat .top{display:flex;align-items:center;gap:5px}
+  .pk-seat .top img{width:30px;height:30px;border-radius:50%;object-fit:cover;flex:none}
+  .pk-seat .nm{font-weight:700;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;line-height:1.1}
+  .pk-seat .nm small{display:block;color:var(--gta-green);font-weight:700}
+  .pk-seat .last{font-size:.75rem;color:#cfd;min-height:1.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pk-seat .won{font-family:var(--gta-font-ui);color:var(--gta-yellow);font-size:1rem;letter-spacing:.03em}
+  .pk-seat .cards{display:flex;justify-content:center;gap:3px;margin-top:3px;min-height:0}
+  .pk-seat .cards .hk-card{width:36px;height:52px;margin:0;font-size:.8rem}
+  .pk-seat .cards .hk-card .s{font-size:1.3rem}
+  .pk-seat .cards .hk-card .r{font-size:.85rem}
+  .pk-seat.me .cards .hk-card{width:46px;height:66px}
+  .pk-seat.me .cards .hk-card .s{font-size:1.7rem}
+  .hk-card.best{box-shadow:0 0 0 3px var(--gta-yellow),0 0 12px rgba(255,204,0,.7)}
+  .hk-card.dim{filter:brightness(.55)}
+  .pk-seat .timer{position:absolute;left:6px;right:6px;bottom:-5px;height:4px;border-radius:2px;background:rgba(0,0,0,.6);overflow:hidden}
+  .pk-seat .timer span{display:block;height:100%;background:var(--gta-yellow)}
+  .pk-seat .dealer{position:absolute;right:-9px;top:-9px;width:22px;height:22px;border-radius:50%;background:#fff;color:#111;
+    font-weight:800;font-size:.75rem;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 4px #000}
+  .pk-seat .betchip{position:absolute;left:50%;transform:translateX(-50%);background:var(--gta-yellow);color:#111;border:2px dashed #fff;
+    border-radius:14px;padding:0 8px;font-weight:800;font-size:.78rem;white-space:nowrap}
+  .pk-seat.up .betchip{bottom:-26px}.pk-seat.down .betchip{top:-26px}
+  .pk-seat .sitbtn{border:2px dashed rgba(255,255,255,.35);background:rgba(0,0,0,.25);color:#ffe9a6;border-radius:12px;padding:12px 6px;
+    width:100%;font-family:var(--gta-font-ui);font-size:1rem;letter-spacing:.04em}
+  .pk-seat .sitbtn:hover{border-color:var(--gta-yellow)}
+  .pk-bar{background:var(--gta-panel);border:1px solid var(--gta-border);border-radius:12px;padding:8px 12px;margin-top:12px}
+  .pk-sit,.pk-actions{max-width:520px;margin:0 auto}
+  .pk-raise{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+  .pk-raise input[type=range]{flex:1 1 180px}
+  .pk-raise input[type=number]{width:110px}
+  .pk-quick{display:flex;gap:4px;flex-wrap:wrap}
+  .pk-log{list-style:none;margin:8px 0 0;padding:0;font-family:var(--gta-font-text);font-size:.85rem;color:var(--gta-muted);max-height:150px;overflow-y:auto}
+  .pk-log li{padding:1px 0}
+  @media (max-width:767px){
+    .pk-table{height:430px;border-width:8px;margin:6px 0 0}
+    .pk-seat{width:92px}
+    .pk-seat .top img{width:24px;height:24px}
+    .pk-seat .nm{font-size:.75rem}
+    .pk-seat .cards .hk-card{width:28px;height:40px}
+    .pk-seat .cards .hk-card .s{font-size:1rem}
+    .pk-seat .cards .hk-card .r{font-size:.7rem}
+    .pk-seat.me .cards .hk-card{width:38px;height:54px}
+    .pk-board .hk-card,.pk-board .slot{width:38px;height:55px}
+    .pk-board .hk-card .s{font-size:1.4rem}
+    .pk-board{min-height:57px;gap:3px}
+    .pk-pot{font-size:1.1rem}
+  }
   .hk-total{font-family:var(--gta-font-text);text-align:center;margin-top:8px}
   .hk-bac{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center}
   .hk-bac .side-box{padding:6px;border-radius:12px;border:2px solid transparent}
@@ -198,6 +261,7 @@
     <button type="button" data-tab="blackjack">🃏 Blackjack</button>
     <button type="button" data-tab="ruletka">🎡 Ruletka</button>
     <button type="button" data-tab="bakarat">🎴 Bakarat</button>
+    <button type="button" data-tab="poker">♠ Poker</button>
   </div>
 
   <div class="hk-chips" id="hk-chips"><span class="lbl">Żeton:</span></div>
@@ -281,6 +345,50 @@
     </div>
   </section>
 
+  <!-- ============ POKER ============ -->
+  <section data-panel="poker" hidden>
+    <div class="pk-table" id="pk-table">
+      <div class="pk-center">
+        <div class="pk-board" id="pk-board"></div>
+        <div class="pk-pot" id="pk-pot"></div>
+        <div class="pk-info" id="pk-info"></div>
+      </div>
+    </div>
+    <div class="pk-bar">
+      <div class="hk-msg" id="pk-msg"></div>
+      <div id="pk-sit" class="pk-sit" hidden>
+        <div class="mb-1">Wpisowe: <b id="pk-buyin-val"></b> żetonów <small class="text-muted" id="pk-buyin-range"></small></div>
+        <input type="range" id="pk-buyin" class="custom-range">
+        <div class="hk-actions"><button type="button" class="btn btn-outline-light btn-sm" id="pk-sit-cancel">Anuluj</button>
+          <button type="button" class="btn btn-warning" id="pk-sit-go">Usiądź</button></div>
+      </div>
+      <div id="pk-actions" class="pk-actions" hidden>
+        <div class="hk-actions">
+          <button type="button" class="btn btn-danger" data-pk="fold">Pas</button>
+          <button type="button" class="btn btn-success" data-pk="check">Czekam</button>
+          <button type="button" class="btn btn-success" data-pk="call">Sprawdzam</button>
+          <button type="button" class="btn btn-warning" data-pk="raise">Podbijam</button>
+        </div>
+        <div class="pk-raise" id="pk-raise">
+          <input type="range" id="pk-raise-range" class="custom-range">
+          <input type="number" id="pk-raise-val" class="form-control form-control-sm" inputmode="numeric">
+          <div class="pk-quick">
+            <button type="button" class="btn btn-outline-light btn-sm" data-quick="min">Min</button>
+            <button type="button" class="btn btn-outline-light btn-sm" data-quick="half">½ puli</button>
+            <button type="button" class="btn btn-outline-light btn-sm" data-quick="pot">Pula</button>
+            <button type="button" class="btn btn-outline-light btn-sm" data-quick="all">All-in</button>
+          </div>
+        </div>
+      </div>
+      <div class="hk-actions" id="pk-seat-actions" hidden>
+        <button type="button" class="btn btn-outline-light btn-sm" id="pk-away">☕ Przerwa (bez kart)</button>
+        <button type="button" class="btn btn-success btn-sm" id="pk-back" hidden>Wracam do gry</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" id="pk-stand">Wstań od stołu</button>
+      </div>
+      <ul class="pk-log" id="pk-log"></ul>
+    </div>
+  </section>
+
   <section class="hk-live">
     <div class="hk-live-head"><span class="hk-live-dot"></span> Na żywo
       <small>przy stołach: <b id="live-count">…</b></small></div>
@@ -293,6 +401,7 @@
     <p class="mt-2 mb-1">Żetony są tylko na zabawę - nie da się ich kupić ani wymienić. Codziennie możesz odebrać pulę żetonów; seria dni z rzędu daje +10% za dzień (najwyżej +{{ streak_max * 10 }}%). Stawka na jedno rozdanie / zakręcenie: {{ min_bet|money }}-{{ max_bet|money }}.</p>
     <p class="mb-1"><b>Blackjack:</b> 6 talii, krupier dobiera do 16 i stoi na każdej 17. Blackjack płaci 3:2, zwykła wygrana 1:1. Podwojenie przy dwóch kartach, rozdzielenie pary (do 4 rąk, rozdzielone asy dostają po jednej karcie).</p>
     <p class="mb-1"><b>Ruletka:</b> wspólny stół dla wszystkich - koło kręci się co {{ roulette_times[0] }} s, zakłady przyjmujemy przez pierwsze {{ roulette_times[1] }} s rundy, na stole widać żetony i avatary innych graczy. Europejska, jedno zero. Numer 35:1, split (dwa sąsiednie numery - kreska między nimi) 17:1, rząd 3 numerów (lewa krawędź rzędu) 11:1, róg 4 numerów (punkt styku) 8:1, dwa rzędy (lewa krawędź między rzędami) 5:1, tuzin i kolumna 2:1, kolor / parzyste / połówki 1:1 (przy zerze przegrywają).</p>
+    <p class="mb-1"><b>Poker Texas Hold'em:</b> wspólny stół do 6 osób, bez limitu (no-limit). Siadasz z wpisowym z portfela, po wstaniu żetony wracają. Rozdanie zaczyna się, gdy przy stole są co najmniej 2 osoby. Na ruch masz 25 s - po czasie automatycznie czekasz albo pasujesz, a po dwóch takich razach z rzędu jesteś „nieobecny” (bez kart, po 3 minutach wstajesz). Przy all-in działają pule boczne.</p>
     <p class="mb-0"><b>Bakarat:</b> klasyczne zasady dobierania trzeciej karty. Gracz 1:1, Bankier 0,95:1, Remis 8:1 - przy remisie zakłady na Gracza i Bankiera wracają.</p>
   </details>
 
@@ -471,6 +580,7 @@
     document.querySelectorAll('.hk-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
     try { localStorage.setItem('hk-tab', name); } catch (e) {}
     if (name === 'ruletka' && typeof layoutSplits === 'function') layoutSplits();
+    $('hk-chips').hidden = name === 'poker';      // poker liczy stawki sam, żetony z rzędu niepotrzebne
   }
   document.querySelectorAll('.hk-tabs button').forEach((b) => b.addEventListener('click', () => { showTab(b.dataset.tab); livePoll(); }));
 
@@ -927,6 +1037,165 @@
       }, order.length * 550 + 300);
     });
   });
+
+  // ---------- POKER: wspólny stół Texas Hold'em ----------
+  // Pozycje miejsc na owalu (% szerokości, % wysokości); moje miejsce zawsze na dole.
+  const PK_POS = [[50, 86], [15, 68], [15, 24], [50, 9], [85, 24], [85, 68]];
+  let pk = null, pkOffset = 0, pkBusy = false, pkLastFetch = 0, pkSitSeat = null, pkTurnSeen = null, pkCelebrated = null;
+  const pkNow = () => Date.now() + pkOffset;
+  function pkCards(cards, best, mine) {
+    return (cards || []).map((c) => {
+      let html = cardHtml(c, false, 0);
+      if (best && best.length) html = html.replace('class="hk-card', 'class="hk-card ' + (best.includes(c) ? 'best' : 'dim'));
+      return html;
+    }).join('');
+  }
+  function pkRender() {
+    if (!pk) return;
+    const table = $('pk-table');
+    table.querySelectorAll('.pk-seat').forEach((x) => x.remove());
+    const rot = pk.me != null ? pk.me : 0;
+    const done = pk.phase === 'done';
+    pk.seats.forEach((s, i) => {
+      const pos = PK_POS[(i - rot + 6) % 6];
+      const el = document.createElement('div');
+      el.className = 'pk-seat ' + (pos[1] > 50 ? 'down' : 'up');
+      el.style.left = pos[0] + '%';
+      el.style.top = pos[1] + '%';
+      if (!s) {
+        if (pk.me == null) el.innerHTML = '<button type="button" class="sitbtn" data-sit="' + i + '">Usiądź</button>';
+        else el.innerHTML = '';
+        table.appendChild(el);
+        return;
+      }
+      if (s.me) el.classList.add('me');
+      if (s.folded) el.classList.add('folded');
+      if (pk.turn === i && !done) el.classList.add('turn');
+      if (done && s.won) el.classList.add('winner');
+      const timer = pk.turn === i && !done && pk.deadline_ms ? '<div class="timer"><span data-deadline="' + pk.deadline_ms + '"></span></div>' : '';
+      const status = done && s.won ? '<div class="won">+' + fmt(s.won) + (s.hand_name ? ' · ' + esc(s.hand_name) : '') + '</div>'
+        : '<div class="last">' + esc(s.hand_name && done ? s.hand_name : s.last || (s.out ? 'nieobecny' : '')) + '</div>';
+      el.innerHTML = '<div class="box">' + (pk.button === i ? '<span class="dealer" title="rozdający">D</span>' : '') +
+        '<div class="top">' + (s.photo ? '<img src="' + esc(s.photo) + '" alt="">' : '') + '<div class="nm">' + esc(s.name) +
+        '<small>' + (s.empty ? 'wstał' : fmt(s.stack)) + (s.allin ? ' · ALL-IN' : '') + '</small></div></div>' +
+        status + '<div class="cards">' + pkCards(s.cards, done ? s.best : null) + '</div>' + timer + '</div>' +
+        (s.bet ? '<span class="betchip">' + fmt(s.bet) + '</span>' : '');
+      table.appendChild(el);
+    });
+    const board = pk.board.map((c) => c);
+    const best = done ? (pk.seats.find((s) => s && s.won && s.best && s.best.length) || {}).best : null;
+    $('pk-board').innerHTML = pkCards(board, best) + '<div class="slot"></div>'.repeat(5 - board.length);
+    $('pk-pot').textContent = pk.pot ? 'Pula: ' + fmt(pk.pot) : '';
+    const phase = {preflop: 'przed flopem', flop: 'flop', turn: 'turn', river: 'river', done: 'koniec rozdania'}[pk.phase];
+    const seated = pk.seats.filter((s) => s && !s.empty).length;
+    $('pk-info').textContent = pk.phase ? 'Rozdanie #' + pk.hand_no + ' · ' + phase + (pk.my_hand ? ' · masz: ' + pk.my_hand : '')
+      : seated < 2 ? 'Czekamy na graczy - potrzeba co najmniej dwóch (ciemne ' + pk.blinds.join('/') + ')'
+      : 'Za chwilę rozdanie…';
+    // akcje
+    const a = pk.actions;
+    $('pk-actions').hidden = !a;
+    if (a) {
+      document.querySelector('[data-pk="check"]').hidden = !a.check;
+      const call = document.querySelector('[data-pk="call"]');
+      call.hidden = a.check;
+      call.textContent = 'Sprawdzam ' + fmt(a.call);
+      document.querySelector('[data-pk="raise"]').hidden = !a.can_raise;
+      $('pk-raise').hidden = !a.can_raise;
+      const r = $('pk-raise-range'), v = $('pk-raise-val');
+      if (pkTurnSeen !== pk.hand_no + ':' + pk.phase + ':' + a.current) {
+        pkTurnSeen = pk.hand_no + ':' + pk.phase + ':' + a.current;
+        r.min = v.min = a.min_raise; r.max = v.max = a.max_raise; r.step = 1;
+        r.value = v.value = a.min_raise;
+        pkRaiseLabel();
+        sound('sms');
+      }
+    }
+    $('pk-seat-actions').hidden = pk.me == null;
+    $('pk-back').hidden = !pk.me_out;
+    $('pk-away').hidden = pk.me_out;
+    $('pk-log').innerHTML = pk.log.slice().reverse().map((l) => '<li>' + esc(l) + '</li>').join('');
+    // moja wygrana - wybuch raz na rozdanie
+    const me = pk.me != null ? pk.seats[pk.me] : null;
+    if (done && me && me.won && pkCelebrated !== pk.hand_no) {
+      pkCelebrated = pk.hand_no;
+      winFx(me.won, me.hand_name ? me.hand_name.toUpperCase() + '!' : 'PULA TWOJA', me.won >= pk.blinds[1] * 20);
+      sound(me.won >= pk.blinds[1] * 20 ? 'passed' : 'sms');
+    }
+  }
+  function pkRaiseLabel() {
+    const btn = document.querySelector('[data-pk="raise"]');
+    const val = +$('pk-raise-val').value, a = pk && pk.actions;
+    btn.textContent = a && val >= a.max_raise ? 'All-in ' + fmt(val) : (a && a.current === 0 ? 'Stawiam ' : 'Podbijam do ') + fmt(val);
+  }
+  function pkTimers() {
+    document.querySelectorAll('.pk-seat .timer span').forEach((t) => {
+      const left = Math.max(0, +t.dataset.deadline - pkNow());
+      t.style.width = Math.min(100, left / (pk.turn_seconds * 10)) + '%';
+    });
+  }
+  function pkApply(d) {
+    if (!d || !d.poker) return;
+    pk = d.poker;
+    pkOffset = pk.now_ms - Date.now();
+    pkRender();
+    if (typeof d.balance === 'number' && !pkBusy) setBalance(d.balance);
+  }
+  function pkFetch() {
+    if (pkBusy) return;
+    pkLastFetch = Date.now();
+    fetch('{{ url_for("poker_state_route") }}', {credentials: 'same-origin'}).then((x) => x.json()).then(pkApply).catch(() => {});
+  }
+  function pkSend(body) {
+    if (pkBusy) return;
+    pkBusy = true;
+    api('{{ url_for("poker_action_route") }}', body).then((d) => {
+      pkBusy = false;
+      message($('pk-msg'), d.ok ? '' : d.error, d.ok ? '' : 'err');
+      pkApply(d);
+    });
+  }
+  $('pk-table').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sit]');
+    if (!b || !pk) return;
+    pkSitSeat = +b.dataset.sit;
+    const [low, high] = pk.buyin, max = Math.min(high, state.balance);
+    if (max < low) { message($('pk-msg'), 'Potrzebujesz co najmniej ' + fmt(low) + ' żetonów na wpisowe.', 'err'); return; }
+    const r = $('pk-buyin');
+    r.min = low; r.max = max; r.step = pk.blinds[1]; r.value = Math.min(max, low * 2.5);
+    $('pk-buyin-val').textContent = fmt(+r.value);
+    $('pk-buyin-range').textContent = '(od ' + fmt(low) + ' do ' + fmt(high) + ')';
+    $('pk-sit').hidden = false;
+  });
+  $('pk-buyin').addEventListener('input', () => { $('pk-buyin-val').textContent = fmt(+$('pk-buyin').value); });
+  $('pk-sit-cancel').addEventListener('click', () => { $('pk-sit').hidden = true; });
+  $('pk-sit-go').addEventListener('click', () => {
+    $('pk-sit').hidden = true;
+    pkSend({action: 'sit', seat: pkSitSeat, buyin: +$('pk-buyin').value});
+  });
+  document.querySelectorAll('[data-pk]').forEach((b) => b.addEventListener('click', () => {
+    const action = b.dataset.pk;
+    pkSend(action === 'raise' ? {action: 'raise', amount: +$('pk-raise-val').value} : {action: action});
+  }));
+  $('pk-raise-range').addEventListener('input', () => { $('pk-raise-val').value = $('pk-raise-range').value; pkRaiseLabel(); });
+  $('pk-raise-val').addEventListener('input', () => { $('pk-raise-range').value = $('pk-raise-val').value; pkRaiseLabel(); });
+  document.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('click', () => {
+    const a = pk && pk.actions;
+    if (!a) return;
+    // podbicie „o pulę”: najpierw wyrównanie, potem pula po wyrównaniu
+    const potAfterCall = a.pot + (a.current - a.my_bet);
+    const target = {min: a.min_raise, half: a.current + Math.round(potAfterCall / 2), pot: a.current + potAfterCall, all: a.max_raise}[b.dataset.quick];
+    const v = Math.max(a.min_raise, Math.min(a.max_raise, target));
+    $('pk-raise-val').value = $('pk-raise-range').value = v;
+    pkRaiseLabel();
+  }));
+  $('pk-stand').addEventListener('click', () => pkSend({action: 'stand'}));
+  $('pk-away').addEventListener('click', () => pkSend({action: 'away'}));
+  $('pk-back').addEventListener('click', () => pkSend({action: 'back'}));
+  setInterval(() => {
+    if (tab !== 'poker' || document.hidden) return;
+    pkTimers();
+    if (Date.now() - pkLastFetch > 1200) pkFetch();
+  }, 250);
 
   // ---------- NA ŻYWO: zakłady wszystkich i kto jest przy stołach ----------
   let liveIds = null, liveBusy = false;

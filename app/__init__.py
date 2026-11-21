@@ -141,6 +141,7 @@ SITE_SETTINGS = [
     ('casino_daily', 'int', 1000, 'Dzienne żetony do odebrania', 'Kasyno'),
     ('casino_min_bet', 'int', 10, 'Najmniejsza stawka', 'Kasyno'),
     ('casino_max_bet', 'int', 5000, 'Największa stawka (na jedno rozdanie / zakręcenie)', 'Kasyno'),
+    ('poker_big_blind', 'int', 20, 'Poker: duża ciemna (mała = połowa; wpisowe 20-100 dużych ciemnych)', 'Kasyno'),
     ('casino_big_win', 'int', 1000, 'Wygrana od tylu żetonów trafia do „Co się dzieje” (0 = nigdy)', 'Kasyno'),
 ]
 
@@ -291,7 +292,16 @@ GAME_SCORE_LIMITS = {          # gra: (zapas, punktów na sekundę)
     'gorka': (50, 25),         # wynik = dystans w metrach; maks. prędkość ~18 m/s
 }
 # Kasyno (/kasyno): wirtualne żetony bez żadnej wartości. Losuje i liczy wszystko serwer.
-CASINO_GAMES = {'blackjack': '🃏 Blackjack', 'ruletka': '🎡 Ruletka', 'bakarat': '🎴 Bakarat'}
+CASINO_GAMES = {'blackjack': '🃏 Blackjack', 'ruletka': '🎡 Ruletka', 'bakarat': '🎴 Bakarat', 'poker': '♠ Poker'}
+# Poker Texas Hold'em (No-Limit) - jeden wspólny stół. Wpisowe w dużych ciemnych, czas na ruch, przerwa po rozdaniu.
+POKER_SEATS = 6
+POKER_BUYIN_BB = (20, 100)
+POKER_TURN_SECONDS = 25
+POKER_START_SECONDS = 4          # od chwili, gdy są 2 gotowe osoby, do rozdania
+POKER_PAUSE_SECONDS = 7          # po rozdaniu - pokazanie kart i wyników
+POKER_TIMEOUTS_OUT = 2           # tyle przekroczeń czasu z rzędu = „nieobecny” (nie dostaje kart)
+POKER_OUT_KICK_SECONDS = 180     # nieobecny tyle czasu - wstaje od stołu, żetony wracają do portfela
+POKER_HANDS = ['Wysoka karta', 'Para', 'Dwie pary', 'Trójka', 'Strit', 'Kolor', 'Full', 'Kareta', 'Poker']
 CASINO_DAILY_STREAK_MAX = 6          # seria dni z rzędu: +10% dziennych za każdy dzień, najwyżej +60%
 CASINO_BLACKJACK_DECKS = 6
 CASINO_BLACKJACK_MAX_HANDS = 4       # po rozdzieleniach (split)
@@ -1076,6 +1086,13 @@ def create_app():
         details = db.Column(db.String(300))
         created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
         user = db.relationship('User')
+
+    class PokerTable(db.Model):
+        """Wspólny stół pokera: cały stan w JSON (miejsca, rozdanie, talia). version = blokada optymistyczna -
+        zapis tylko, gdy nikt w międzyczasie nie zmienił stołu (kilka workerów gunicorna)."""
+        id = db.Column(db.Integer, primary_key=True, autoincrement=False)
+        state = db.Column(db.Text, nullable=False)
+        version = db.Column(db.Integer, nullable=False, default=0)
 
     class RouletteRound(db.Model):
         """Wynik rundy wspólnej ruletki; id = numer rundy. Wiersz powstaje raz (klucz główny) - razem z wypłatami."""
@@ -4501,6 +4518,468 @@ def create_app():
         return jsonify({'ok': True, 'player': player, 'banker': banker, 'player_value': pv, 'banker_value': bv,
                         'winner': winner, 'payout': payout, 'net': payout - total,
                         **casino_state(current_user.id), 'history': casino_history(current_user.id)})
+
+    # ===================== Poker Texas Hold'em (wspólny stół) =====================
+    # Cały stan stołu to jeden JSON w PokerTable. Każda zmiana: wczytaj -> policz -> zapisz z warunkiem version
+    # (inaczej ponów). Zegary (czas na ruch, kolejne rozdanie) liczy się leniwie przy każdym pytaniu o stół.
+    # Żetony przy stole są zdjęte z portfela przy siadaniu i wracają przy wstawaniu.
+
+    POKER_RANK_VALUES = {r: i for i, r in enumerate('23456789TJQKA', 2)}
+
+    def poker_score5(cards):
+        """Siła 5 kart jako krotka do porównań: (kategoria 0-8, karty rozstrzygające...)."""
+        vals = sorted((POKER_RANK_VALUES[c[0]] for c in cards), reverse=True)
+        counts = {}
+        for v in vals:
+            counts[v] = counts.get(v, 0) + 1
+        groups = sorted(counts.items(), key=lambda kv: (-kv[1], -kv[0]))
+        flush = len({c[1] for c in cards}) == 1
+        straight = None
+        if len(counts) == 5:
+            if vals[0] - vals[4] == 4:
+                straight = vals[0]
+            elif vals == [14, 5, 4, 3, 2]:      # strit od asa: A-2-3-4-5
+                straight = 5
+        if straight and flush:
+            return (8, straight)
+        if groups[0][1] == 4:
+            return (7, groups[0][0], groups[1][0])
+        if groups[0][1] == 3 and groups[1][1] == 2:
+            return (6, groups[0][0], groups[1][0])
+        if flush:
+            return (5, *vals)
+        if straight:
+            return (4, straight)
+        if groups[0][1] == 3:
+            return (3, groups[0][0], *[v for v, _ in groups[1:]])
+        if groups[0][1] == 2 and groups[1][1] == 2:
+            return (2, groups[0][0], groups[1][0], groups[2][0])
+        if groups[0][1] == 2:
+            return (1, groups[0][0], *[v for v, _ in groups[1:]])
+        return (0, *vals)
+
+    def poker_best(cards):
+        """Najlepsze 5 z 7 kart: (siła, te 5 kart)."""
+        return max(((poker_score5(c), list(c)) for c in combinations(cards, 5)), key=lambda x: x[0])
+
+    def poker_hand_name(score):
+        if score[0] == 8 and score[1] == 14:
+            return 'Poker królewski'
+        return POKER_HANDS[score[0]]
+
+    def poker_blinds():
+        bb = max(2, site_settings()['poker_big_blind'])
+        return bb // 2, bb
+
+    def poker_new_state():
+        return {'seats': [None] * POKER_SEATS, 'button': -1, 'hand': None, 'hand_no': 0, 'next_at': None, 'log': []}
+
+    def poker_row():
+        row = db.session.get(PokerTable, 1)
+        if row is None:
+            try:
+                db.session.add(PokerTable(id=1, state=json.dumps(poker_new_state()), version=0))
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+            row = db.session.get(PokerTable, 1)
+        return row
+
+    def poker_log(state, text):
+        state['log'] = (state['log'] + [text])[-12:]
+
+    def poker_next(state, start, cond):
+        """Następne miejsce po `start` (zgodnie z ruchem wskazówek) spełniające cond(seat); None, gdy brak."""
+        for i in range(1, POKER_SEATS + 1):
+            s = (start + i) % POKER_SEATS
+            if cond(s):
+                return s
+        return None
+
+    def poker_ready(state):
+        """Miejsca, które dostaną karty: ktoś siedzi, jest obecny i ma żetony."""
+        return [i for i, s in enumerate(state['seats']) if s and not s['out'] and s['stack'] > 0]
+
+    def poker_pay(state, seat, amount):
+        """Gracz dokłada do puli (najwyżej tyle, ile ma)."""
+        h, s = state['hand'], state['seats'][seat]
+        p = h['p'][str(seat)]
+        pay = min(amount, s['stack'])
+        s['stack'] -= pay
+        p['bet'] += pay
+        p['contrib'] += pay
+        if s['stack'] == 0:
+            p['allin'] = True
+        return pay
+
+    def poker_start_hand(state, now):
+        sb_amount, bb_amount = poker_blinds()
+        ready = poker_ready(state)
+        state['button'] = poker_next(state, state['button'], lambda s: s in ready)
+        state['hand_no'] += 1
+        deck = new_shoe(1)
+        h = {'no': state['hand_no'], 'deck': deck, 'board': [], 'phase': 'preflop', 'current': 0, 'min_raise': bb_amount,
+             'bb': bb_amount, 'turn': None, 'deadline': None, 'results': None,
+             'p': {str(s): {'uid': state['seats'][s]['uid'], 'name': state['seats'][s]['name'], 'cards': [deck.pop(), deck.pop()],
+                            'bet': 0, 'contrib': 0, 'folded': False, 'allin': False, 'acted': False, 'last': ''} for s in ready}}
+        state['hand'] = h
+        state['next_at'] = None
+        if len(ready) == 2:          # heads-up: rozdający daje małą ciemną i zaczyna przed flopem
+            sb, bb = state['button'], poker_next(state, state['button'], lambda s: s in ready)
+        else:
+            sb = poker_next(state, state['button'], lambda s: s in ready)
+            bb = poker_next(state, sb, lambda s: s in ready)
+        poker_pay(state, sb, sb_amount)
+        h['p'][str(sb)]['last'] = f'mała ciemna {sb_amount}'
+        poker_pay(state, bb, bb_amount)
+        h['p'][str(bb)]['last'] = f'duża ciemna {bb_amount}'
+        h['current'] = max(h['p'][str(sb)]['bet'], h['p'][str(bb)]['bet'])
+        poker_log(state, f'Rozdanie #{h["no"]} - ciemne {sb_amount}/{bb_amount}')
+        h['turn'] = bb                # pierwszy ruch: następny po dużej ciemnej
+        poker_after_action(state, now, from_seat=bb, fresh=True)
+
+    def poker_can_act(h):
+        return [int(s) for s, p in h['p'].items() if not p['folded'] and not p['allin']]
+
+    def poker_after_action(state, now, from_seat, fresh=False):
+        """Po ruchu: następny gracz, kolejna ulica albo koniec rozdania."""
+        h = state['hand']
+        alive = [int(s) for s, p in h['p'].items() if not p['folded']]
+        if len(alive) == 1:
+            return poker_finish(state, now, showdown=False)
+        can_act = poker_can_act(h)
+        waiting = [s for s in can_act if not h['p'][str(s)]['acted'] or h['p'][str(s)]['bet'] < h['current']]
+        if len(can_act) == 1 and h['p'][str(can_act[0])]['bet'] >= h['current']:
+            waiting = []              # został jeden, który może grać, i nie musi nic dopłacać
+        if waiting:
+            h['turn'] = poker_next(state, from_seat, lambda s: s in waiting)
+            h['deadline'] = now + POKER_TURN_SECONDS
+            return
+        # koniec licytacji na tej ulicy
+        for p in h['p'].values():
+            p['bet'], p['acted'] = 0, False
+        h['current'], h['min_raise'] = 0, h['bb']
+        while True:
+            if h['phase'] == 'river':
+                return poker_finish(state, now, showdown=True)
+            h['phase'], count = {'preflop': ('flop', 3), 'flop': ('turn', 1), 'turn': ('river', 1)}[h['phase']]
+            h['deck'].pop()           # karta spalona
+            h['board'] += [h['deck'].pop() for _ in range(count)]
+            if len(poker_can_act(h)) >= 2:
+                break                 # inaczej (wszyscy all-in) dokładamy karty do końca bez licytacji
+        for p in h['p'].values():
+            if not p['folded'] and not p['allin']:
+                p['last'] = ''
+        h['turn'] = poker_next(state, state['button'], lambda s: s in poker_can_act(h))
+        h['deadline'] = now + POKER_TURN_SECONDS
+
+    def poker_finish(state, now, showdown):
+        """Rozliczenie: pule główna i boczne (wg wkładów), podział przy remisie, zapis rund do historii kasyna."""
+        h = state['hand']
+        contrib = {int(s): p['contrib'] for s, p in h['p'].items()}
+        alive = [int(s) for s, p in h['p'].items() if not p['folded']]
+        won = {s: 0 for s in contrib}
+        scores = {}
+        if showdown:
+            for s in alive:
+                scores[s] = poker_best(h['p'][str(s)]['cards'] + h['board'])
+            levels = sorted({c for c in contrib.values() if c > 0})
+            prev = 0
+            for level in levels:
+                amount = sum(min(c, level) - min(c, prev) for c in contrib.values())
+                eligible = [s for s in alive if contrib[s] >= level] or alive
+                prev = level
+                if not amount:
+                    continue
+                best = max(scores[s][0] for s in eligible)
+                winners = [s for s in eligible if scores[s][0] == best]
+                # nieparzysty żeton - pierwszemu zwycięzcy na lewo od rozdającego
+                winners.sort(key=lambda s: (s - state['button'] - 1) % POKER_SEATS)
+                share, rest = divmod(amount, len(winners))
+                for i, s in enumerate(winners):
+                    won[s] += share + (1 if i < rest else 0)
+        else:
+            won[alive[0]] = sum(contrib.values())
+        results = []
+        for s, p in h['p'].items():
+            s = int(s)
+            seat = state['seats'][s]
+            if won[s]:
+                if seat and seat['uid'] == p['uid']:
+                    seat['stack'] += won[s]
+                else:                 # wstał w trakcie rozdania - wygrana prosto do portfela
+                    h.setdefault('refunds', []).append([p['uid'], won[s]])
+            name = poker_hand_name(scores[s][0]) if s in scores else None
+            if s in alive or won[s]:
+                results.append({'seat': s, 'name': p['name'], 'won': won[s], 'hand': name,
+                                'best': scores[s][1] if s in scores else [], 'cards': p['cards'] if showdown and s in alive else None})
+            if p['contrib']:
+                street = {'preflop': 'przed flopem', 'flop': 'na flopie', 'turn': 'na turnie', 'river': 'na riverze'}
+                if p['folded']:
+                    text = 'pas ' + street.get(h.get('fold_phase', {}).get(str(s), ''), '')
+                elif name:
+                    text = f'{name}' + (' - wygrana' if won[s] else '')
+                else:
+                    text = 'wszyscy spasowali - pula' if won[s] else ''
+                h.setdefault('records', []).append([p['uid'], p['contrib'], won[s], f'rozdanie #{h["no"]}: {text}'])
+        results.sort(key=lambda r: -r['won'])
+        h['results'] = results
+        winners_text = ', '.join(f'{r["name"]} +{r["won"]}' + (f' ({r["hand"]})' if r['hand'] else '') for r in results if r['won'])
+        poker_log(state, f'#{h["no"]}: {winners_text}')
+        h['phase'], h['turn'], h['deadline'] = 'done', None, None
+        state['next_at'] = now + POKER_PAUSE_SECONDS
+
+    def poker_act(state, seat, action, amount, now, auto=False):
+        """Ruch gracza; zwraca tekst błędu albo None. Nic nie zmienia, gdy ruch jest niedozwolony."""
+        h = state['hand']
+        if not h or h['phase'] == 'done' or h['turn'] != seat:
+            return 'Teraz nie Twój ruch.'
+        p, s = h['p'][str(seat)], state['seats'][seat]
+        to_call = h['current'] - p['bet']
+        if action == 'allin':
+            action, amount = ('raise', p['bet'] + s['stack']) if p['bet'] + s['stack'] > h['current'] else ('call', 0)
+        if action == 'check' and to_call > 0:
+            return 'Nie możesz czekać - trzeba sprawdzić albo spasować.'
+        if action == 'call' and to_call <= 0:
+            action = 'check'
+        if action == 'raise':
+            try:
+                amount = int(amount)
+            except (TypeError, ValueError):
+                return 'Podaj kwotę podbicia.'
+            all_in = amount == p['bet'] + s['stack']
+            if amount <= h['current'] or amount > p['bet'] + s['stack']:
+                return 'Zła kwota podbicia.'
+            if amount - h['current'] < h['min_raise'] and not all_in:
+                return f'Podbij przynajmniej do {h["current"] + h["min_raise"]}.'
+        if action not in ('fold', 'check', 'call', 'raise'):
+            return 'Nieznany ruch.'
+        if action == 'fold':
+            p['folded'], p['last'] = True, 'pas'
+            h.setdefault('fold_phase', {})[str(seat)] = h['phase']
+        elif action == 'check':
+            p['last'] = 'czeka'
+        elif action == 'call':
+            pay = poker_pay(state, seat, to_call)
+            p['last'] = f'sprawdza {pay}' + (' (all-in)' if p['allin'] else '')
+        else:
+            raise_by, opening = amount - h['current'], h['current'] == 0
+            poker_pay(state, seat, amount - p['bet'])
+            if raise_by >= h['min_raise']:
+                h['min_raise'] = raise_by
+            h['current'] = amount
+            for other in h['p'].values():
+                if other is not p:
+                    other['acted'] = False
+            p['last'] = ('all-in ' if p['allin'] else 'stawia ' if opening else 'podbija do ') + str(amount)
+        p['acted'] = True
+        if not auto:
+            s['timeouts'] = 0
+        poker_log(state, f'{p["name"]}: {p["last"]}' + (' (czas minął)' if auto else ''))
+        poker_after_action(state, now, from_seat=seat)
+        return None
+
+    def poker_stand(state, seat, now, ops):
+        """Wstanie od stołu: w trakcie rozdania pas, reszta żetonów wraca do portfela."""
+        s = state['seats'][seat]
+        h = state['hand']
+        if h and h['phase'] != 'done' and str(seat) in h['p'] and not h['p'][str(seat)]['folded']:
+            p = h['p'][str(seat)]
+            if h['turn'] == seat:
+                poker_act(state, seat, 'fold', 0, now)
+            else:
+                p['folded'], p['last'] = True, 'wstał od stołu'
+                h.setdefault('fold_phase', {})[str(seat)] = h['phase']
+                if len([q for q in h['p'].values() if not q['folded']]) == 1:
+                    poker_finish(state, now, showdown=False)
+        if s['stack']:
+            ops.append((s['uid'], s['stack']))
+        poker_log(state, f'{s["name"]} wstaje od stołu ({s["stack"]} żetonów wraca)')
+        state['seats'][seat] = None
+
+    def poker_tick(state, now, ops):
+        """Zegary stołu; True, gdy coś się zmieniło."""
+        changed = False
+        h = state['hand']
+        if h and h['phase'] != 'done' and h['turn'] is not None:
+            seat = state['seats'][h['turn']]
+            if seat is None or seat['out'] or now >= h['deadline']:
+                turn = h['turn']
+                if seat and not seat['out']:
+                    seat['timeouts'] += 1
+                    if seat['timeouts'] >= POKER_TIMEOUTS_OUT:
+                        seat['out'], seat['out_since'] = True, now
+                p = h['p'][str(turn)]
+                poker_act(state, turn, 'check' if p['bet'] >= h['current'] else 'fold', 0, now, auto=True)
+                changed = True
+        h = state['hand']
+        if h and h['phase'] == 'done' and state['next_at'] and now >= state['next_at']:
+            state['hand'] = None
+            state['next_at'] = None
+            changed = True
+        if not state['hand']:
+            for i, s in enumerate(state['seats']):
+                if s and (s['stack'] == 0 or (s['out'] and now - (s.get('out_since') or now) > POKER_OUT_KICK_SECONDS)):
+                    poker_stand(state, i, now, ops)
+                    changed = True
+            if len(poker_ready(state)) >= 2:
+                if state['next_at'] is None:
+                    state['next_at'] = now + POKER_START_SECONDS
+                    changed = True
+                elif now >= state['next_at']:
+                    poker_start_hand(state, now)
+                    changed = True
+            elif state['next_at'] is not None:
+                state['next_at'] = None
+                changed = True
+        return changed
+
+    def poker_mutate(fn=None):
+        """Wczytuje stół, odpala zegary i (opcjonalnie) fn(state, now, ops) -> błąd albo None, zapisuje z blokadą.
+        ops = [(user_id, zmiana portfela)], rekordy historii zbiera rozliczenie. Zwraca (stan, błąd)."""
+        for _ in range(6):
+            db.session.rollback()
+            row = poker_row()
+            version, state = row.version, json.loads(row.state)
+            now, ops = time.time(), []
+            changed = poker_tick(state, now, ops)
+            error = fn(state, now, ops) if fn else None
+            if error and not changed:
+                return state, error
+            if not changed and not fn:
+                return state, None
+            # wygrane graczy, którzy wstali w trakcie rozdania, i historia kasyna - raz, przy rozliczeniu
+            h = state['hand']
+            if h and h.get('records') and not h.get('recorded'):
+                for uid, delta in h.pop('refunds', []):
+                    ops.append((uid, delta))
+                records = h['records']
+                h['recorded'] = True
+            else:
+                records = []
+            if PokerTable.query.filter_by(id=1, version=version) \
+                    .update({PokerTable.state: json.dumps(state), PokerTable.version: version + 1}, synchronize_session=False) != 1:
+                db.session.rollback()
+                continue
+            for uid, delta in ops:
+                if delta < 0:
+                    if not casino_update(uid, {CasinoWallet.balance: CasinoWallet.balance + delta}, CasinoWallet.balance >= -delta):
+                        db.session.rollback()
+                        return state, 'Za mało żetonów w portfelu.'
+                elif delta:
+                    casino_update(uid, {CasinoWallet.balance: CasinoWallet.balance + delta})
+            for uid, bet, payout, text in records:
+                casino_record(uid, 'poker', bet, payout, text)
+            db.session.commit()
+            return state, error
+        return state, 'Stół jest teraz oblegany - spróbuj jeszcze raz.'
+
+    def poker_view(state, user_id):
+        """Stół dla przeglądarki: cudze karty tylko po pokazaniu przy końcu rozdania, bez talii."""
+        h = state['hand']
+        my_seat = next((i for i, s in enumerate(state['seats']) if s and s['uid'] == user_id), None)
+        shown = {r['seat']: r for r in (h['results'] or [])} if h else {}
+        seats = []
+        for i, s in enumerate(state['seats']):
+            p = h['p'].get(str(i)) if h else None
+            if not s and not p:
+                seats.append(None)
+                continue
+            cards = None
+            if p and (not s or s['uid'] == p['uid']):
+                if i == my_seat or (i in shown and shown[i]['cards']):
+                    cards = p['cards']
+                elif not p['folded']:
+                    cards = ['??', '??']
+            seats.append({'name': s['name'] if s else p['name'], 'photo': s['photo'] if s else None, 'stack': s['stack'] if s else 0,
+                          'empty': not s, 'out': bool(s and s['out']), 'me': i == my_seat, 'cards': cards,
+                          'bet': p['bet'] if p else 0, 'folded': bool(p and p['folded']), 'allin': bool(p and p['allin']),
+                          'last': p['last'] if p else ('nieobecny' if s and s['out'] else ''),
+                          'won': shown[i]['won'] if i in shown else 0, 'hand_name': shown[i]['hand'] if i in shown else None,
+                          'best': shown[i]['best'] if i in shown else []})
+        actions = None
+        if h and h['phase'] != 'done' and h['turn'] == my_seat and my_seat is not None:
+            p, s = h['p'][str(my_seat)], state['seats'][my_seat]
+            to_call = h['current'] - p['bet']
+            max_to = p['bet'] + s['stack']
+            actions = {'check': to_call <= 0, 'call': min(to_call, s['stack']) if to_call > 0 else 0,
+                       'min_raise': min(h['current'] + h['min_raise'], max_to), 'max_raise': max_to,
+                       'can_raise': max_to > h['current'], 'pot': sum(q['contrib'] for q in h['p'].values()), 'current': h['current'],
+                       'my_bet': p['bet']}
+        my_hand = None
+        if h and my_seat is not None and str(my_seat) in h['p'] and len(h['board']) >= 3 and not h['p'][str(my_seat)]['folded']:
+            my_hand = poker_hand_name(poker_best(h['p'][str(my_seat)]['cards'] + h['board'])[0])
+        sb, bb = poker_blinds()
+        return {'seats': seats, 'board': h['board'] if h else [], 'pot': sum(q['contrib'] for q in h['p'].values()) if h else 0,
+                'phase': h['phase'] if h else None, 'turn': h['turn'] if h else None, 'hand_no': h['no'] if h else state['hand_no'],
+                'deadline_ms': int(h['deadline'] * 1000) if h and h['deadline'] else None,
+                'next_ms': int(state['next_at'] * 1000) if state['next_at'] else None, 'now_ms': int(time.time() * 1000),
+                'button': state['button'], 'me': my_seat, 'actions': actions, 'my_hand': my_hand,
+                'me_out': bool(my_seat is not None and state['seats'][my_seat]['out']),
+                'log': state['log'][-8:], 'blinds': [sb, bb], 'buyin': [bb * POKER_BUYIN_BB[0], bb * POKER_BUYIN_BB[1]],
+                'turn_seconds': POKER_TURN_SECONDS}
+
+    @app.route('/kasyno/poker/stan')
+    @login_required
+    def poker_state_route():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        state, _ = poker_mutate()
+        return jsonify({'ok': True, 'poker': poker_view(state, current_user.id), 'balance': casino_wallet(current_user.id).balance})
+
+    @app.route('/kasyno/poker', methods=['POST'])
+    @login_required
+    def poker_action_route():
+        blocked = casino_guard()
+        if blocked:
+            return blocked
+        data = request.get_json(silent=True) or {}
+        action = data.get('action')
+        uid = current_user.id
+        casino_wallet(uid)
+
+        def change(state, now, ops):
+            my_seat = next((i for i, s in enumerate(state['seats']) if s and s['uid'] == uid), None)
+            if action == 'sit':
+                if my_seat is not None:
+                    return 'Już siedzisz przy stole.'
+                try:
+                    seat, buyin = int(data.get('seat')), int(data.get('buyin'))
+                except (TypeError, ValueError):
+                    return 'Wybierz miejsce i wpisowe.'
+                _, bb = poker_blinds()
+                low, high = bb * POKER_BUYIN_BB[0], bb * POKER_BUYIN_BB[1]
+                h = state['hand']
+                if not 0 <= seat < POKER_SEATS or state['seats'][seat] or (h and h['phase'] != 'done' and str(seat) in h['p']):
+                    return 'To miejsce jest zajęte.'
+                if not low <= buyin <= high:
+                    return f'Wpisowe od {money(low)} do {money(high)} żetonów.'
+                if db.session.get(CasinoWallet, uid).balance < buyin:
+                    return 'Za mało żetonów w portfelu.'
+                state['seats'][seat] = {'uid': uid, 'name': current_user.username, 'photo': avatar_url(current_user.photo),
+                                        'stack': buyin, 'out': False, 'out_since': None, 'timeouts': 0}
+                ops.append((uid, -buyin))
+                poker_log(state, f'{current_user.username} siada do stołu z {buyin} żetonami')
+                return None
+            if my_seat is None:
+                return 'Nie siedzisz przy stole.'
+            if action == 'stand':
+                poker_stand(state, my_seat, now, ops)
+                return None
+            if action == 'back':
+                state['seats'][my_seat].update(out=False, out_since=None, timeouts=0)
+                return None
+            if action == 'away':
+                state['seats'][my_seat].update(out=True, out_since=now)
+                return None
+            return poker_act(state, my_seat, action, data.get('amount'), now)
+
+        state, error = poker_mutate(change)
+        result = {'ok': not error, 'poker': poker_view(state, uid), 'balance': casino_wallet(uid).balance}
+        if error:
+            result['error'] = error
+        return jsonify(result), (400 if error else 200)
 
     def casino_revealed(viewer_id, now):
         """Warunek: wynik już można pokazać. Własne rundy i całą wspólną ruletkę dopiero po animacji
