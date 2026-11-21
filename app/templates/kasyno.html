@@ -176,6 +176,8 @@
   </div>
   {% if not site.casino_on %}<div class="alert alert-warning">Kasyno jest zamknięte w panelu - widzisz je, bo jesteś adminem.</div>{% endif %}
 
+  {% include '_kasyno_top.html' %}
+
   <div class="hk-tabs" role="tablist">
     <button type="button" data-tab="blackjack">🃏 Blackjack</button>
     <button type="button" data-tab="ruletka">🎡 Ruletka</button>
@@ -785,9 +787,24 @@
         '<span class="who"><b>' + esc(f.user) + '</b> ' + esc(f.game) + ' <small>· stawka ' + fmt(f.bet) + ' · ' + esc(f.text) + '</small></span>' +
         res + '<span class="ago">' + agoText(f.ago) + '</span></li>';
     }).join('') : '<li class="empty">Nikt jeszcze nie grał - zacznij pierwszy!</li>';
+    if (d.top) topRender(d.top);
     // cudza duża wygrana: krótkie piknięcie
     if (liveIds && d.feed.some((f) => f.big && !f.me && !liveIds.has(f.id))) sound('sms');
     liveIds = fresh;
+  }
+  // największa wygrana dnia / w historii - nowy rekord błyska
+  const topSeen = {day: {{ (top.day.id if top.day else 0)|tojson }}, all: {{ (top.all.id if top.all else 0)|tojson }}};
+  function topRender(top) {
+    ['day', 'all'].forEach((key) => {
+      const w = top[key], box = document.querySelector('.hk-top-win.' + key);
+      if (!box || (w ? w.id : 0) === topSeen[key]) return;
+      topSeen[key] = w ? w.id : 0;
+      const label = box.querySelector('.t').outerHTML;
+      box.innerHTML = label + (w ? '<div class="amt">+' + fmt(w.net) + '</div><div class="who"><img src="' + esc(w.photo) + '" alt=""> <b>' +
+        esc(w.user) + '</b> <span>' + esc(w.game) + '</span></div><div class="det">stawka ' + fmt(w.bet) + ' · ' + esc(w.text) + ' · ' + esc(w.when) + '</div>'
+        : '<div class="det mt-2">' + (key === 'day' ? 'Dziś jeszcze nikt nie wygrał - może Ty?' : 'Jeszcze nikt nie wygrał.') + '</div>');
+      if (w) { box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash'); }
+    });
   }
   function livePoll() {
     if (liveBusy || document.hidden) return;

@@ -1,0 +1,31 @@
+{# Największa wygrana dnia i od początku kasyna (top = casino_top_wins()). Ten sam układ buduje JS na /kasyno. #}
+<div class="hk-top-wins" id="hk-top-wins">
+    {% for key, label in [('day', '🔥 Największa wygrana dnia'), ('all', '👑 Największa wygrana w historii')] %}
+    {% set w = top[key] %}
+    <div class="hk-top-win {{ key }}">
+        <div class="t">{{ label }}</div>
+        {% if w %}
+        <div class="amt">+{{ w.net|money }}</div>
+        <div class="who"><img src="{{ w.photo }}" alt=""> <b>{{ w.user }}</b>{{ crown(w.user_id) }} <span>{{ w.game }}</span></div>
+        <div class="det">stawka {{ w.bet|money }} · {{ w.text }} · {{ w.when }}</div>
+        {% else %}
+        <div class="det mt-2">{{ 'Dziś jeszcze nikt nie wygrał - może Ty?' if key == 'day' else 'Jeszcze nikt nie wygrał.' }}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+<style>
+  .hk-top-wins{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
+  .hk-top-win{background:var(--gta-panel);border:1px solid var(--gta-border);border-radius:12px;padding:10px 14px;min-width:0}
+  .hk-top-win.day{border-color:rgba(255,157,46,.55);background:linear-gradient(135deg,rgba(255,157,46,.12),var(--gta-panel) 60%)}
+  .hk-top-win.all{border-color:rgba(255,204,0,.6);background:linear-gradient(135deg,rgba(255,204,0,.14),var(--gta-panel) 60%)}
+  .hk-top-win .t{font-family:var(--gta-font-ui);letter-spacing:.04em;font-size:1.1rem;color:var(--gta-yellow)}
+  .hk-top-win .amt{font-family:var(--gta-font-ui);font-size:2.1rem;line-height:1.1;color:var(--gta-green);text-shadow:var(--gta-outline)}
+  .hk-top-win .who{font-family:var(--gta-font-text);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .hk-top-win .who img{width:24px;height:24px;border-radius:50%;object-fit:cover}
+  .hk-top-win .who span{color:var(--gta-muted);font-size:.9rem}
+  .hk-top-win .det{font-family:var(--gta-font-text);color:var(--gta-muted);font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hk-top-win.flash{animation:hk-topflash 1.2s}
+  @keyframes hk-topflash{30%{box-shadow:0 0 0 3px var(--gta-yellow),0 0 26px rgba(255,204,0,.55)}}
+  @media (max-width:575px){.hk-top-wins{grid-template-columns:1fr}.hk-top-win .amt{font-size:1.7rem}}
+</style>

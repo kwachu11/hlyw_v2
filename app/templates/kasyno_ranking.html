@@ -6,6 +6,7 @@
         <h2 class="mb-0">🎰 Ranking kasyna</h2>
         <a href="{{ url_for('casino') }}" class="btn btn-primary">Do kasyna</a>
     </div>
+    {% include '_kasyno_top.html' %}
     <div class="btn-group flex-wrap mb-3" role="group" aria-label="Sortowanie">
         {% for key, label in [('saldo', 'Żetony'), ('netto', 'Wygrane na plusie'), ('wygrana', 'Największa wygrana'), ('gry', 'Rozegrane')] %}
         <a href="{{ url_for('casino_ranking_page', sort=key) }}" class="btn btn-sm {{ 'btn-warning' if sort == key else 'btn-outline-secondary' }}">{{ label }}</a>

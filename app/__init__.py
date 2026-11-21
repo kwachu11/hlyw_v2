@@ -4157,7 +4157,7 @@ def create_app():
         low, high = casino_limits()
         return render_template('kasyno.html', state=casino_state(current_user.id), history=casino_history(current_user.id),
                                min_bet=low, max_bet=high, wheel=ROULETTE_WHEEL, red=sorted(ROULETTE_RED),
-                               streak_max=CASINO_DAILY_STREAK_MAX)
+                               streak_max=CASINO_DAILY_STREAK_MAX, top=casino_top_wins(current_user.id))
 
     @app.route('/kasyno/dzienne', methods=['POST'])
     @login_required
@@ -4382,6 +4382,24 @@ def create_app():
                         'winner': winner, 'payout': payout, 'net': payout - total,
                         **casino_state(current_user.id), 'history': casino_history(current_user.id)})
 
+    def casino_top_wins(viewer_id=None):
+        """Największa wygrana (na plusie ponad stawkę) dzisiaj - od polskiej północy - i od początku kasyna.
+        Własna świeża wygrana widza dochodzi po animacji, jak w „na żywo”."""
+        now = datetime.utcnow()
+        midnight_utc = datetime.combine(date.today(), datetime.min.time()) - (datetime.now() - now)
+        query = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES)), CasinoBet.payout > CasinoBet.bet)
+        if viewer_id:
+            query = query.filter(db.or_(CasinoBet.user_id != viewer_id, CasinoBet.created_at <= now - CASINO_LIVE_OWN_DELAY))
+
+        def best(q):
+            b = q.order_by((CasinoBet.payout - CasinoBet.bet).desc(), CasinoBet.id).first()
+            if not b or not b.user:
+                return None
+            return {'id': b.id, 'user': b.user.username, 'photo': avatar_url(b.user.photo), 'user_id': b.user_id,
+                    'game': CASINO_GAMES[b.game], 'bet': b.bet, 'net': b.payout - b.bet, 'text': b.details or '',
+                    'when': when_label(b.created_at)}
+        return {'day': best(query.filter(CasinoBet.created_at >= midnight_utc)), 'all': best(query)}
+
     @app.route('/kasyno/na-zywo')
     @login_required
     def casino_live():
@@ -4419,7 +4437,7 @@ def create_app():
             players.append({'user': w.user.username, 'photo': avatar_url(w.user.photo), 'me': w.user_id == current_user.id,
                             'game': CASINO_GAMES.get(w.seen_game, '🎰 Kasyno'), 'balance': w.balance, 'hand': hand})
         players.sort(key=lambda p: (not p['me'], p['user'].lower()))
-        return jsonify({'ok': True, 'feed': feed, 'players': players})
+        return jsonify({'ok': True, 'feed': feed, 'players': players, 'top': casino_top_wins(current_user.id)})
 
     def casino_ranking(sort='saldo'):
         """[{user, balance, rounds, net, best}] - saldo z portfela, reszta z rozegranych rund (bez dziennych)."""
@@ -4446,7 +4464,8 @@ def create_app():
         if sort not in ('saldo', 'netto', 'wygrana', 'gry'):
             sort = 'saldo'
         rounds = CasinoBet.query.filter(CasinoBet.game.in_(list(CASINO_GAMES))).count()
-        return render_template('kasyno_ranking.html', ranking=casino_ranking(sort), sort=sort, rounds=rounds)
+        return render_template('kasyno_ranking.html', ranking=casino_ranking(sort), sort=sort, rounds=rounds,
+                               top=casino_top_wins(current_user.id))
 
     # ===================== Ostatnia aktywność =====================
 
