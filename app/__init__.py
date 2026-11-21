@@ -138,6 +138,8 @@ SITE_SETTINGS = [
     ('countdown_camera', 'bool', True, 'Na stronie kamery', 'Licznik (premiera, turniej...)'),
     ('countdown_hide_days', 'int', 7, 'Schowaj po tylu dniach od daty', 'Licznik (premiera, turniej...)'),
     ('casino_on', 'bool', True, 'Kasyno otwarte (zamknięte widzi tylko admin)', 'Kasyno'),
+    ('cash_per_hof_point', 'int', 100, 'Kasa $ za każdy punkt w Hall of Fame', 'Kasyno'),
+    ('cash_per_game', 'int', 5, 'Kasa $ za każdą rozegraną grę', 'Kasyno'),
     ('casino_min_bet', 'int', 10, 'Najmniejsza stawka', 'Kasyno'),
     ('casino_max_bet', 'int', 5000, 'Największa stawka (na jedno rozdanie / zakręcenie)', 'Kasyno'),
     ('poker_big_blind', 'int', 20, 'Poker: duża ciemna (mała = połowa; wpisowe 20-100 dużych ciemnych)', 'Kasyno'),
@@ -322,9 +324,8 @@ ROULETTE_GROUPS = {
     'corner': ({(n, n + 1, n + 3, n + 4) for n in range(1, 33) if n % 3}, 9),                # 4 w rogu, 8:1
     'sixline': ({tuple(range(n, n + 6)) for n in range(1, 32, 3)}, 6),                       # dwa rzędy, 5:1
 }
-# Kasa w stylu GTA (pasek w menu): za punkt w rankingu ogólnym Hall of Fame i za każdą rozegraną grę
-CASH_PER_HOF_POINT = 1000
-CASH_PER_GAME = 10
+# Kasa w stylu GTA (pasek w menu): za punkt w rankingu ogólnym Hall of Fame i za każdą rozegraną grę -
+# stawki ustawia admin w /panel (SITE_SETTINGS cash_per_hof_point / cash_per_game, grupa „Kasyno”).
 # "Gwiazdki poszukiwania" (1-5) za aktywność z ostatnich 7 dni: punkty za akcję i progi gwiazdek
 WANTED_DAYS = 7
 WANTED_WEIGHTS = {'gry': 1, 'czat': 2, 'zdjęcia': 1, 'newsy': 5, 'komentarze': 2, 'wydarzenia': 5}
@@ -333,7 +334,7 @@ WANTED_THRESHOLDS = [1, 15, 40, 100, 200]
 LOADING_TIPS = [
     'Pobij rekord w dowolnej grze, a dostaniesz „misja zaliczona” i kasę na koncie.',
     'TOP 3 rankingu ogólnego Hall of Fame nosi koronę przy nicku.',
-    'Za każdy punkt w Hall of Fame wpada 1,000 $, za każdą grę 10 $.',
+    'Za punkty w Hall of Fame i za każdą rozegraną grę wpada kasa $ - wydasz ją w kasynie.',
     'Im więcej piszesz, grasz i wrzucasz zdjęć, tym więcej gwiazdek poszukiwania.',
     'Gwiazdki poszukiwania gasną, jeśli przez tydzień nic nie robisz.',
     'Coś nie działa? Zgłoś to w Dodatki → Zgłoszenia.',
@@ -3966,8 +3967,9 @@ def create_app():
                 entry['games'] += row.attempts
         for place, entry in enumerate(overall_ranking(rankings), 1):
             result[entry['id']].update(place=place, points=entry['points'])
+        per_point, per_game = max(0, site_settings()['cash_per_hof_point']), max(0, site_settings()['cash_per_game'])
         for entry in result.values():
-            entry['cash'] = CASH_PER_HOF_POINT * entry['points'] + CASH_PER_GAME * entry['games']
+            entry['cash'] = per_point * entry['points'] + per_game * entry['games']
         standings_cache.update(at=time.time(), data=result)
         return result
 
@@ -4015,7 +4017,7 @@ def create_app():
         if not current_user.is_authenticated:
             return {}
         return {'my_cash': user_money(current_user.id),
-                'cash_per_point': CASH_PER_HOF_POINT, 'cash_per_game': CASH_PER_GAME}
+                'cash_per_point': site_settings()['cash_per_hof_point'], 'cash_per_game': site_settings()['cash_per_game']}
 
     wanted_cache = {'at': 0, 'data': None}
 
