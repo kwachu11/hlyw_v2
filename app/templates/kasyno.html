@@ -101,6 +101,31 @@
   .hk-rules{font-family:var(--gta-font-text);color:var(--gta-muted);font-size:.92rem;margin-top:14px}
   .hk-rules summary{cursor:pointer;color:var(--gta-text)}
   [hidden]{display:none!important}
+  canvas.hk-fx{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:2000;
+    background:transparent;border:0}   /* globalne canvas { tło czarne, ramka } z custom.css */
+  .hk-win{position:fixed;left:50%;top:45%;width:0;height:0;pointer-events:none;z-index:2001;visibility:hidden}
+  .hk-win.show{visibility:visible}
+  .hk-win .flash{position:absolute;left:-180px;top:-180px;width:360px;height:360px;border-radius:50%;opacity:0;
+    background:radial-gradient(circle,rgba(255,240,170,.95),rgba(255,204,0,.45) 35%,transparent 70%)}
+  .hk-win .ring{position:absolute;left:-60px;top:-60px;width:120px;height:120px;border-radius:50%;border:6px solid var(--gta-yellow);opacity:0}
+  .hk-win .ring.r2{border-color:var(--gta-green);border-width:4px}
+  .hk-win .txt{position:absolute;left:0;top:0;transform:translate(-50%,-50%) scale(0);text-align:center;white-space:nowrap;opacity:0}
+  .hk-win .lbl{font-family:var(--gta-font-ui);font-size:2rem;color:var(--gta-yellow);letter-spacing:.06em;text-shadow:var(--gta-outline)}
+  .hk-win .amt{font-family:var(--gta-font-ui);font-size:4.6rem;line-height:1;color:var(--gta-green);text-shadow:var(--gta-outline),0 0 30px rgba(111,210,111,.6)}
+  .hk-win.big .amt{font-size:6rem}
+  .hk-win.show .flash{animation:hk-flash .7s ease-out}
+  .hk-win.show .ring{animation:hk-ring .8s ease-out}
+  .hk-win.show .ring.r2{animation:hk-ring 1s .12s ease-out}
+  .hk-win.show .txt{animation:hk-pop 2s cubic-bezier(.2,1.6,.4,1) forwards}
+  .hk-win.big.show .txt{animation-duration:2.6s}
+  @keyframes hk-flash{0%{opacity:0;transform:scale(.2)}20%{opacity:1}100%{opacity:0;transform:scale(1.6)}}
+  @keyframes hk-ring{0%{opacity:1;transform:scale(.2)}100%{opacity:0;transform:scale(4.5)}}
+  @keyframes hk-pop{0%{opacity:0;transform:translate(-50%,-50%) scale(.2)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}
+    25%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-62%) scale(.95)}}
+  .hk-shake{animation:hk-shake .5s}
+  @keyframes hk-shake{20%{transform:translate(-6px,3px)}40%{transform:translate(5px,-4px)}60%{transform:translate(-4px,2px)}80%{transform:translate(3px,-2px)}}
+  @media (max-width:767px){.hk-win .amt{font-size:3.2rem}.hk-win.big .amt{font-size:4rem}.hk-win .lbl{font-size:1.4rem}}
+  @media (prefers-reduced-motion:reduce){.hk-shake{animation:none}}
   @media (max-width: 767px){
     .hk-roulette{grid-template-columns:1fr}
     .hk-wheel-box{max-width:260px}
@@ -248,9 +273,85 @@
     if (data.history) { history = data.history; renderHistory(); }
   }
   function message(el, text, cls) { el.textContent = text || ''; el.className = 'hk-msg' + (cls ? ' ' + cls : ''); }
-  function celebrate(net, bet) {
-    if (net >= Math.max(MIN_BET * 20, bet * 3)) { if (window.gta && gta.passed) gta.passed('Wygrana', net); }
-    else if (net > 0) sound('sms');
+  // ---------- wybuch po wygranej: monety i iskry z kwotą w środku ----------
+  const winFx = (() => {
+    const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const cv = document.createElement('canvas'), box = document.createElement('div'), ctx = cv.getContext('2d');
+    cv.className = 'hk-fx';
+    box.className = 'hk-win';
+    box.innerHTML = '<div class="flash"></div><div class="ring"></div><div class="ring r2"></div><div class="txt"><div class="lbl"></div><div class="amt"></div></div>';
+    document.body.append(cv, box);
+    const COLORS = ['#ffcc00', '#ffe066', '#6fd26f', '#ff9d2e', '#ffffff', '#ff2e88'];
+    let parts = [], raf = null, hideTimer = null, countTimer = null;
+    function resize() {
+      const d = window.devicePixelRatio || 1;
+      cv.width = innerWidth * d; cv.height = innerHeight * d;
+      ctx.setTransform(d, 0, 0, d, 0, 0);
+    }
+    function frame() {
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      parts = parts.filter((p) => p.life > 0);
+      parts.forEach((p) => {
+        p.vx *= 0.985; p.vy = p.vy * 0.985 + p.g; p.x += p.vx; p.y += p.vy; p.life--; p.rot += p.vr;
+        ctx.globalAlpha = Math.min(1, p.life / 30);
+        if (p.coin) {          // moneta obracająca się w locie
+          ctx.save(); ctx.translate(p.x, p.y); ctx.scale(Math.abs(Math.cos(p.rot)) + 0.15, 1);
+          ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); ctx.fillStyle = '#ffcc00'; ctx.fill();
+          ctx.lineWidth = 2; ctx.strokeStyle = '#b8860b'; ctx.stroke();
+          ctx.fillStyle = '#b8860b'; ctx.font = 'bold ' + (p.size * 1.2) + 'px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('$', 0, 1); ctx.restore();
+        } else {               // iskra - kreska wzdłuż kierunku lotu
+          ctx.strokeStyle = p.color; ctx.lineWidth = p.size; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2); ctx.stroke();
+        }
+      });
+      ctx.globalAlpha = 1;
+      raf = parts.length ? requestAnimationFrame(frame) : null;
+      if (!raf) ctx.clearRect(0, 0, innerWidth, innerHeight);
+    }
+    function burst(cx, cy, count, power) {
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2, v = (0.35 + Math.random() * 0.65) * power, coin = Math.random() < 0.35;
+        parts.push({x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2, g: coin ? 0.32 : 0.18, coin: coin,
+                    size: coin ? 7 + Math.random() * 6 : 2 + Math.random() * 3, color: COLORS[i % COLORS.length],
+                    rot: Math.random() * 6, vr: 0.1 + Math.random() * 0.25, life: 60 + Math.random() * 60});
+      }
+      if (!raf) raf = requestAnimationFrame(frame);
+    }
+    return function (amount, label, big) {
+      const cx = innerWidth / 2, cy = innerHeight * 0.45;
+      box.querySelector('.lbl').textContent = label;
+      const amt = box.querySelector('.amt');
+      clearTimeout(hideTimer); clearInterval(countTimer);
+      box.classList.remove('show', 'big'); void box.offsetWidth;
+      box.classList.add('show');
+      if (big) box.classList.add('big');
+      // kwota liczy się od zera
+      const start = performance.now();
+      const tick = () => {
+        const t = Math.min(1, (performance.now() - start) / 800);
+        amt.textContent = '+' + fmt(amount * (1 - Math.pow(1 - t, 3)));
+        if (t >= 1) clearInterval(countTimer);
+      };
+      tick(); countTimer = setInterval(tick, 30);
+      hideTimer = setTimeout(() => box.classList.remove('show', 'big'), big ? 2600 : 2000);
+      if (calm) return;
+      resize();
+      burst(cx, cy, big ? 140 : 70, big ? 17 : 12);
+      if (big) {
+        setTimeout(() => burst(cx - innerWidth * 0.18, cy + 30, 60, 13), 220);
+        setTimeout(() => burst(cx + innerWidth * 0.18, cy + 30, 60, 13), 380);
+        const wrap = document.querySelector('.hk-wrap');
+        wrap.classList.remove('hk-shake'); void wrap.offsetWidth; wrap.classList.add('hk-shake');
+      }
+    };
+  })();
+  function celebrate(net, bet, label) {
+    if (net > 0) {
+      const big = net >= Math.max(MIN_BET * 20, bet * 5);
+      winFx(net, label || (big ? 'MEGA WYGRANA' : 'WYGRANA'), big);
+      sound(big ? 'passed' : 'sms');
+    }
     if (state.balance === 0 && net <= 0 && window.gta && gta.wasted) gta.wasted('Żetony', 0);
   }
 
@@ -289,7 +390,8 @@
     api('{{ url_for("casino_daily") }}').then((d) => {
       if (!d.ok) { alertMsg(d.error); renderDaily(); return; }
       sync(d);
-      if (window.gta && gta.passed) gta.passed('Dzienne żetony', d.amount);
+      winFx(d.amount, 'DZIENNE ŻETONY', true);
+      sound('passed');
     });
   });
   function renderHistory() {
@@ -391,7 +493,7 @@
     setTimeout(() => {
       message($('bj-msg'), net > 0 ? 'Wygrywasz +' + fmt(net) : net < 0 ? 'Przegrywasz ' + fmt(-net) : 'Remis - stawka wraca',
               net > 0 ? 'win' : net < 0 ? 'lose' : '');
-      celebrate(net, bet);
+      celebrate(net, bet, hand.hands.some((h) => h.result === 'blackjack') ? 'BLACKJACK!' : null);
     }, wait);
   }
   function bjSend(body) {
@@ -576,7 +678,7 @@
         message($('rl-msg'), d.net > 0 ? d.number + ' - wygrywasz +' + fmt(d.net) : d.payout > 0 ? d.number + ' - wraca ' + fmt(d.payout) + ' z ' + fmt(total) : d.number + ' - przegrywasz ' + fmt(total),
                 d.net > 0 ? 'win' : d.net < 0 ? 'lose' : '');
         sync(d);
-        celebrate(d.net, total);
+        celebrate(d.net, total, rlBets[betKey('n', d.number)] ? 'TRAFIONY NUMER ' + d.number + '!' : null);
         rlLast = Object.assign({}, rlBets);
         rlBets = {}; rlOrder = [];
         rlRender();
