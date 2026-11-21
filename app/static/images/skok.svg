@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a0f33"/><stop offset=".6" stop-color="#3b1d4a"/><stop offset="1" stop-color="#ff7a3d"/></linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#sky)"/>
+  <g fill="#160d24"><rect x="10" y="120" width="50" height="180"/><rect x="70" y="90" width="40" height="210"/><rect x="290" y="100" width="60" height="200"/><rect x="355" y="140" width="40" height="160"/></g>
+  <g fill="rgba(255,204,0,.35)"><rect x="80" y="110" width="6" height="8"/><rect x="94" y="130" width="6" height="8"/><rect x="300" y="120" width="6" height="8"/><rect x="320" y="150" width="6" height="8"/></g>
+  <rect x="0" y="236" width="150" height="64" fill="#2b2b36"/><rect x="0" y="236" width="150" height="7" fill="#6fd26f"/>
+  <rect x="230" y="204" width="170" height="96" fill="#2b2b36"/><rect x="230" y="204" width="170" height="7" fill="#6fd26f"/>
+  <rect x="100" y="228" width="40" height="10" fill="#ffcc00"/>
+  <g fill="#e8e8e8"><path d="M160 300l10-26 10 26zM180 300l10-26 10 26zM200 300l10-26 10 26z"/></g>
+  <g transform="translate(176 120) rotate(-12)">
+    <rect x="0" y="0" width="40" height="44" rx="10" fill="#ffcc00" stroke="#000" stroke-width="4"/>
+    <rect x="22" y="10" width="12" height="12" fill="#fff"/><rect x="28" y="14" width="6" height="6" fill="#000"/>
+    <rect x="4" y="44" width="10" height="14" fill="#111"/><rect x="26" y="40" width="10" height="14" fill="#111" transform="rotate(30 31 47)"/>
+  </g>
+  <g stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".7"><path d="M120 150h40M110 172h44M126 194h30"/></g>
+  <g transform="translate(330 140)">
+    <rect x="0" y="0" width="4" height="64" fill="#aaa"/>
+    <g><rect x="4" y="0" width="12" height="12" fill="#fff"/><rect x="16" y="0" width="12" height="12" fill="#111"/><rect x="4" y="12" width="12" height="12" fill="#111"/><rect x="16" y="12" width="12" height="12" fill="#fff"/></g>
+  </g>
+</svg>

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between hl-gap mb-3">
+        <h2 class="mb-0">Ranking gry Turbo Skok</h2>
+        <a href="{{ url_for('skok') }}" class="btn btn-primary">Zagraj</a>
+    </div>
+
+    <h4>Najlepsze czasy na trasach</h4>
+    <div class="row">
+        {% for t in tracks %}
+        <div class="col-md-6 mb-3">
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered table-hover mb-0">
+                    <thead class="thead-light"><tr><th colspan="3">{{ t.name }}</th></tr></thead>
+                    <tbody>
+                        {% for user, time in t.times %}
+                        <tr class="{{ ['hl-podium-1', 'hl-podium-2', 'hl-podium-3'][loop.index0] if loop.index <= 3 }}{{ ' table-active' if user.id == current_user.id }}">
+                            <td class="hl-place" style="width:48px">{% if loop.index <= 3 %}<span class="hl-medal-emoji">{{ ['🥇', '🥈', '🥉'][loop.index0] }}</span>{% else %}{{ loop.index }}{% endif %}</td>
+                            <td><a href="{{ url_for('profil', user_id=user.id) }}"><img src="{{ user.photo|avatar_url }}" class="rounded-circle" width="28" height="28" style="object-fit: cover;" alt=""> {{ user.username }}</a>{{ crown(user.id) }}</td>
+                            <td><strong>{{ time|tm_time }}</strong></td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-center text-muted">Jeszcze nikt nie przejechał tej trasy.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h4 class="mt-3">Punkty (Hall of Fame)</h4>
+    <p class="text-muted small">Za przejazd: 1000 pkt za czas wzorcowy trasy, szybciej = więcej (najwyżej 3000). Liczy się najlepszy przejazd.</p>
+    {% include "_ranking_table.html" %}
+</div>
+{% endblock %}

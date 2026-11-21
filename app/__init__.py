@@ -244,7 +244,7 @@ MENU_ITEMS = {
     'albums': ('Galeria', 'albums', ('/album', '/add_album', '/add_image'), None),
     'news': ('Breaking News', 'news', ('/news', '/add_new'), None),
     'games': ('🎮 Gry', 'games', ('/games', '/ranking_', '/snake', '/tetris', '/dino', '/ice_tower', '/kolko_krzyzyk',
-                                 '/formula', '/gorka'), None),
+                                 '/formula', '/gorka', '/skok'), None),
     'camera': ('Kamera', 'camera', ('/camera',), None),
     'calendar': ('Kalendarz', 'calendar', ('/calendar', '/add_entry', '/event'), None),
     'hof': ('🏆 Hall of Fame', 'hall_of_fame', ('/hall_of_fame', '/profil'), None),
@@ -291,7 +291,26 @@ GAME_SCORE_LIMITS = {          # gra: (zapas, punktów na sekundę)
     'kolko_krzyzyk': (5, 3),   # maks. 5 pkt za wygraną partię na trudnym
     'formula': (10, 20),
     'gorka': (50, 25),         # wynik = dystans w metrach; maks. prędkość ~18 m/s
+    'skok': (0, 0),            # Turbo Skok sprawdza czas przejazdu osobno (SKOK_TRACKS), punkty liczy serwer
 }
+# Turbo Skok - wyścig platformowy na czas. Trasy (układ w templates/skok.html): klucz -> (nazwa, czas wzorcowy ms,
+# najkrótszy możliwy czas ms). Punkty za przejazd = 1000 * wzorcowy / czas (szybciej = więcej), najwyżej 3000.
+SKOK_TRACKS = {
+    'rozgrzewka': ('Rozgrzewka', 12000, 3500),     # czasy wzorcowe z przejazdów bota (6,6-11 s zależnie od postaci)
+    'lodowisko': ('Lodowisko', 18000, 5000),
+    'wiezowce': ('Wieżowce', 16000, 4500),
+    'tor_smierci': ('Tor śmierci', 24000, 7000),
+}
+SKOK_STAT_POINTS = 150           # punkty do rozdzielenia na prędkość / przyspieszenie / skok (każda 0-100)
+SKOK_COLORS = ['#ffcc00', '#5ab0f2', '#ff4d6d', '#6fd26f', '#ff9d2e', '#b07cff', '#ffffff', '#ff7ad9']
+SKOK_RACE_MAX = 4                # graczy w jednym wyścigu
+SKOK_COUNTDOWN = 4               # s od startu do „START!”
+SKOK_AUTOSTART = 20              # s od dołączenia drugiej osoby do samoczynnego startu
+SKOK_AFTER_FIRST = 45            # s po pierwszym na mecie wyścig się kończy
+SKOK_RACE_MAX_TIME = 300         # najdłużej trwa wyścig (s)
+SKOK_RACER_TIMEOUT = 12          # bez synchronizacji tyle s = gracz wyszedł
+SKOK_GHOST_STEP_MS = 50          # duch = pozycja co tyle ms
+SKOK_GHOST_MAX = 6000            # najwyżej 5 minut przejazdu
 # Kasyno (/kasyno): wirtualne żetony bez żadnej wartości. Losuje i liczy wszystko serwer.
 CASINO_GAMES = {'blackjack': '🃏 Blackjack', 'ruletka': '🎡 Ruletka', 'bakarat': '🎴 Bakarat', 'poker': '♠ Poker'}
 # Poker Texas Hold'em (No-Limit) - jeden wspólny stół. Wpisowe w dużych ciemnych, czas na ruch, przerwa po rozdaniu.
@@ -414,6 +433,12 @@ def create_app():
     # gdy jej brak - baza.db w głównym katalogu projektu
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI') or 'sqlite:///' + os.path.join(base_dir, 'baza.db')
+    # Wyścigi Turbo Skoku na żywo zapisują pozycje graczy kilka razy na sekundę - osobny plik bazy obok głównej
+    # (np. instance/baza_wyscigi.db), żeby te zapisy nie blokowały reszty strony.
+    main_uri = app.config['SQLALCHEMY_DATABASE_URI']
+    race_uri = re.sub(r'(\.db)?$', '_wyscigi.db', main_uri, count=1) if main_uri.startswith('sqlite:///') \
+        else 'sqlite:///' + os.path.join(base_dir, 'instance', 'wyscigi.db')
+    app.config['SQLALCHEMY_BINDS'] = {'wyscigi': {'url': race_uri, 'connect_args': {'timeout': 10}}}
     db.init_app(app)
 
     # Tworzymy instancję LoginManager
@@ -953,6 +978,60 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         created_by = db.Column(db.String(500))
 
+    class Skok(db.Model):
+        """Przejazd Turbo Skoku. points/created_at/created_by jak w innych grach (Hall of Fame, kasa za grę),
+        do tego trasa, czas i duch (pozycje co SKOK_GHOST_STEP_MS) - duch tylko przy rekordzie gracza na trasie."""
+        id = db.Column(db.Integer, primary_key=True)
+        points = db.Column(db.Integer)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        created_by = db.Column(db.String(500))
+        track = db.Column(db.String(20), nullable=False, index=True)
+        time_ms = db.Column(db.Integer, nullable=False)
+        ghost = db.Column(db.Text)
+
+    class SkokProfile(db.Model):
+        """Postać w Turbo Skoku: statystyki (suma najwyżej SKOK_STAT_POINTS) i kolor."""
+        user_id = db.Column(db.Integer, db.ForeignKey('user.id'), primary_key=True)
+        speed = db.Column(db.Integer, nullable=False, default=50)
+        accel = db.Column(db.Integer, nullable=False, default=50)
+        jump = db.Column(db.Integer, nullable=False, default=50)
+        color = db.Column(db.String(7), nullable=False, default='#ffcc00')
+
+    class SkokRace(db.Model):
+        """Wyścig na żywo (osobna baza 'wyscigi'). Czasy jako sekundy od 1970 (time.time())."""
+        __bind_key__ = 'wyscigi'
+        id = db.Column(db.Integer, primary_key=True)
+        course = db.Column(db.String(20), nullable=False)
+        status = db.Column(db.String(10), nullable=False, default='lobby')   # lobby / count / run / done
+        host_id = db.Column(db.Integer, nullable=False)
+        created_at = db.Column(db.Float, nullable=False)
+        auto_at = db.Column(db.Float)          # samoczynny start (gdy są 2+ osoby)
+        start_at = db.Column(db.Float)         # chwila „START!”
+        end_at = db.Column(db.Float)
+        recorded = db.Column(db.Boolean, nullable=False, default=False)
+
+    class SkokRacer(db.Model):
+        __bind_key__ = 'wyscigi'
+        race_id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.Integer, primary_key=True)
+        name = db.Column(db.String(150), nullable=False)
+        photo = db.Column(db.String(200))
+        color = db.Column(db.String(7), nullable=False)
+        stats = db.Column(db.String(100), nullable=False)
+        state = db.Column(db.Text)             # pozycja, prędkość, przedmiot... (JSON z gry)
+        seen = db.Column(db.Float, nullable=False)
+        finish_ms = db.Column(db.Integer)
+
+    class SkokEvent(db.Model):
+        """Zdarzenia wyścigu dla innych graczy: mina, wybuch miny, laser."""
+        __bind_key__ = 'wyscigi'
+        id = db.Column(db.Integer, primary_key=True)
+        race_id = db.Column(db.Integer, nullable=False, index=True)
+        user_id = db.Column(db.Integer, nullable=False)
+        kind = db.Column(db.String(10), nullable=False)
+        data = db.Column(db.String(300))
+        at = db.Column(db.Float, nullable=False)
+
     class GameRun(db.Model):
         """Jednorazowy bilet na jedną partię gry - patrz GAME_SCORE_LIMITS."""
         id = db.Column(db.String(32), primary_key=True)
@@ -1123,6 +1202,13 @@ def create_app():
             except OperationalError as e:
                 if 'already exists' not in str(e) or attempt == 2:
                     raise
+
+        # baza wyścigów: tryb WAL (czytanie nie czeka na zapisy pozycji graczy); ustawienie zostaje w pliku bazy
+        try:
+            with db.engines['wyscigi'].connect() as conn:
+                conn.exec_driver_sql('PRAGMA journal_mode=WAL')
+        except Exception as e:      # np. inny worker właśnie to robi - spróbuje następny start
+            app.logger.warning('Baza wyścigów - WAL: %s', e)
 
         # create_all nie dodaje kolumn do istniejących tabel - brakujące dokładamy ręcznie.
         # "duplicate column" = inny worker zdążył pierwszy, wtedy nic nie robimy.
@@ -3791,6 +3877,9 @@ def create_app():
         games.append(['Ice Tower', 'static/images/ice_tower.svg', ice_tower_leader, user4, 'ice_tower', 'ranking_ice_tower'])
         games.append(['Kółko i krzyżyk', 'static/images/kolko_krzyzyk.svg', kk_leader, user5, 'kolko_krzyzyk', 'ranking_kolko_krzyzyk'])
         games.append(['Formuła', 'static/images/formula.svg', formula_leader, user6, 'formula', 'ranking_formula'])
+        skok_leader = Skok.query.order_by(Skok.points.desc()).first()
+        user8 = User.query.filter_by(id=skok_leader.created_by).first() if skok_leader else None
+        games.append(['Turbo Skok', 'static/images/skok.svg', skok_leader, user8, 'skok', 'ranking_skok'])
         # games.append(['Pod Górkę', 'static/images/gorka.svg', gorka_leader, user7, 'gorka', 'ranking_gorka'])
         casino_leader = None
         if site_settings()['casino_on']:
@@ -3890,6 +3979,7 @@ def create_app():
             ('Ice Tower', IceTower, 'ice_tower', False),
             ('Kółko i krzyżyk', KolkoKrzyzyk, 'kolko_krzyzyk', False),
             ('Formuła', Formula, 'formula', False),
+            ('Turbo Skok', Skok, 'skok', False),
             # ('Pod Górkę', Gorka, 'gorka', False),  # ukryta
         ]:
             current, previous = edition(model) if has_editions else (true(), None)
@@ -6350,6 +6440,313 @@ def create_app():
     def ranking_formula():
         ranking_data, rozegranych_gier = game_ranking(Formula, true())
         return render_template('ranking_formula.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier)
+
+    # ===================== Turbo Skok (wyścig platformowy na czas) =====================
+
+    def skok_best_times(track, limit=10):
+        """Najlepszy czas każdego gracza na trasie: [(user, czas ms)] od najszybszego."""
+        rows = db.session.query(Skok.created_by, func.min(Skok.time_ms)).filter(Skok.track == track) \
+            .group_by(Skok.created_by).all()
+        ids = [int(r[0]) for r in rows if r[0] and str(r[0]).isdigit()]
+        users = {str(u.id): u for u in User.query.filter(User.id.in_(ids))} if ids else {}
+        rows = sorted((r for r in rows if str(r[0]) in users), key=lambda r: r[1])
+        return [(users[str(r[0])], r[1]) for r in rows][:limit] if limit else [(users[str(r[0])], r[1]) for r in rows]
+
+    def skok_points(track, time_ms):
+        return min(3000, round(1000 * SKOK_TRACKS[track][1] / max(1, time_ms)))
+
+    @app.route('/skok')
+    @login_required
+    def skok():
+        me = str(current_user.id)
+        tracks = []
+        for key, (name, par, _) in SKOK_TRACKS.items():
+            best = db.session.query(func.min(Skok.time_ms)).filter(Skok.track == key, Skok.created_by == me).scalar()
+            top = skok_best_times(key, 1)
+            tracks.append({'key': key, 'name': name, 'par': par, 'best': best,
+                           'record': {'user': top[0][0].username, 'time': top[0][1]} if top else None})
+        return render_template('skok.html', tracks=tracks, profile=skok_profile(current_user.id), colors=SKOK_COLORS,
+                               stat_points=SKOK_STAT_POINTS, race_max=SKOK_RACE_MAX)
+
+    @app.route('/skok/duchy/<track>')
+    @login_required
+    def skok_ghosts(track):
+        """Duchy na trasę: rekordzisty i mój najlepszy przejazd (gdy to nie ten sam)."""
+        if track not in SKOK_TRACKS:
+            abort(404)
+        ghosts, seen = [], set()
+        top = skok_best_times(track, 3)
+        wanted = [u.id for u, _ in top[:1]] + [current_user.id]
+        for uid in wanted:
+            if uid in seen:
+                continue
+            seen.add(uid)
+            run = Skok.query.filter(Skok.track == track, Skok.created_by == str(uid), Skok.ghost.isnot(None)) \
+                .order_by(Skok.time_ms).first()
+            if run:
+                user = db.session.get(User, uid)
+                ghosts.append({'name': user.username if user else '?', 'me': uid == current_user.id, 'time': run.time_ms,
+                               'path': json.loads(run.ghost)})
+        return jsonify({'ok': True, 'ghosts': ghosts})
+
+    @app.route('/skok/save_score', methods=['POST'])
+    @login_required
+    def save_score_skok():
+        data = request.get_json(silent=True) or {}
+        track = data.get('track')
+        try:
+            time_ms = int(data.get('time'))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False}), 400
+        if track not in SKOK_TRACKS:
+            return jsonify({'ok': False}), 400
+        ghost = data.get('ghost')
+        run = GameRun.query.get(str(data.get('run') or ''))
+        started = run.started_at if run else None
+        error = check_game_run('skok', 0, data)
+        if error:
+            return jsonify({'ok': False, 'error': error}), 400
+        name, par, min_ms = SKOK_TRACKS[track]
+        elapsed_ms = (datetime.utcnow() - started).total_seconds() * 1000
+        # czas z gry musi zgadzać się z czasem rzeczywistym od biletu (bilet bierze się na „START!”)
+        steps = time_ms / SKOK_GHOST_STEP_MS
+        ghost_ok = isinstance(ghost, list) and steps * 0.7 - 5 <= len(ghost) <= min(SKOK_GHOST_MAX, steps * 1.3 + 5) \
+            and all(isinstance(p, list) and len(p) == 2 and all(isinstance(v, int) for v in p) for p in ghost)
+        if time_ms < min_ms or not elapsed_ms - 5000 <= time_ms <= elapsed_ms + 3000 or not ghost_ok:
+            app.logger.warning('Odrzucony przejazd skok: user=%s trasa=%s czas=%s realnie=%.0f duch=%s',
+                               current_user.id, track, time_ms, elapsed_ms, len(ghost) if isinstance(ghost, list) else None)
+            return jsonify({'ok': False, 'error': 'Ten czas wygląda na niemożliwy - nie został zapisany.'}), 400
+        me = str(current_user.id)
+        previous = db.session.query(func.min(Skok.time_ms)).filter(Skok.track == track, Skok.created_by == me).scalar()
+        new_best = previous is None or time_ms < previous
+        if new_best:      # trzymamy tylko ducha z najlepszego przejazdu gracza na trasie
+            Skok.query.filter(Skok.track == track, Skok.created_by == me, Skok.ghost.isnot(None)) \
+                .update({Skok.ghost: None}, synchronize_session=False)
+        db.session.add(Skok(points=skok_points(track, time_ms), created_by=me, track=track, time_ms=time_ms,
+                            ghost=json.dumps(ghost, separators=(',', ':')) if new_best else None))
+        db.session.commit()
+        times = skok_best_times(track, 0)
+        place = next((i for i, (u, _) in enumerate(times, 1) if u.id == current_user.id), None)
+        return jsonify({'ok': True, 'best': time_ms if new_best else previous, 'new_best': new_best,
+                        'points': skok_points(track, time_ms), 'place': place, 'players': len(times),
+                        'record': {'user': times[0][0].username, 'time': times[0][1]} if times else None})
+
+    @app.route('/ranking_skok')
+    @login_required
+    def ranking_skok():
+        ranking_data, rozegranych_gier = game_ranking(Skok, true())
+        tracks = [{'key': key, 'name': name, 'times': skok_best_times(key, 10)} for key, (name, _, _) in SKOK_TRACKS.items()]
+        return render_template('ranking_skok.html', ranking_data=ranking_data, rozegranych_gier=rozegranych_gier,
+                               tracks=tracks)
+
+    # ----- postać i wyścigi na żywo -----
+
+    def skok_profile(user_id):
+        prof = db.session.get(SkokProfile, user_id)
+        if prof is None:
+            return {'speed': 50, 'accel': 50, 'jump': 50, 'color': SKOK_COLORS[user_id % len(SKOK_COLORS)]}
+        return {'speed': prof.speed, 'accel': prof.accel, 'jump': prof.jump, 'color': prof.color}
+
+    @app.route('/skok/profil', methods=['POST'])
+    @login_required
+    def skok_profile_save():
+        data = request.get_json(silent=True) or {}
+        try:
+            stats = {k: int(data.get(k)) for k in ('speed', 'accel', 'jump')}
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Złe statystyki.'}), 400
+        color = data.get('color')
+        if any(not 0 <= v <= 100 for v in stats.values()) or sum(stats.values()) > SKOK_STAT_POINTS or color not in SKOK_COLORS:
+            return jsonify({'ok': False, 'error': f'Każda statystyka 0-100, razem najwyżej {SKOK_STAT_POINTS}.'}), 400
+        prof = db.session.get(SkokProfile, current_user.id) or SkokProfile(user_id=current_user.id)
+        prof.speed, prof.accel, prof.jump, prof.color = stats['speed'], stats['accel'], stats['jump'], color
+        db.session.add(prof)
+        db.session.commit()
+        return jsonify({'ok': True, 'profile': skok_profile(current_user.id)})
+
+    def skok_race_tick(race, now):
+        """Zegar wyścigu (leniwie, przy każdym pytaniu): odpadanie nieobecnych, start, koniec, zapis wyników."""
+        racers = SkokRacer.query.filter_by(race_id=race.id).all()
+        if race.status == 'lobby':
+            for r in racers:
+                if r.seen < now - SKOK_RACER_TIMEOUT:
+                    db.session.delete(r)
+            racers = [r for r in racers if r.seen >= now - SKOK_RACER_TIMEOUT]
+            if not racers:
+                db.session.delete(race)
+                return None
+            if race.host_id not in [r.user_id for r in racers]:
+                race.host_id = racers[0].user_id      # gospodarz wyszedł - przejmuje następny
+            if len(racers) >= 2 and race.auto_at is None:
+                race.auto_at = now + SKOK_AUTOSTART
+            elif len(racers) < 2:
+                race.auto_at = None
+            if race.auto_at and now >= race.auto_at:
+                race.status, race.start_at = 'count', now + SKOK_COUNTDOWN
+        if race.status == 'count' and now >= race.start_at:
+            race.status = 'run'
+        if race.status == 'run':
+            active = [r for r in racers if r.seen >= now - SKOK_RACER_TIMEOUT or r.finish_ms]
+            finished = [r for r in racers if r.finish_ms]
+            first_at = race.start_at + min(r.finish_ms for r in finished) / 1000 if finished else None
+            if (active and all(r.finish_ms for r in active)) or not active \
+                    or (first_at and now > first_at + SKOK_AFTER_FIRST) or now > race.start_at + SKOK_RACE_MAX_TIME:
+                race.status, race.end_at = 'done', now
+        if race.status == 'done' and not race.recorded:
+            race.recorded = True
+            # ukończony wyścig = przejazd w Turbo Skoku (Hall of Fame, kasa za grę, najlepsze czasy)
+            for r in racers:
+                if r.finish_ms:
+                    db.session.add(Skok(points=skok_points(race.course, r.finish_ms), created_by=str(r.user_id),
+                                        track=race.course, time_ms=r.finish_ms))
+            standings_cache['data'] = None
+        return race
+
+    def skok_race_view(race, now, user_id, since=0):
+        racers = SkokRacer.query.filter_by(race_id=race.id).all()
+        order = sorted([r for r in racers if r.finish_ms], key=lambda r: r.finish_ms)
+        places = {r.user_id: i for i, r in enumerate(order, 1)}
+        events = SkokEvent.query.filter(SkokEvent.race_id == race.id, SkokEvent.id > since).order_by(SkokEvent.id).all() \
+            if since >= 0 else []
+        return {'id': race.id, 'course': race.course, 'status': race.status, 'host': race.host_id == user_id,
+                'now': now, 'auto_at': race.auto_at, 'start_at': race.start_at,
+                'racers': [{'uid': r.user_id, 'name': r.name, 'photo': r.photo, 'color': r.color, 'me': r.user_id == user_id,
+                            'stats': json.loads(r.stats), 'state': json.loads(r.state) if r.state else None,
+                            'finish_ms': r.finish_ms, 'place': places.get(r.user_id),
+                            'away': r.seen < now - SKOK_RACER_TIMEOUT and not r.finish_ms} for r in racers],
+                'events': [{'id': e.id, 'uid': e.user_id, 'kind': e.kind, 'data': json.loads(e.data or '{}')}
+                           for e in events if e.user_id != user_id],
+                'last_event': events[-1].id if events else since}
+
+    def skok_join(race, now):
+        prof = skok_profile(current_user.id)
+        SkokRacer.query.filter(SkokRacer.user_id == current_user.id, SkokRacer.race_id != race.id).delete()
+        db.session.merge(SkokRacer(race_id=race.id, user_id=current_user.id, name=current_user.username,
+                                   photo=avatar_url(current_user.photo), color=prof['color'],
+                                   stats=json.dumps({k: prof[k] for k in ('speed', 'accel', 'jump')}), seen=now))
+
+    @app.route('/skok/wyscigi')
+    @login_required
+    def skok_races():
+        """Lobby: otwarte i trwające wyścigi."""
+        now = time.time()
+        old = [r.id for r in SkokRace.query.filter(SkokRace.created_at < now - 3600).all()]
+        if old:     # sprzątanie po starych wyścigach (pozycje i zdarzenia też)
+            SkokEvent.query.filter(SkokEvent.race_id.in_(old)).delete(synchronize_session=False)
+            SkokRacer.query.filter(SkokRacer.race_id.in_(old)).delete(synchronize_session=False)
+            SkokRace.query.filter(SkokRace.id.in_(old)).delete(synchronize_session=False)
+        rows = []
+        for race in SkokRace.query.order_by(SkokRace.id.desc()).all():
+            race = skok_race_tick(race, now)
+            if not race or (race.status == 'done' and now - (race.end_at or now) > 60):
+                continue
+            racers = SkokRacer.query.filter_by(race_id=race.id).all()
+            rows.append({'id': race.id, 'course': race.course, 'course_name': SKOK_TRACKS.get(race.course, ('?',))[0],
+                         'status': race.status, 'players': [{'name': r.name, 'photo': r.photo, 'color': r.color} for r in racers],
+                         'mine': any(r.user_id == current_user.id for r in racers)})
+        db.session.commit()
+        return jsonify({'ok': True, 'races': rows, 'max': SKOK_RACE_MAX})
+
+    @app.route('/skok/wyscigi', methods=['POST'])
+    @login_required
+    def skok_race_create():
+        course = (request.get_json(silent=True) or {}).get('course')
+        if course not in SKOK_TRACKS:
+            return jsonify({'ok': False, 'error': 'Wybierz trasę.'}), 400
+        now = time.time()
+        race = SkokRace(course=course, status='lobby', host_id=current_user.id, created_at=now)
+        db.session.add(race)
+        db.session.flush()
+        skok_join(race, now)
+        db.session.commit()
+        return jsonify({'ok': True, 'race': skok_race_view(race, now, current_user.id)})
+
+    @app.route('/skok/wyscig/<int:race_id>/dolacz', methods=['POST'])
+    @login_required
+    def skok_race_join(race_id):
+        now = time.time()
+        race = db.session.get(SkokRace, race_id)
+        race = skok_race_tick(race, now) if race else None
+        if not race or race.status != 'lobby':
+            db.session.commit()
+            return jsonify({'ok': False, 'error': 'Ten wyścig już wystartował albo się skończył.'}), 400
+        count = SkokRacer.query.filter(SkokRacer.race_id == race.id, SkokRacer.user_id != current_user.id).count()
+        if count >= SKOK_RACE_MAX:
+            return jsonify({'ok': False, 'error': f'Wyścig pełny ({SKOK_RACE_MAX} osoby).'}), 400
+        skok_join(race, now)
+        skok_race_tick(race, now)
+        db.session.commit()
+        return jsonify({'ok': True, 'race': skok_race_view(race, now, current_user.id)})
+
+    @app.route('/skok/wyscig/<int:race_id>/opusc', methods=['POST'])
+    @login_required
+    def skok_race_leave(race_id):
+        racer = db.session.get(SkokRacer, (race_id, current_user.id))
+        race = db.session.get(SkokRace, race_id)
+        if racer and race and race.status in ('lobby', 'count'):
+            db.session.delete(racer)
+        elif racer:
+            racer.seen = 0          # w trakcie wyścigu: zostaje na liście jako nieukończony
+        db.session.commit()
+        return jsonify({'ok': True})
+
+    @app.route('/skok/wyscig/<int:race_id>/start', methods=['POST'])
+    @login_required
+    def skok_race_start(race_id):
+        now = time.time()
+        race = db.session.get(SkokRace, race_id)
+        race = skok_race_tick(race, now) if race else None
+        if not race or race.status != 'lobby' or race.host_id != current_user.id:
+            db.session.commit()
+            return jsonify({'ok': False, 'error': 'Start może dać tylko gospodarz, przed wyścigiem.'}), 400
+        if SkokRacer.query.filter_by(race_id=race.id).count() < 2:
+            return jsonify({'ok': False, 'error': 'Potrzeba co najmniej 2 osób - sam zagraj w czasówkę.'}), 400
+        race.status, race.start_at = 'count', now + SKOK_COUNTDOWN
+        db.session.commit()
+        return jsonify({'ok': True, 'race': skok_race_view(race, now, current_user.id)})
+
+    @app.route('/skok/wyscig/<int:race_id>/sync', methods=['POST'])
+    @login_required
+    def skok_race_sync(race_id):
+        """Gra wysyła swój stan (co ~120 ms) i dostaje stan innych graczy oraz nowe zdarzenia."""
+        data = request.get_json(silent=True) or {}
+        now = time.time()
+        race = db.session.get(SkokRace, race_id)
+        racer = db.session.get(SkokRacer, (race_id, current_user.id)) if race else None
+        if racer:
+            racer.seen = now        # przed zegarem wyścigu - inaczej gracz wyglądałby na nieobecnego
+            db.session.flush()
+        race = skok_race_tick(race, now) if race else None
+        if not race or not racer:
+            db.session.commit()
+            return jsonify({'ok': False, 'error': 'Nie ma Cię w tym wyścigu.'}), 404
+        state = data.get('state')
+        if isinstance(state, dict) and race.status == 'run':
+            racer.state = json.dumps(state, separators=(',', ':'))[:600]
+        for ev in (data.get('events') or [])[:10]:
+            if isinstance(ev, dict) and ev.get('kind') in ('mine', 'boom', 'laser') and race.status == 'run':
+                db.session.add(SkokEvent(race_id=race.id, user_id=current_user.id, kind=ev['kind'],
+                                         data=json.dumps(ev.get('data') or {}, separators=(',', ':'))[:300], at=now))
+        if data.get('finish_ms') is not None and race.status == 'run' and not racer.finish_ms:
+            try:
+                ms = int(data['finish_ms'])
+            except (TypeError, ValueError):
+                ms = -1
+            elapsed = (now - race.start_at) * 1000
+            # czas z gry musi zgadzać się z zegarem serwera od „START!”
+            if ms >= SKOK_TRACKS[race.course][2] and abs(ms - elapsed) < 3000:
+                racer.finish_ms = ms
+            else:
+                app.logger.warning('Odrzucona meta wyścigu: user=%s czas=%s serwer=%.0f', current_user.id, ms, elapsed)
+        db.session.flush()
+        skok_race_tick(race, now)
+        try:
+            since = int(data.get('since') or 0)
+        except (TypeError, ValueError):
+            since = 0
+        view = skok_race_view(race, now, current_user.id, since)
+        db.session.commit()
+        return jsonify({'ok': True, 'race': view})
 
     @app.route('/gorka', methods=['GET', 'POST'])
     @login_required

@@ -1,0 +1,878 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .sk-wrap{max-width:980px;margin:0 auto;padding:10px 0 30px}
+  .sk-wrap button:not(.sk-pad){width:auto}
+  .sk-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:10px}
+  .sk-head h2{margin:0}
+  .sk-tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  .sk-tabs button{flex:1 1 0;min-width:0;border:2px solid var(--gta-border);background:var(--gta-panel);color:var(--gta-text);
+    font-family:var(--gta-font-ui);font-size:1.2rem;padding:8px 6px;border-radius:8px;letter-spacing:.03em}
+  .sk-tabs button.active{border-color:var(--gta-yellow);color:var(--gta-yellow)}
+  .sk-tracks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+  .sk-track{background:var(--gta-panel);border:2px solid var(--gta-border);border-radius:12px;padding:12px;text-align:left;color:var(--gta-text);
+    font-family:var(--gta-font-text);cursor:pointer;transition:border-color .15s,transform .15s}
+  .sk-track:hover{border-color:var(--gta-yellow);transform:translateY(-2px)}
+  .sk-track b{font-family:var(--gta-font-ui);font-size:1.35rem;letter-spacing:.04em;font-weight:normal;display:block;color:var(--gta-yellow)}
+  .sk-track small{display:block;color:var(--gta-muted)}
+  .sk-box{background:var(--gta-panel);border:1px solid var(--gta-border);border-radius:12px;padding:12px 14px;font-family:var(--gta-font-text)}
+  .sk-race{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--gta-border)}
+  .sk-race:first-child{border-top:0}
+  .sk-race b{font-family:var(--gta-font-ui);font-weight:normal;font-size:1.15rem;color:var(--gta-yellow);letter-spacing:.03em}
+  .sk-chip{display:inline-flex;align-items:center;gap:4px;background:var(--gta-panel-2);border-radius:14px;padding:2px 9px 2px 3px;font-size:.85rem;margin:2px}
+  .sk-chip img{width:20px;height:20px;border-radius:50%;object-fit:cover}
+  .sk-chip i{display:inline-block;width:10px;height:10px;border-radius:3px}
+  .sk-stage{position:relative;background:#000;border-radius:10px;overflow:hidden;border:3px solid #2a2a33;touch-action:none;user-select:none}
+  .sk-stage canvas{display:block;width:100%;height:auto;border:0;background:#0d0b1a}
+  .sk-hud{position:absolute;left:10px;right:10px;top:8px;display:flex;justify-content:space-between;pointer-events:none;
+    font-family:var(--gta-font-ui);color:#fff;text-shadow:var(--gta-outline);font-size:1.3rem;letter-spacing:.04em}
+  .sk-hud .t{font-size:1.8rem;color:var(--gta-yellow)}
+  .sk-hud small{display:block;font-size:.95rem;color:#ddd}
+  .sk-item{position:absolute;left:50%;top:8px;transform:translateX(-50%);background:rgba(0,0,0,.55);border:2px solid var(--gta-yellow);
+    border-radius:12px;padding:2px 12px;color:#fff;font-family:var(--gta-font-text);font-size:.95rem;pointer-events:none;white-space:nowrap}
+  .sk-item b{font-size:1.4rem;vertical-align:-3px}
+  .sk-over{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    background:rgba(0,0,0,.62);color:#fff;text-align:center;font-family:var(--gta-font-text);padding:10px;overflow:auto}
+  .sk-over h3{font-family:var(--gta-font-ui);font-size:2.6rem;margin:0;letter-spacing:.05em;text-shadow:var(--gta-outline)}
+  .sk-over .big{font-family:var(--gta-font-ui);font-size:2.4rem;color:var(--gta-yellow);text-shadow:var(--gta-outline)}
+  .sk-over table{background:rgba(0,0,0,.45);border-radius:8px}
+  .sk-over td{padding:3px 10px;text-align:left}
+  .sk-count{font-family:var(--gta-font-ui);font-size:6rem;color:var(--gta-yellow);text-shadow:var(--gta-outline)}
+  .sk-pads{display:none;justify-content:space-between;margin-top:8px;gap:8px}
+  .sk-pads div{display:flex;gap:8px}
+  .sk-pad{width:70px;height:64px;border-radius:14px;border:2px solid var(--gta-border);background:var(--gta-panel-2);color:#fff;font-size:1.5rem;
+    touch-action:none;user-select:none;-webkit-user-select:none}
+  .sk-pad.on{background:var(--gta-yellow);color:#111}
+  .sk-pad.jump{width:96px}
+  @media (pointer:coarse){.sk-pads{display:flex}}
+  .sk-help{font-family:var(--gta-font-text);color:var(--gta-muted);font-size:.9rem;margin-top:8px}
+  .sk-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px}
+  .sk-legend span::before{content:'';display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--c)}
+  .sk-stat{display:grid;grid-template-columns:130px 1fr 44px;align-items:center;gap:10px;margin:8px 0}
+  .sk-colors{display:flex;gap:8px;flex-wrap:wrap}
+  .sk-colors button{width:36px;height:36px;border-radius:10px;border:3px solid transparent;padding:0}
+  .sk-colors button.sel{border-color:#fff;box-shadow:0 0 0 2px #000}
+  .sk-lobbybar{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-bottom:8px}
+  [hidden]{display:none!important}
+</style>
+
+<div class="container sk-wrap">
+  <div class="sk-head">
+    <h2>🏃 Turbo Skok</h2>
+    <a href="{{ url_for('ranking_skok') }}" class="btn btn-outline-secondary btn-sm">Ranking</a>
+    <button type="button" class="btn btn-outline-light btn-sm" id="sk-menu-btn" hidden>← Menu</button>
+  </div>
+
+  <div id="sk-menu">
+    <div class="sk-tabs">
+      <button type="button" data-tab="race" class="active">🏁 Wyścigi na żywo</button>
+      <button type="button" data-tab="trial">⏱️ Czasówka</button>
+      <button type="button" data-tab="char">🧍 Postać</button>
+    </div>
+
+    <div data-panel="race">
+      <div class="sk-box mb-3">
+        <div class="d-flex flex-wrap align-items-center" style="gap:8px">
+          <b class="mr-1">Nowy wyścig:</b>
+          <select id="sk-new-course" class="custom-select custom-select-sm" style="width:auto">
+            {% for t in tracks %}<option value="{{ t.key }}">{{ t.name }}</option>{% endfor %}
+          </select>
+          <button type="button" class="btn btn-warning btn-sm" id="sk-new-race">Utwórz wyścig</button>
+          <small class="text-muted">do {{ race_max }} osób, start gdy jest co najmniej 2</small>
+        </div>
+      </div>
+      <div class="sk-box" id="sk-races"><div class="text-muted">Wczytuję wyścigi…</div></div>
+    </div>
+
+    <div data-panel="trial" hidden>
+      <p class="sk-help mt-0">Sam na trasie, na czas. Widzisz ducha rekordzisty i swój najlepszy przejazd. Każdy ukończony przejazd to gra w Hall of Fame i kasa $.</p>
+      <div class="sk-tracks">
+        {% for t in tracks %}
+        <button type="button" class="sk-track" data-track="{{ t.key }}" {% if t.best %}data-best="{{ t.best }}"{% endif %}>
+          <b>{{ t.name }}</b>
+          <small>wzorcowy czas: {{ t.par|tm_time }}</small>
+          <small>Twój najlepszy: {{ t.best|tm_time if t.best else '–' }}</small>
+          <small>Rekord: {% if t.record %}{{ t.record.time|tm_time }} ({{ t.record.user }}){% else %}jeszcze nikt{% endif %}</small>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div data-panel="char" hidden>
+      <div class="sk-box" style="max-width:560px">
+        <p class="mt-0">Masz <b>{{ stat_points }}</b> punktów do rozdzielenia (każda cecha 0-100). Zostało: <b id="sk-left"></b></p>
+        <div class="sk-stat"><span>🏃 Prędkość</span><input type="range" min="0" max="100" data-stat="speed" class="custom-range"><b data-val="speed"></b></div>
+        <div class="sk-stat"><span>⚡ Przyspieszenie</span><input type="range" min="0" max="100" data-stat="accel" class="custom-range"><b data-val="accel"></b></div>
+        <div class="sk-stat"><span>🦘 Skok</span><input type="range" min="0" max="100" data-stat="jump" class="custom-range"><b data-val="jump"></b></div>
+        <div class="mb-2">Kolor postaci:</div>
+        <div class="sk-colors" id="sk-colors">{% for c in colors %}<button type="button" data-color="{{ c }}" style="background:{{ c }}" title="{{ c }}"></button>{% endfor %}</div>
+        <div class="mt-3 d-flex align-items-center" style="gap:10px"><button type="button" class="btn btn-warning" id="sk-save-char">Zapisz postać</button><span id="sk-char-msg" class="small"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sk-game" hidden>
+    <div class="sk-box sk-lobbybar" id="sk-lobby" hidden>
+      <b id="sk-lobby-title"></b>
+      <span id="sk-lobby-players"></span>
+      <span id="sk-lobby-info" class="text-muted small"></span>
+      <span class="ml-auto"></span>
+      <button type="button" class="btn btn-warning btn-sm" id="sk-race-start" hidden>Start!</button>
+      <button type="button" class="btn btn-outline-danger btn-sm" id="sk-race-leave">Wyjdź z wyścigu</button>
+    </div>
+    <div class="sk-stage" id="sk-stage">
+      <canvas id="sk-canvas"></canvas>
+      <div class="sk-hud"><div><span id="sk-name"></span><small id="sk-best"></small></div><div class="text-right"><span class="t" id="sk-time">0.000</span><small id="sk-deaths"></small></div></div>
+      <div class="sk-item" id="sk-item" hidden></div>
+      <div class="sk-over" id="sk-over" hidden></div>
+    </div>
+    <div class="sk-pads">
+      <div><button type="button" class="sk-pad" data-pad="left">◀</button><button type="button" class="sk-pad" data-pad="right">▶</button></div>
+      <div><button type="button" class="sk-pad" data-pad="item">🎁</button><button type="button" class="sk-pad jump" data-pad="jump">⤒</button></div>
+    </div>
+    <div class="sk-help">Strzałki / A D - bieg, spacja / W / ↑ - skok (dłużej = wyżej, przy ścianie odbicie), Shift / E - użyj przedmiotu, R - od nowa (czasówka), Esc - menu.
+      <div class="sk-legend">
+        <span style="--c:#c77dff">? - przedmiot (uderz od dołu lub z boku)</span><span style="--c:#ffcc00">strzałki - pchają</span>
+        <span style="--c:#b5651d">cegła - rozbij głową</span><span style="--c:#a1887f">kruszy się pod nogami</span><span style="--c:rgba(255,255,255,.4)">znika po dotknięciu</span>
+        <span style="--c:#e5322d">mina - odrzuca</span><span style="--c:#9be7ff">lód</span><span style="--c:#7a5230">błoto</span><span style="--c:#ff4d6d">trampolina</span><span style="--c:#eee">kolce</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/game_run.js') }}"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const SAVE_URL = '{{ url_for("save_score_skok") }}', GHOST_URL = '{{ url_for("skok_ghosts", track="__T__") }}';
+  const RACES_URL = '{{ url_for("skok_races") }}', RACE_URL = '{{ url_for("skok_race_sync", race_id=0) }}'.replace('/0/sync', '/');
+  const PROFILE_URL = '{{ url_for("skok_profile_save") }}';
+  const TRACK_NAMES = {}; {% for t in tracks %}TRACK_NAMES['{{ t.key }}'] = {{ t.name|tojson }};{% endfor %}
+  const TRACK_KEYS = Object.keys(TRACK_NAMES);
+  const STAT_POINTS = {{ stat_points }};
+  let profile = {{ profile|tojson }};
+  const TILE = 32, H = 15, STEP = 1 / 120, GHOST_MS = 50, PW = 20, PH = 28;
+  const BASE = {FRICTION: 2400, ICE_ACC: 500, ICE_FRICTION: 260, MUD: 0.45, GRAV: 1900, WALL_VY: 600, WALL_VX: 320,
+                ARROW: 780, ARROW_UP: 950, TRAMP: 1000, COYOTE: 0.09, BUFFER: 0.12};
+  // statystyki postaci -> fizyka (50/50/50 = jak wcześniej)
+  const phys = (st) => ({RUN: 230 + st.speed * 2.2, ACC: 1200 + st.accel * 20, AIR_ACC: 700 + st.accel * 10, JUMP: 520 + st.jump * 2.4});
+  const SOLID = new Set(['#', '=', 'M', 'T', '?', 'b', 'c', 'v', 'x', 'U', 'D', 'L', 'R']);
+  const ITEMS = {speed: ['⚡', 'Turbo'], jump: ['🦘', 'Superskok'], jet: ['🚀', 'Plecak odrzutowy'], tele: ['🌀', 'Teleport'],
+                 mine: ['💣', 'Mina'], laser: ['🔫', 'Laser']};
+
+  // ---------- trasy: składane z klocków ----------
+  // flat n [wierzch] · gap n · up/down k · spikes n [wierzch] · tramp · pillar h · bridge n znak (sam wierzch nad przepaścią)
+  // block dx dy znak (np. '?' przedmiot, 'U' strzałka w górę, 'x' mina) · plat dx dy długość · finish n
+  const TRACKS = {
+    rozgrzewka: [['flat', 6], ['block', 2, 3, '?'], ['flat', 6], ['up', 1], ['flat', 6], ['gap', 2], ['flat', 6], ['up', 1], ['flat', 5],
+      ['spikes', 2], ['flat', 3], ['block', 1, 3, '?'], ['flat', 4], ['down', 2], ['flat', 4], ['gap', 3], ['flat', 4], ['flat', 3, 'R'],
+      ['flat', 8], ['gap', 4], ['flat', 3], ['bridge', 4, 'c'], ['flat', 3], ['block', 2, 0, 'U'], ['flat', 3], ['up', 4], ['flat', 4],
+      ['block', 1, 3, '?'], ['flat', 5], ['down', 4], ['flat', 6], ['finish', 5]],
+    lodowisko: [['flat', 6], ['block', 2, 3, '?'], ['ice', 10], ['gap', 3], ['ice', 8], ['spikes', 3, '='], ['ice', 4], ['up', 2],
+      ['ice', 6], ['gap', 3], ['ice', 3], ['block', 1, 3, '?'], ['ice', 3], ['mud', 6], ['flat', 3], ['flat', 2, 'R'], ['ice', 14],
+      ['gap', 5], ['ice', 3], ['bridge', 5, 'v'], ['ice', 4], ['down', 2], ['ice', 8], ['pillar', 2], ['ice', 6], ['spikes', 2, '='],
+      ['ice', 3], ['block', 1, 3, '?'], ['flat', 4], ['tramp'], ['flat', 2], ['up', 4], ['ice', 10], ['gap', 3], ['ice', 6],
+      ['down', 4], ['flat', 6], ['finish', 5]],
+    wiezowce: [['flat', 6], ['block', 2, 3, '?'], ['flat', 2], ['gap', 3], ['flat', 5], ['up', 2], ['flat', 4], ['gap', 4], ['flat', 4],
+      ['down', 3], ['flat', 3], ['flat', 2, 'R'], ['flat', 3], ['gap', 6], ['flat', 3], ['block', 1, 3, '?'], ['flat', 3],
+      ['spikes', 4], ['flat', 4], ['up', 2], ['flat', 2], ['block', 1, 0, 'U'], ['flat', 2],
+      ['up', 5], ['flat', 2], ['block', 2, 1, 'b'], ['block', 2, 2, 'b'], ['flat', 4], ['gap', 3], ['flat', 4], ['gap', 3], ['flat', 2],
+      ['block', 1, 3, '?'], ['flat', 2], ['down', 5], ['flat', 4], ['flat', 2, 'R'], ['flat', 2], ['gap', 7], ['flat', 6], ['finish', 5]],
+    tor_smierci: [['flat', 5], ['block', 1, 3, '?'], ['spikes', 3], ['flat', 4], ['up', 2], ['flat', 2], ['spikes', 2], ['flat', 3],
+      ['up', 2], ['flat', 4], ['gap', 4], ['flat', 3], ['down', 4], ['flat', 3], ['block', 1, 0, 'x'], ['flat', 8],
+      ['ice', 6], ['spikes', 3, '='], ['ice', 3], ['block', 1, 3, '?'], ['ice', 2], ['mud', 4], ['gap', 2], ['mud', 3], ['flat', 2],
+      ['flat', 2, 'R'], ['flat', 2], ['gap', 7], ['flat', 3], ['plat', 2, -1, 3], ['plat', 7, -1, 2], ['gap', 11],
+      ['flat', 2], ['bridge', 4, 'c'], ['bridge', 3, 'v'], ['flat', 2], ['block', 1, 3, '?'], ['flat', 2], ['block', 1, 0, 'U'], ['flat', 2],
+      ['up', 5], ['flat', 9], ['spikes', 2], ['flat', 6], ['spikes', 3], ['flat', 3], ['down', 3],
+      ['ice', 8], ['gap', 4], ['ice', 4], ['down', 3], ['flat', 2, 'R'], ['flat', 3], ['spikes', 3], ['flat', 6], ['finish', 5]],
+  };
+  function buildTrack(ops) {
+    const cols = [];
+    let g = 2, start = null;
+    const col = () => { const c = new Array(H).fill('.'); cols.push(c); return c; };
+    const ground = (c, top) => { for (let r = H - g; r < H; r++) c[r] = '#'; if (g > 0) c[H - g] = top || '#'; };
+    col().fill('#');                                            // lewa ściana
+    const pending = [];
+    ops.forEach(([op, a, b, c]) => {
+      const x = cols.length;
+      if (op === 'flat' || op === 'ice' || op === 'mud') {
+        const top = op === 'ice' ? '=' : op === 'mud' ? 'M' : (b || '#');
+        for (let i = 0; i < a; i++) ground(col(), top);
+      } else if (op === 'spikes') { for (let i = 0; i < a; i++) { const cc = col(); ground(cc, b || '#'); cc[H - g - 1] = '^'; } }
+      else if (op === 'gap') { for (let i = 0; i < a; i++) col(); }
+      else if (op === 'bridge') { for (let i = 0; i < a; i++) col()[H - g] = b; }
+      else if (op === 'up') g += a;
+      else if (op === 'down') g -= a;
+      else if (op === 'tramp') ground(col(), 'T');
+      else if (op === 'pillar') { const cc = col(); ground(cc); for (let k = 1; k <= a; k++) cc[H - g - k] = '#'; }
+      else if (op === 'plat') pending.push([x + a, H - (g + b) - 1, c, '#']);
+      else if (op === 'block') pending.push([x + a, H - (g + b) - 1, 1, c]);
+      else if (op === 'finish') { for (let i = 0; i < a; i++) { const cc = col(); ground(cc); if (i >= 1 && i <= 2) for (let k = 1; k <= 4; k++) cc[H - g - k] = 'F'; } }
+      if (start === null && cols.length > 1) start = g;
+    });
+    col().fill('#');                                            // prawa ściana
+    pending.forEach(([x, r, len, ch]) => { for (let i = 0; i < len; i++) if (cols[x + i] && r >= 0) cols[x + i][r] = ch; });
+    return {cols: cols, w: cols.length, start: {x: TILE * 1.5 - PW / 2, y: (H - start) * TILE - PH}};
+  }
+
+  // ---------- stan ----------
+  const canvas = $('sk-canvas'), ctx = canvas.getContext('2d');
+  let VW = 960; const VH = H * TILE;
+  let mode = null, trackKey = null, level = null, P = phys(profile), p = null, keys = {left: false, right: false, jump: false},
+      state = 'menu', t = 0, acc = 0, last = 0, ghosts = [], rec = [], recNext = 0, deaths = 0, cam = {x: 0},
+      countStart = 0, best = null, flash = 0, skyline = [], dyn = new Map(), mines = [], beams = [], mineSeq = 0,
+      race = null, raceId = null, others = {}, outbox = [], since = 0, syncBusy = false, finishMs = null, serverOffset = 0;
+  const fmtTime = (ms) => { const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000; return m ? m + ':' + s.toFixed(3).padStart(6, '0') : s.toFixed(3); };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const sound = (k) => { if (window.gta && gta.sound) gta.sound(k); };
+  const rawTile = (cx, cy) => (cx < 0 || cx >= level.w) ? '#' : (cy < 0 || cy >= H) ? '.' : level.cols[cx][cy];
+  const dynOf = (cx, cy) => dyn.get(cx * 100 + cy);
+  function tileAt(cx, cy) {
+    const tile = rawTile(cx, cy);
+    if (tile === '.' || !SOLID.has(tile)) return tile;
+    const d = dynOf(cx, cy);
+    return d && d.gone > t ? '.' : tile;
+  }
+  const solid = (tile) => SOLID.has(tile);
+
+  function resize() { VW = canvas.parentElement.clientWidth < 700 ? 640 : 960; canvas.width = VW; canvas.height = VH; }
+  function makeSkyline() {
+    skyline = [];
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let layer = 0; layer < 2; layer++) {
+      let x = 0;
+      while (x < level.w * TILE * (layer ? 0.5 : 0.3) + VW) {
+        const w = 40 + rnd() * 70, h = 60 + rnd() * (layer ? 180 : 120);
+        skyline.push({layer: layer, x: x, w: w, h: h, win: rnd()});
+        x += w + 6 + rnd() * 20;
+      }
+    }
+  }
+  function loadLevel(key) {
+    trackKey = key;
+    level = buildTrack(TRACKS[key]);
+    makeSkyline();
+    $('sk-menu').hidden = true; $('sk-game').hidden = false; $('sk-menu-btn').hidden = false;
+    $('sk-name').textContent = TRACK_NAMES[key];
+    resize();
+  }
+  function resetPlayer() {
+    P = phys(profile);
+    p = {x: level.start.x, y: level.start.y, vx: 0, vy: 0, ground: false, coyote: 0, buffer: 0, boost: 0, wall: 0, wallT: 0,
+         face: 1, cut: false, anim: 0, item: null, stun: 0, fxSpeed: 0, fxJump: 0, fxJet: 0, safe: null};
+    p.safe = {x: p.x, y: p.y};
+    dyn = new Map(); mines = []; beams = [];
+    t = 0; deaths = 0; rec = []; recNext = 0; acc = 0; finishMs = null;
+  }
+
+  // ---------- czasówka ----------
+  function startTrial(key) {
+    mode = 'trial';
+    loadLevel(key);
+    const card = document.querySelector('[data-track="' + key + '"]');
+    best = card && card.dataset.best ? +card.dataset.best : null;
+    ghosts = [];
+    fetch(GHOST_URL.replace('__T__', key), {credentials: 'same-origin'}).then((r) => r.json()).then((d) => { if (d.ok) ghosts = d.ghosts; }).catch(() => {});
+    restart();
+  }
+  function restart() {
+    if (mode !== 'trial') return;
+    resetPlayer();
+    state = 'count'; countStart = performance.now();
+    showOver('<div class="sk-count" id="sk-count">3</div>');
+    updateHud();
+  }
+
+  // ---------- fizyka (stały krok 1/120 s) ----------
+  function boxTiles(x, y, w, h, fn) {
+    for (let cx = Math.floor(x / TILE); cx <= Math.floor((x + w - 0.01) / TILE); cx++)
+      for (let cy = Math.floor(y / TILE); cy <= Math.floor((y + h - 0.01) / TILE); cy++) fn(tileAt(cx, cy), cx, cy);
+  }
+  function boxFree(x, y) { let free = true; boxTiles(x, y, PW, PH, (tile) => { if (solid(tile)) free = false; }); return free; }
+  function setDyn(cx, cy, patch) { dyn.set(cx * 100 + cy, Object.assign(dynOf(cx, cy) || {}, patch)); }
+  function knock(fromX, power, stun) {
+    const dir = p.x + PW / 2 >= fromX ? 1 : -1;
+    p.vx = dir * power; p.vy = -520; p.stun = Math.max(p.stun, t + stun); p.boost = 0.5; p.ground = false;
+    flash = 0.25; sound('wasted');
+  }
+  function giveItem() {
+    const pool = mode === 'race' ? ['speed', 'jump', 'jet', 'tele', 'mine', 'mine', 'laser', 'laser'] : ['speed', 'jump', 'jet', 'tele'];
+    p.item = pool[Math.floor(Math.random() * pool.length)];
+    sound('sms');
+  }
+  function touch(tile, cx, cy, side) {
+    // side: 'left'/'right' (bok), 'top' (stoi na nim), 'bottom' (uderzenie głową)
+    if (tile === '?') { if (side !== 'top' && !p.item && !((dynOf(cx, cy) || {}).empty > t)) { giveItem(); setDyn(cx, cy, {empty: t + 4}); } }
+    else if (tile === 'b') { if (side === 'bottom') { setDyn(cx, cy, {gone: Infinity}); sound('sms'); } }
+    else if (tile === 'c') { if (side === 'top' && !(dynOf(cx, cy) || {}).crumbleAt) setDyn(cx, cy, {crumbleAt: t + 0.35}); }
+    else if (tile === 'v') { if (!(dynOf(cx, cy) || {}).vanishAt || dynOf(cx, cy).gone < t - 0.5) setDyn(cx, cy, {vanishAt: t + 0.25}); }
+    else if (tile === 'x') {    // mina: od boku odrzuca do tyłu, od góry tylko podbija (można po niej przeskoczyć dalej)
+      if (side === 'top') { p.vy = -700; p.ground = false; p.cut = true; flash = 0.2; sound('wasted'); }
+      else knock(cx * TILE + TILE / 2, 480, 0.5);
+    }
+    else if (tile === 'U') { p.vy = -BASE.ARROW_UP; p.cut = true; p.ground = false; }
+    else if (tile === 'D') { p.vy = 700; }
+    else if (tile === 'L') { p.vx = -BASE.ARROW; p.boost = 0.6; }
+    else if (tile === 'R') { p.vx = BASE.ARROW; p.boost = 0.6; }
+    else if (tile === 'T' && side === 'top') { p.vy = -BASE.TRAMP; p.ground = false; p.cut = true; }
+  }
+  function useItem() {
+    if (!p || !p.item || state !== 'run' || p.stun > t) return;
+    const it = p.item;
+    p.item = null;
+    if (it === 'speed') p.fxSpeed = t + 3;
+    else if (it === 'jump') p.fxJump = t + 5;
+    else if (it === 'jet') p.fxJet = t + 2.5;
+    else if (it === 'tele') {
+      for (let d = 4; d >= 1; d--) { const nx = p.x + p.face * d * TILE; if (boxFree(nx, p.y)) { p.x = nx; break; } }
+      flash = 0.15;
+    } else if (it === 'mine') {
+      const m = {id: (race ? race.me : 0) + '-' + (++mineSeq), x: Math.round(p.x + PW / 2), y: Math.round(p.y + PH), own: true, at: t};
+      mines.push(m);
+      outbox.push({kind: 'mine', data: {id: m.id, x: m.x, y: m.y}});
+    } else if (it === 'laser') {
+      const b = {x: Math.round(p.x + PW / 2), y: Math.round(p.y + PH / 2), dir: p.face, until: t + 0.3};
+      beams.push(b);
+      outbox.push({kind: 'laser', data: {x: b.x, y: b.y, dir: b.dir}});
+    }
+    sound('sms');
+  }
+  function respawn() {
+    deaths++;
+    p.x = p.safe.x; p.y = p.safe.y; p.vx = p.vy = 0; p.boost = 0; p.stun = t + 0.4; p.safeUntil = t + 1;
+    flash = 0.35;
+    sound('sms');
+  }
+  function step(dt) {
+    // kruszące się i znikające klocki
+    dyn.forEach((d) => {
+      if (d.crumbleAt && t >= d.crumbleAt) { d.gone = t + 3; d.crumbleAt = null; }
+      if (d.vanishAt && t >= d.vanishAt) { d.gone = t + 2; d.vanishAt = null; }
+    });
+    const stunned = p.stun > t;
+    const keyL = !stunned && keys.left, keyR = !stunned && keys.right, keyJ = !stunned && keys.jump;
+    let under = '.';
+    if (p.ground) {
+      const a = tileAt(Math.floor((p.x + 2) / TILE), Math.floor((p.y + PH + 1) / TILE));
+      const b = tileAt(Math.floor((p.x + PW - 2) / TILE), Math.floor((p.y + PH + 1) / TILE));
+      under = solid(a) ? a : b;
+    }
+    p.boost = Math.max(0, p.boost - dt);
+    // trampolina zawsze wybija wysoko - także gdy ktoś akurat wciska skok (inaczej wyszedłby zwykły, niski skok)
+    if (under === 'T') { p.vy = -BASE.TRAMP; p.ground = false; p.cut = true; p.buffer = 0; p.coyote = 0; under = '.'; }
+    const ice = under === '=', mud = under === 'M';
+    const fast = p.fxSpeed > t ? 1.45 : 1;
+    const max = (p.boost > 0 ? Math.max(BASE.ARROW, P.RUN * fast) : P.RUN * fast) * (mud ? BASE.MUD : 1);
+    const dir = (keyR ? 1 : 0) - (keyL ? 1 : 0);
+    if (dir) p.face = dir;
+    const accel = (p.ground ? (ice ? BASE.ICE_ACC : P.ACC) : P.AIR_ACC) * (fast > 1 ? 1.4 : 1);
+    const fric = ice ? BASE.ICE_FRICTION : BASE.FRICTION;
+    if (dir && Math.sign(p.vx) * dir >= 0 && Math.abs(p.vx) < max) p.vx = Math.min(max, Math.abs(p.vx) + accel * dt) * dir;
+    else if (dir && Math.sign(p.vx) * dir < 0) p.vx += dir * (accel + (p.ground ? fric : 0)) * dt;
+    else if (p.ground) { const f = fric * dt; p.vx = Math.abs(p.vx) <= f ? 0 : p.vx - Math.sign(p.vx) * f; }
+    if (Math.abs(p.vx) > max) { const f = (p.ground ? (ice ? BASE.ICE_FRICTION : BASE.FRICTION * 0.5) : 300) * dt; p.vx = Math.sign(p.vx) * Math.max(max, Math.abs(p.vx) - f); }
+    p.coyote = p.ground && p.vy >= 0 ? BASE.COYOTE : Math.max(0, p.coyote - dt);
+    p.buffer = stunned ? 0 : Math.max(0, p.buffer - dt);
+    p.wallT = Math.max(0, p.wallT - dt);
+    const jumpV = P.JUMP * (p.fxJump > t ? 1.4 : 1);
+    if (p.buffer > 0 && p.coyote > 0) { p.vy = -jumpV; p.buffer = 0; p.coyote = 0; p.ground = false; p.cut = false; }
+    else if (p.buffer > 0 && p.wallT > 0 && !p.ground) { p.vy = -BASE.WALL_VY; p.vx = -p.wall * BASE.WALL_VX; p.buffer = 0; p.wallT = 0; p.cut = false; p.face = -p.wall; }
+    if (!keyJ && p.vy < 0 && !p.cut) { p.vy *= 0.5; p.cut = true; }
+    if (p.fxJet > t && keyJ) p.vy = Math.max(p.vy - 2800 * dt, -480);
+    p.vy = Math.min(p.vy + BASE.GRAV * dt, 1400);
+    // poziomo
+    p.x += p.vx * dt;
+    let hitWall = 0;
+    const touched = [];
+    boxTiles(p.x, p.y, PW, PH, (tile, cx, cy) => {
+      if (!solid(tile)) return;
+      if (p.vx > 0) { p.x = cx * TILE - PW; hitWall = 1; touched.push([tile, cx, cy, 'left']); }
+      else if (p.vx < 0) { p.x = (cx + 1) * TILE; hitWall = -1; touched.push([tile, cx, cy, 'right']); }
+    });
+    if (hitWall) { p.vx = 0; if (!p.ground) { p.wall = hitWall; p.wallT = 0.12; if (p.vy > 120) p.vy = 120; } }
+    // pionowo
+    p.y += p.vy * dt;
+    p.ground = false;
+    boxTiles(p.x, p.y, PW, PH, (tile, cx, cy) => {
+      if (!solid(tile)) return;
+      if (p.vy > 0) { p.y = cy * TILE - PH; p.vy = 0; p.ground = true; touched.push([tile, cx, cy, 'top']); }
+      else if (p.vy < 0) { p.y = (cy + 1) * TILE; p.vy = 0; touched.push([tile, cx, cy, 'bottom']); }
+    });
+    if (p.ground) {   // stoi - dotyka klocka pod sobą co klatkę (kruszenie, strzałki, trampolina)
+      const a = Math.floor((p.x + 2) / TILE), b = Math.floor((p.x + PW - 2) / TILE), r = Math.floor((p.y + PH + 1) / TILE);
+      [a, b].forEach((cx) => { const tl = tileAt(cx, r); if (solid(tl) && !touched.some((q) => q[1] === cx && q[2] === r)) touched.push([tl, cx, r, 'top']); });
+    }
+    touched.forEach(([tile, cx, cy, side]) => touch(tile, cx, cy, side));
+    // bezpieczne miejsce do powrotu po upadku
+    // (nie przy kolcach - inaczej powrót prosto w kolce)
+    const footR = Math.floor((p.y + PH + 1) / TILE);
+    const bothFeet = ['#', '=', 'M'].includes(tileAt(Math.floor(p.x / TILE), footR)) && ['#', '=', 'M'].includes(tileAt(Math.floor((p.x + PW) / TILE), footR));
+    if (p.ground && p.stun <= t && bothFeet) {
+      const r = Math.floor((p.y + PH - 4) / TILE), c0 = Math.floor(p.x / TILE) - 1, c1 = Math.floor((p.x + PW) / TILE) + 1;
+      let near = false;
+      for (let c = c0; c <= c1; c++) if (rawTile(c, r) === '^') near = true;
+      if (!near) p.safe = {x: p.x, y: p.y};
+    }
+    // kolce, meta, miny
+    let finished = false, dead = false;
+    boxTiles(p.x + 3, p.y + 3, PW - 6, PH - 3, (tile, cx, cy) => {
+      if (tile === '^' && t > (p.safeUntil || 0) && p.y + PH > cy * TILE + 16 && p.x + PW - 3 > cx * TILE + 3 && p.x + 3 < (cx + 1) * TILE - 3) dead = true;
+      else if (tile === 'F') finished = true;
+    });
+    for (let i = mines.length - 1; i >= 0; i--) {
+      const m = mines[i];
+      if (m.own && t - m.at < 1) continue;
+      if (Math.abs(p.x + PW / 2 - m.x) < 16 && p.y + PH > m.y - 14 && p.y < m.y) {
+        mines.splice(i, 1);
+        knock(m.x, 420, 0.8);
+        outbox.push({kind: 'boom', data: {id: m.id}});
+      }
+    }
+    if (dead || p.y > H * TILE + 80) { respawn(); return false; }
+    p.anim += Math.abs(p.vx) * dt;
+    return finished && !dead;
+  }
+
+  // ---------- pętla ----------
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!level) return;
+    const dt = Math.min(0.25, (now - last) / 1000);
+    last = now;
+    if (mode === 'trial' && state === 'count') {
+      const left = 3 - Math.floor((now - countStart) / 1000);
+      const el = $('sk-count');
+      if (left <= 0) { state = 'run'; hideOver(); hlRun.start('skok'); acc = 0; }
+      else if (el && el.textContent !== String(left)) el.textContent = left;
+    } else if (mode === 'race' && state === 'count') {
+      const left = Math.ceil((race.start_at * 1000 - (Date.now() + serverOffset)) / 1000);
+      if (left <= 0) { state = 'run'; hideOver(); t = Math.max(0, (Date.now() + serverOffset) / 1000 - race.start_at); acc = 0; }
+      else showOver('<div class="sk-count">' + left + '</div>');
+    }
+    if (state === 'run') {
+      acc += dt;
+      while (acc >= STEP && state === 'run') {
+        acc -= STEP;
+        t += STEP;
+        if (mode === 'trial' && t * 1000 >= recNext) { rec.push([Math.round(p.x), Math.round(p.y)]); recNext += GHOST_MS; }
+        if (step(STEP)) finish();
+      }
+      if (t > 300 && state === 'run') { state = 'over'; showOver('<h3>Za długo</h3><p>Limit to 5 minut.</p>' + overButtons()); }
+      updateHud();
+    }
+    flash = Math.max(0, flash - dt);
+    beams = beams.filter((b) => b.until > t);
+    draw(now);
+  }
+  function updateHud() {
+    if (!p) return;
+    $('sk-time').textContent = fmtTime(Math.round(t * 1000));
+    let info = '';
+    if (mode === 'trial') info = best ? 'najlepszy: ' + fmtTime(best) : '';
+    else if (race) {
+      const all = race.racers.filter((r) => !r.away);
+      const ahead = all.filter((r) => !r.me && (r.finish_ms || (others[r.uid] && others[r.uid].tx > p.x))).length;
+      info = 'miejsce ' + (finishMs ? '-' : ahead + 1) + ' / ' + all.length;
+    }
+    $('sk-best').textContent = info;
+    $('sk-deaths').textContent = deaths ? '💀 ' + deaths : '';
+    const it = $('sk-item');
+    it.hidden = !p.item;
+    if (p.item) it.innerHTML = '<b>' + ITEMS[p.item][0] + '</b> ' + ITEMS[p.item][1] + ' <small>(Shift / E)</small>';
+  }
+  function overButtons() {
+    if (mode === 'race') return '<div class="d-flex flex-wrap justify-content-center" style="gap:8px"><button type="button" class="btn btn-warning" data-act="again-race">Nowy wyścig na tej trasie</button><button type="button" class="btn btn-outline-light" data-act="menu">Lobby</button></div>';
+    const i = TRACK_KEYS.indexOf(trackKey);
+    return '<div class="d-flex flex-wrap justify-content-center" style="gap:8px"><button type="button" class="btn btn-warning" data-act="again">Jeszcze raz (R)</button>' +
+      (i < TRACK_KEYS.length - 1 ? '<button type="button" class="btn btn-outline-light" data-act="next">Następna trasa</button>' : '') +
+      '<button type="button" class="btn btn-outline-light" data-act="menu">Menu</button></div>';
+  }
+  function showOver(html) { const o = $('sk-over'); o.hidden = false; if (o.innerHTML !== html) o.innerHTML = html; }
+  function hideOver() { $('sk-over').hidden = true; }
+  function finish() {
+    const ms = Math.round(t * 1000);
+    if (mode === 'race') {
+      state = 'finished';
+      finishMs = ms;
+      p.vx = 0;
+      showOver('<h3>Meta!</h3><div class="big">' + fmtTime(ms) + '</div><p>Czekamy na resztę…</p>');
+      sound('passed');
+      return;
+    }
+    state = 'over';
+    rec.push([Math.round(p.x), Math.round(p.y)]);
+    showOver('<h3>Meta!</h3><div class="big">' + fmtTime(ms) + '</div><p id="sk-res">Zapisuję…</p>' + overButtons());
+    hlRun.send(SAVE_URL, 0, {track: trackKey, time: ms, ghost: rec}).then((r) => r.json()).then((d) => {
+      const res = $('sk-res');
+      if (!d.ok) { if (res) res.textContent = d.error || 'Nie udało się zapisać czasu.'; return; }
+      best = d.best;
+      const card = document.querySelector('[data-track="' + trackKey + '"]');
+      if (card) card.dataset.best = d.best;
+      if (res) res.innerHTML = (d.new_best ? '🏆 Nowy rekord osobisty! ' : 'Najlepszy: ' + fmtTime(d.best) + ' · ') +
+        d.points + ' pkt · ' + d.place + '. miejsce z ' + d.players +
+        (d.record ? '<br>Rekord trasy: ' + fmtTime(d.record.time) + ' (' + esc(d.record.user) + ')' : '');
+      if (d.new_best && window.gta && gta.passed) gta.passed('Nowy rekord', fmtTime(ms)); else sound('sms');
+      updateHud();
+      fetch(GHOST_URL.replace('__T__', trackKey), {credentials: 'same-origin'}).then((x) => x.json()).then((g) => { if (g.ok) ghosts = g.ghosts; }).catch(() => {});
+    }).catch(() => { const res = $('sk-res'); if (res) res.textContent = 'Brak połączenia - czas nie zapisany.'; });
+  }
+
+  // ---------- wyścigi na żywo ----------
+  function api(url, body) {
+    return fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})})
+      .then((r) => r.json()).catch(() => ({ok: false, error: 'Brak połączenia.'}));
+  }
+  function chips(players) {
+    return players.map((r) => '<span class="sk-chip">' + (r.photo ? '<img src="' + esc(r.photo) + '" alt="">' : '') +
+      '<i style="background:' + esc(r.color) + '"></i>' + esc(r.name) + '</span>').join('');
+  }
+  function loadRaces() {
+    if (mode || document.hidden) return;
+    fetch(RACES_URL, {credentials: 'same-origin'}).then((r) => r.json()).then((d) => {
+      if (!d.ok) return;
+      const label = {lobby: '🟢 czeka na graczy', count: '⏱️ startuje', run: '🏃 trwa', done: '🏁 koniec'};
+      $('sk-races').innerHTML = d.races.length ? d.races.map((r) =>
+        '<div class="sk-race"><b>' + esc(r.course_name) + '</b><span class="small text-muted">' + label[r.status] + ' · ' + r.players.length + '/' + d.max + '</span>' +
+        '<span>' + chips(r.players) + '</span><span class="ml-auto"></span>' +
+        (r.mine && r.status !== 'done' ? '<button type="button" class="btn btn-success btn-sm" data-join="' + r.id + '" data-course="' + r.course + '">Wróć</button>'
+          : r.status === 'lobby' && r.players.length < d.max ? '<button type="button" class="btn btn-warning btn-sm" data-join="' + r.id + '" data-course="' + r.course + '">Dołącz</button>' : '') +
+        '</div>').join('') : '<div class="text-muted">Nikt teraz nie czeka na wyścig - utwórz własny i daj znać znajomym!</div>';
+    }).catch(() => {});
+  }
+  function enterRace(r) {
+    mode = 'race';
+    raceId = r.id; race = r; since = 0; others = {}; outbox = [];
+    serverOffset = r.now * 1000 - Date.now();
+    loadLevel(r.course);
+    resetPlayer();
+    state = 'wait';
+    $('sk-lobby').hidden = false;
+    $('sk-lobby-title').textContent = '🏁 ' + TRACK_NAMES[r.course];
+    applyRace(r);
+  }
+  function applyRace(r) {
+    const prevStatus = race ? race.status : null;
+    race = r;
+    serverOffset = r.now * 1000 - Date.now();
+    race.me = (r.racers.find((x) => x.me) || {}).uid;
+    $('sk-lobby-players').innerHTML = chips(r.racers.filter((x) => !x.away));
+    $('sk-race-start').hidden = !(r.host && r.status === 'lobby');
+    const live = r.racers.filter((x) => !x.away).length;
+    $('sk-lobby-info').textContent = r.status === 'lobby' ? (live < 2 ? 'czekamy na drugą osobę…' :
+      'start za ' + Math.max(0, Math.ceil(r.auto_at - r.now)) + ' s' + (r.host ? ' (albo kliknij Start)' : '')) : '';
+    // inni gracze
+    r.racers.forEach((x) => {
+      if (x.me || !x.state) return;
+      const o = others[x.uid] || (others[x.uid] = {x: x.state.x, y: x.state.y, dx: x.state.x, dy: x.state.y});
+      Object.assign(o, {name: x.name, color: x.color, tx: x.state.x, ty: x.state.y, vx: x.state.vx || 0, vy: x.state.vy || 0,
+                        face: x.state.f || 1, recv: performance.now(), fin: x.finish_ms, away: x.away, stun: x.state.s});
+    });
+    Object.keys(others).forEach((uid) => { if (!r.racers.some((x) => String(x.uid) === uid)) delete others[uid]; });
+    // zdarzenia innych graczy
+    r.events.forEach((e) => {
+      if (e.kind === 'mine') mines.push({id: e.data.id, x: e.data.x, y: e.data.y, own: false, at: t});
+      else if (e.kind === 'boom') mines = mines.filter((m) => m.id !== e.data.id);
+      else if (e.kind === 'laser') {
+        beams.push({x: e.data.x, y: e.data.y, dir: e.data.dir, until: t + 0.3});
+        const dx = (p.x + PW / 2 - e.data.x) * e.data.dir;
+        if (state === 'run' && dx > 0 && dx < 800 && Math.abs(p.y + PH / 2 - e.data.y) < 26) {
+          p.stun = t + 1.2; p.vx = e.data.dir * 220; flash = 0.3; sound('wasted');
+        }
+      }
+    });
+    since = r.last_event;
+    if (r.status === 'count' && state === 'wait') state = 'count';
+    if (r.status === 'run' && (state === 'wait' || state === 'count')) {
+      state = 'run'; hideOver();
+      t = Math.max(0, (Date.now() + serverOffset) / 1000 - r.start_at); acc = 0;
+    }
+    if (r.status === 'lobby' && state === 'wait') showOver('<h3>Lobby</h3><p>' + (live < 2 ? 'Czekamy na co najmniej 2 osoby.' : 'Zaraz start!') + '</p>');
+    if (r.status === 'done' && prevStatus !== 'done') showResults();
+    else if (r.status === 'done') showResults();
+    else if (state === 'finished') {
+      const me = r.racers.find((x) => x.me);
+      showOver('<h3>Meta!</h3><div class="big">' + fmtTime(finishMs) + '</div>' + (me && me.place ? '<p>' + me.place + '. miejsce</p>' : '') + resultsTable() + '<p class="small">Czekamy na resztę…</p>');
+    }
+  }
+  function resultsTable() {
+    const rows = race.racers.slice().sort((a, b) => (a.place || 99) - (b.place || 99));
+    return '<table>' + rows.map((r) => '<tr><td>' + (r.place ? r.place + '.' : '–') + '</td><td><span class="sk-chip"><i style="background:' + esc(r.color) + '"></i>' +
+      esc(r.name) + '</span></td><td>' + (r.finish_ms ? fmtTime(r.finish_ms) : r.away ? 'poza wyścigiem' : 'w drodze…') + '</td></tr>').join('') + '</table>';
+  }
+  function showResults() {
+    if (state !== 'over') {
+      state = 'over';
+      const me = race.racers.find((x) => x.me);
+      if (me && me.place === 1 && window.gta && gta.passed) gta.passed('1. miejsce', fmtTime(me.finish_ms));
+    }
+    const me = race.racers.find((x) => x.me);
+    showOver('<h3>' + (me && me.place ? me.place + '. miejsce!' : 'Koniec wyścigu') + '</h3>' + resultsTable() +
+      '<p class="small">Ukończony wyścig liczy się do rankingu czasów, Hall of Fame i kasy $.</p>' + overButtons());
+  }
+  function sync() {
+    if (mode !== 'race' || syncBusy || !raceId) return;
+    if (race && race.status === 'done' && state === 'over') return;
+    syncBusy = true;
+    const body = {since: since, events: outbox.splice(0)};
+    if (state === 'run' || state === 'finished') {
+      body.state = {x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), f: p.face, s: p.stun > t ? 1 : 0};
+    }
+    if (finishMs) body.finish_ms = finishMs;
+    api(RACE_URL + raceId + '/sync', body).then((d) => {
+      syncBusy = false;
+      if (d.ok) applyRace(d.race);
+      else if (d.error) { showOver('<h3>Ups</h3><p>' + esc(d.error) + '</p>' + overButtons()); state = 'over'; raceId = null; }
+    });
+  }
+  setInterval(sync, 120);
+
+  // ---------- rysowanie ----------
+  function drawPlayer(x, y, face, anim, alpha, color, label, stunned) {
+    ctx.save();
+    ctx.globalAlpha = alpha * (stunned && Math.floor(performance.now() / 90) % 2 ? 0.4 : 1);
+    const legs = Math.sin(anim / 9) * 4;
+    ctx.fillStyle = '#111';
+    ctx.fillRect(x + 3, y + PH - 7 + Math.max(0, legs) * 0.3, 5, 7);
+    ctx.fillRect(x + PW - 8, y + PH - 7 + Math.max(0, -legs) * 0.3, 5, 7);
+    ctx.fillStyle = color; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, PW, PH - 6, 6) : ctx.rect(x, y, PW, PH - 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    const ex = face > 0 ? x + PW - 9 : x + 3;
+    ctx.fillRect(ex, y + 6, 6, 6);
+    ctx.fillStyle = '#000'; ctx.fillRect(ex + (face > 0 ? 3 : 0), y + 8, 3, 3);
+    if (label) {
+      ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center';
+      ctx.fillStyle = '#000'; ctx.fillText(label, x + PW / 2 + 1, y - 5);
+      ctx.fillStyle = '#fff'; ctx.fillText(label, x + PW / 2, y - 6);
+    }
+    ctx.restore();
+  }
+  function arrow(x, y, dir) {
+    ctx.fillStyle = '#7a5c00';
+    ctx.save(); ctx.translate(x + TILE / 2, y + TILE / 2); ctx.rotate({R: 0, D: Math.PI / 2, L: Math.PI, U: -Math.PI / 2}[dir]);
+    ctx.beginPath(); ctx.moveTo(-9, -8); ctx.lineTo(2, -8); ctx.lineTo(2, -13); ctx.lineTo(12, 0); ctx.lineTo(2, 13); ctx.lineTo(2, 8); ctx.lineTo(-9, 8); ctx.fill();
+    ctx.restore();
+  }
+  function drawTile(tile, cx, cy, x, y) {
+    const d = dynOf(cx, cy) || {};
+    const topOpen = cy === 0 || !solid(rawTile(cx, cy - 1));
+    if (tile === '#') {
+      ctx.fillStyle = '#2b2b36'; ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#34343f'; ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
+      if (topOpen) { ctx.fillStyle = '#6fd26f'; ctx.fillRect(x, y, TILE, 5); }
+    } else if (tile === '=') { ctx.fillStyle = '#9be7ff'; ctx.fillRect(x, y, TILE, TILE); ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(x + 4, y + 4, 10, 3); }
+    else if (tile === 'M') { ctx.fillStyle = '#7a5230'; ctx.fillRect(x, y, TILE, TILE); ctx.fillStyle = '#5c3b20'; ctx.fillRect(x + 6, y + 8, 6, 4); ctx.fillRect(x + 18, y + 16, 8, 4); }
+    else if ('UDLR'.includes(tile)) { ctx.fillStyle = '#ffcc00'; ctx.fillRect(x, y, TILE, TILE); ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, TILE - 2, TILE - 2); arrow(x, y, tile); }
+    else if (tile === '?') {
+      const empty = d.empty > t;
+      ctx.fillStyle = empty ? '#4a4a55' : '#c77dff'; ctx.fillRect(x, y, TILE, TILE);
+      ctx.strokeStyle = empty ? '#333' : '#7b2cbf'; ctx.lineWidth = 3; ctx.strokeRect(x + 1.5, y + 1.5, TILE - 3, TILE - 3);
+      if (!empty) { ctx.fillStyle = '#fff'; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'center'; ctx.fillText('?', x + TILE / 2, y + 24); }
+    } else if (tile === 'b') {
+      ctx.fillStyle = '#b5651d'; ctx.fillRect(x, y, TILE, TILE);
+      ctx.strokeStyle = '#6d3a0c'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x + TILE, y + 16); ctx.moveTo(x + 16, y); ctx.lineTo(x + 16, y + 16); ctx.moveTo(x + 8, y + 16); ctx.lineTo(x + 8, y + TILE); ctx.moveTo(x + 24, y + 16); ctx.lineTo(x + 24, y + TILE); ctx.stroke();
+    } else if (tile === 'c') {
+      const shake = d.crumbleAt ? (Math.random() - 0.5) * 3 : 0;
+      ctx.fillStyle = '#a1887f'; ctx.fillRect(x + shake, y, TILE, TILE);
+      ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + 5 + shake, y + 4); ctx.lineTo(x + 14 + shake, y + 18); ctx.lineTo(x + 26 + shake, y + 10); ctx.stroke();
+    } else if (tile === 'v') {
+      ctx.fillStyle = d.vanishAt ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.45)'; ctx.fillRect(x, y, TILE, TILE);
+      ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.setLineDash([4, 3]); ctx.strokeRect(x + 1, y + 1, TILE - 2, TILE - 2); ctx.setLineDash([]);
+    } else if (tile === 'x') {
+      ctx.fillStyle = '#2b2b36'; ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#e5322d'; ctx.beginPath(); ctx.arc(x + 16, y + 17, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(x + 14, y + 4, 4, 6);
+    } else if (tile === 'T') {
+      ctx.fillStyle = '#2b2b36'; ctx.fillRect(x, y + 8, TILE, TILE - 8);
+      ctx.fillStyle = '#ff4d6d'; ctx.fillRect(x + 2, y, TILE - 4, 9);
+      ctx.strokeStyle = '#ddd'; ctx.lineWidth = 2; ctx.beginPath(); for (let k = 0; k < 4; k++) { ctx.moveTo(x + 6 + k * 6, y + 10); ctx.lineTo(x + 9 + k * 6, y + 18); } ctx.stroke();
+    } else if (tile === '^') {
+      ctx.fillStyle = '#e8e8e8';
+      for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x + k * 11, y + TILE); ctx.lineTo(x + k * 11 + 5.5, y + 12); ctx.lineTo(x + k * 11 + 11, y + TILE); ctx.fill(); }
+      ctx.fillStyle = '#e5322d'; for (let k = 0; k < 3; k++) ctx.fillRect(x + k * 11 + 4, y + 12, 3, 4);
+    } else if (tile === 'F') {
+      for (let k = 0; k < 4; k++) for (let m = 0; m < 4; m++) { ctx.fillStyle = (k + m) % 2 ? '#111' : '#fff'; ctx.fillRect(x + k * 8, y + m * 8, 8, 8); }
+    }
+  }
+  function draw(now) {
+    if (!level || !p) return;
+    const tx = Math.max(0, Math.min(level.w * TILE - VW, p.x - VW * 0.4));
+    cam.x += (tx - cam.x) * 0.15;
+    const sky = ctx.createLinearGradient(0, 0, 0, VH);
+    sky.addColorStop(0, '#1a0f33'); sky.addColorStop(0.6, '#3b1d4a'); sky.addColorStop(1, '#ff7a3d');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, VW, VH);
+    skyline.forEach((b) => {
+      const px = b.x - cam.x * (b.layer ? 0.5 : 0.3);
+      if (px + b.w < 0 || px > VW) return;
+      ctx.fillStyle = b.layer ? '#160d24' : '#24143a';
+      ctx.fillRect(px, VH - b.h - (b.layer ? 0 : 40), b.w, b.h + 40);
+      if (b.layer && b.win > 0.4) {
+        ctx.fillStyle = 'rgba(255,204,0,.25)';
+        for (let wy = VH - b.h + 10; wy < VH - 10; wy += 18) for (let wx = px + 6; wx < px + b.w - 8; wx += 14) if ((wx * 7 + wy) % 5 < 2) ctx.fillRect(wx, wy, 6, 8);
+      }
+    });
+    const c0 = Math.max(0, Math.floor(cam.x / TILE)), c1 = Math.min(level.w - 1, Math.ceil((cam.x + VW) / TILE));
+    for (let cx = c0; cx <= c1; cx++) for (let cy = 0; cy < H; cy++) {
+      const tile = tileAt(cx, cy);
+      if (tile !== '.') drawTile(tile, cx, cy, Math.round(cx * TILE - cam.x), cy * TILE);
+    }
+    // miny i lasery
+    mines.forEach((m) => {
+      const x = m.x - cam.x;
+      ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x, m.y - 6, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = Math.floor(now / 250) % 2 ? '#e5322d' : '#600'; ctx.beginPath(); ctx.arc(x, m.y - 9, 2.5, 0, Math.PI * 2); ctx.fill();
+    });
+    beams.forEach((b) => {
+      ctx.strokeStyle = 'rgba(255,60,60,.9)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(b.x - cam.x, b.y); ctx.lineTo(b.x - cam.x + b.dir * 800, b.y); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 1.5; ctx.stroke();
+    });
+    // duchy (czasówka)
+    if (mode === 'trial') {
+      const ms = t * 1000;
+      ghosts.forEach((g) => {
+        const path = g.path;
+        if (!path.length) return;
+        const i = Math.min(path.length - 1, Math.floor(ms / GHOST_MS)), j = Math.min(path.length - 1, i + 1), f = (ms % GHOST_MS) / GHOST_MS;
+        const gx = path[i][0] + (path[j][0] - path[i][0]) * f, gy = path[i][1] + (path[j][1] - path[i][1]) * f;
+        drawPlayer(gx - cam.x, gy, path[j][0] >= path[i][0] ? 1 : -1, gx, 0.4, g.me ? '#5ab0f2' : '#ff9d2e', (g.me ? 'Ty ' : '👻 ' + g.name + ' ') + fmtTime(g.time));
+      });
+    }
+    // inni gracze (wyścig) - płynnie: przewidywanie z prędkości + wygładzanie
+    Object.values(others).forEach((o) => {
+      if (o.away) return;
+      const age = Math.min(0.25, (performance.now() - o.recv) / 1000);
+      const px = o.tx + (o.fin ? 0 : o.vx * age), py = o.ty + (o.fin ? 0 : o.vy * age);
+      o.dx += (px - o.dx) * 0.35; o.dy += (py - o.dy) * 0.35;
+      drawPlayer(o.dx - cam.x, o.dy, o.face, o.dx, 1, o.color, o.name, o.stun);
+    });
+    const col = p.fxSpeed > t ? '#ff9d2e' : profile.color;
+    drawPlayer(p.x - cam.x, p.y, p.face, p.anim, 1, col, mode === 'race' ? 'Ty' : null, p.stun > t);
+    if (p.fxJet > t && keys.jump) { ctx.fillStyle = 'rgba(255,157,46,.8)'; ctx.beginPath(); ctx.arc(p.x - cam.x + PW / 2, p.y + PH + 4, 5 + Math.random() * 4, 0, Math.PI * 2); ctx.fill(); }
+    if (flash > 0) { ctx.fillStyle = 'rgba(229,50,45,' + (flash * 1.5) + ')'; ctx.fillRect(0, 0, VW, VH); }
+  }
+
+  // ---------- sterowanie ----------
+  const KEYMAP = {ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'jump', KeyW: 'jump', Space: 'jump'};
+  document.addEventListener('keydown', (e) => {
+    if (!mode) return;
+    const k = KEYMAP[e.code];
+    if (k) { e.preventDefault(); if (k === 'jump' && !keys.jump && p) p.buffer = BASE.BUFFER; keys[k] = true; }
+    else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyE') { e.preventDefault(); useItem(); }
+    else if (e.code === 'KeyR' && mode === 'trial') restart();
+    else if (e.code === 'Escape') toMenu();
+  });
+  document.addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
+  document.querySelectorAll('[data-pad]').forEach((b) => {
+    const k = b.dataset.pad;
+    const on = (e) => { e.preventDefault(); if (k === 'item') { useItem(); return; } if (k === 'jump' && !keys.jump && p) p.buffer = BASE.BUFFER; keys[k] = true; b.classList.add('on'); };
+    const off = (e) => { e.preventDefault(); if (k !== 'item') keys[k] = false; b.classList.remove('on'); };
+    b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('pointerleave', off);
+  });
+  $('sk-over').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'again') restart();
+    else if (b.dataset.act === 'next') startTrial(TRACK_KEYS[TRACK_KEYS.indexOf(trackKey) + 1]);
+    else if (b.dataset.act === 'again-race') createRace(trackKey);
+    else toMenu();
+  });
+  function toMenu() {
+    if (mode === 'race' && raceId && state !== 'over') api(RACE_URL + raceId + '/opusc');
+    const url = location.pathname + (mode === 'race' ? '' : '#czasowka');
+    setTimeout(() => { location.href = url; location.reload(); }, mode === 'race' ? 200 : 0);
+  }
+  $('sk-menu-btn').addEventListener('click', toMenu);
+  $('sk-race-leave').addEventListener('click', toMenu);
+  $('sk-race-start').addEventListener('click', () => api(RACE_URL + raceId + '/start').then((d) => { if (d.ok) applyRace(d.race); else alert(d.error); }));
+  function createRace(course) {
+    api(RACES_URL, {course: course}).then((d) => {
+      if (!d.ok) { alert(d.error); return; }
+      hideOver(); enterRace(d.race);
+    });
+  }
+  $('sk-new-race').addEventListener('click', () => createRace($('sk-new-course').value));
+  $('sk-races').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-join]');
+    if (!b) return;
+    api(RACE_URL + b.dataset.join + '/dolacz').then((d) => {
+      if (d.ok) enterRace(d.race);
+      else if (b.textContent === 'Wróć') api(RACE_URL + b.dataset.join + '/sync', {}).then((s) => { if (s.ok) enterRace(s.race); else alert(s.error); });
+      else alert(d.error);
+    });
+  });
+  document.querySelectorAll('[data-track]').forEach((b) => b.addEventListener('click', () => startTrial(b.dataset.track)));
+
+  // ---------- zakładki menu i postać ----------
+  function showTab(name) {
+    document.querySelectorAll('.sk-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('[data-panel]').forEach((x) => { x.hidden = x.dataset.panel !== name; });
+    if (name === 'race') loadRaces();
+  }
+  document.querySelectorAll('.sk-tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  if (location.hash === '#czasowka') showTab('trial');
+  setInterval(loadRaces, 3000);
+  loadRaces();
+  let draft = Object.assign({}, profile);
+  function renderChar() {
+    ['speed', 'accel', 'jump'].forEach((k) => {
+      document.querySelector('[data-stat="' + k + '"]').value = draft[k];
+      document.querySelector('[data-val="' + k + '"]').textContent = draft[k];
+    });
+    $('sk-left').textContent = STAT_POINTS - draft.speed - draft.accel - draft.jump;
+    document.querySelectorAll('#sk-colors button').forEach((b) => b.classList.toggle('sel', b.dataset.color === draft.color));
+  }
+  document.querySelectorAll('[data-stat]').forEach((r) => r.addEventListener('input', () => {
+    const k = r.dataset.stat, others_ = STAT_POINTS - ['speed', 'accel', 'jump'].filter((x) => x !== k).reduce((a, x) => a + draft[x], 0);
+    draft[k] = Math.min(+r.value, others_);   // nie da się przekroczyć puli punktów
+    renderChar();
+  }));
+  $('sk-colors').addEventListener('click', (e) => { const b = e.target.closest('[data-color]'); if (b) { draft.color = b.dataset.color; renderChar(); } });
+  $('sk-save-char').addEventListener('click', () => api(PROFILE_URL, draft).then((d) => {
+    $('sk-char-msg').textContent = d.ok ? 'Zapisane ✔' : d.error;
+    if (d.ok) { profile = d.profile; draft = Object.assign({}, profile); renderChar(); }
+  }));
+  renderChar();
+
+  window.addEventListener('resize', () => { if (level) resize(); });
+  window.addEventListener('blur', () => { keys.left = keys.right = keys.jump = false; });
+  // karta w tle = przeglądarka wstrzymuje grę, a serwer liczy czas dalej:
+  // czasówka zaczyna się od nowa, w wyścigu zegar dogania serwer (postać po prostu stała w miejscu)
+  let hiddenRun = false;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenRun = state === 'run' || state === 'count'; keys.left = keys.right = keys.jump = false; return; }
+    if (!hiddenRun) return;
+    hiddenRun = false;
+    if (mode === 'trial' && (state === 'run' || state === 'count')) {
+      restart();
+      showOver('<div class="sk-count" id="sk-count">3</div><p>Przejazd przerwany (wyjście z karty) - od nowa!</p>');
+    } else if (mode === 'race' && state === 'run' && race && race.start_at) {
+      t = Math.max(t, (Date.now() + serverOffset) / 1000 - race.start_at); acc = 0;
+    }
+  });
+  window.addEventListener('beforeunload', () => { if (mode === 'race' && raceId && state !== 'over' && navigator.sendBeacon) navigator.sendBeacon(RACE_URL + raceId + '/opusc'); });
+  requestAnimationFrame((n) => { last = n; requestAnimationFrame(frame); });
+  // do testów tras (bot w konsoli przeglądarki)
+  // sim: przejazd bez rysowania, krok po kroku (bot(p, tile, keys) co krok) - do sprawdzania, czy trasę da się przejść
+  function simulate(key, bot, maxSeconds, stats) {
+    mode = 'trial'; level = buildTrack(TRACKS[key]); resetPlayer(); state = 'run';
+    if (stats) P = phys(stats);
+    while (t < maxSeconds) {
+      const jumpBefore = keys.jump;
+      bot(p, (cx, cy) => tileAt(cx, cy), keys);
+      if (keys.jump && !jumpBefore) p.buffer = BASE.BUFFER;
+      if (p.item && p.item !== 'tele') useItem();
+      t += STEP;
+      if (step(STEP)) { state = 'menu'; mode = null; return {finished: true, t: Math.round(t * 1000), deaths: deaths}; }
+    }
+    const res = {finished: false, t: Math.round(t * 1000), deaths: deaths, x: Math.round(p.x / TILE)};
+    state = 'menu'; mode = null;
+    return res;
+  }
+  window.__skok = {tracks: TRACKS, build: buildTrack, keys: keys, start: startTrial, tile: (cx, cy) => tileAt(cx, cy), use: useItem, sim: simulate,
+                   get p() { return p; }, get state() { return state; }, get t() { return t; }, get deaths() { return deaths; }};
+})();
+</script>
+{% endblock %}

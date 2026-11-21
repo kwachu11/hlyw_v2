@@ -21,11 +21,14 @@
             return pending;
         },
         // jak fetch(): zwraca obietnicę odpowiedzi; przy bardzo krótkiej partii czeka, aż bilet dojdzie
-        send: function (url, score) {
+        // extra - dodatkowe pola do zapisu (np. trasa, czas i duch w Turbo Skoku)
+        send: function (url, score, extra) {
             return take().then(function (id) {
+                var body = {score: score, run: id};
+                for (var k in (extra || {})) body[k] = extra[k];
                 return fetch(url, {method: 'POST', credentials: 'same-origin',
                                    headers: {'Content-Type': 'application/json'},
-                                   body: JSON.stringify({score: score, run: id})});
+                                   body: JSON.stringify(body)});
             });
         },
         // dla navigator.sendBeacon przy zamykaniu strony (bez czekania)
